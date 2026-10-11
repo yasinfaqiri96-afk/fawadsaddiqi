@@ -24,6 +24,9 @@ Contract → Platt's / FX → Loading → Receipt → Inventory (Ilinka Stock)
 ### Inventory Lineage (ردیابی lot)
 `InventoryLots` · `InventoryLotMovements` · `SaleLotAllocations` · `LossLotAllocations` · `ExpenseLotAllocations`
 
+### Custody (امانی — جنسِ متعلق به دیگران؛ هرگز موجودی ملکی نیست)
+`CustodyLots` · `CustodyMovements` · `CustodyHolds` — جزئیات: `docs/custody-stock.md`
+
 ### Customs
 `CustomsDeclarations` · `CustomsDeclarationItems` · `CustomsDeclarationDocuments`
 

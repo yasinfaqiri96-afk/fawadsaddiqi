@@ -397,6 +397,8 @@ public sealed class CompanyBalanceReportService(
             CostOfSales = Convert(costOfSalesUsd),
             PeriodExpenses = Convert(periodExpensesUsd),
             NetExchangeResult = Convert(netExchangeUsd),
+            CustodyIncomeUsd = period.CustodyIncomeUsd,
+            CustodyIncome = Convert(period.CustodyIncomeUsd),
             UncostedSaleCount = period.UncostedSaleCount,
             LongTransitLoadCount = longTransit.Count,
             LongTransitQuantityMt = longTransit.Sum(l => l.RemainingMt),

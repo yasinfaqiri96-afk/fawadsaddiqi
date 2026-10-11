@@ -1,0 +1,305 @@
+@model PTGOilSystem.Web.Services.Custody.CustodyLotDetail
+@using PTGOilSystem.Web.Models.Custody
+@using PTGOilSystem.Web.Models.Entities
+@using PTGOilSystem.Web.Models.Shared
+@{
+    var s = Model.Summary;
+    var lot = Model.Lot;
+    var canManage = PTGOilSystem.Web.Security.RoleAccessRules.CanManageData(User);
+    var isTransit = s.Status == CustodyLotStatus.InTransit;
+    var isActive = s.Status == CustodyLotStatus.Active;
+    ViewData["Title"] = UiText.T(Context, "بار امانی", "Custody lot") + " " + s.LotNumber;
+    ViewData["HideSectionTabs"] = true;
+    ViewData["AkHeaderStatus"] = isTransit ? UiText.T(Context, "در راه", "In transit")
+        : isActive ? UiText.T(Context, "در نگهداری", "In storage") : UiText.T(Context, "لغو شده", "Cancelled");
+    ViewData["AkHeaderStatusState"] = isTransit ? "is-warning" : isActive ? "is-active" : "is-inactive";
+    ViewData["AkHeaderContext"] = $"{s.OwnerName} · {s.ProductName}";
+
+    string? primaryLabel = null, primaryHref = null, primaryIcon = null;
+    if (canManage && isTransit)
+    {
+        primaryLabel = UiText.T(Context, "ثبت رسید", "Record receipt");
+        primaryHref = Url.Action("Receive", new { lotId = s.LotId });
+        primaryIcon = "bi-box-arrow-in-down";
+    }
+    var supportsSale = PTGOilSystem.Web.Services.Custody.CustodySaleService.FinancialOwnerTypes.Contains(s.OwnerPartyType);
+    var ownerKey = CustodyParty.Key(s.OwnerPartyType, s.OwnerPartyId);
+    if (canManage && isActive && supportsSale)
+    {
+        primaryLabel = UiText.T(Context, "فروش امانی", "Custody sale");
+        primaryHref = Url.Action("Sale", new { id = s.LotId });
+        primaryIcon = "bi-cart-check";
+    }
+    else if (canManage && isActive)
+    {
+        primaryLabel = UiText.T(Context, "تحویل به دستور مالک", "Deliver on owner's order");
+        primaryHref = Url.Action("Operation", new { id = s.LotId, op = CustodyOperation.Deliver });
+        primaryIcon = "bi-box-arrow-up";
+    }
+
+    var operations = canManage && isActive
+        ? (supportsSale
+            ? new[] { CustodyOperation.Deliver, CustodyOperation.Return, CustodyOperation.Transfer, CustodyOperation.Ownership, CustodyOperation.Loss, CustodyOperation.Surplus, CustodyOperation.Hold }
+            : new[] { CustodyOperation.Return, CustodyOperation.Transfer, CustodyOperation.Ownership, CustodyOperation.Loss, CustodyOperation.Surplus, CustodyOperation.Hold })
+        : Array.Empty<CustodyOperation>();
+    var operationIcons = new Dictionary<CustodyOperation, string>
+    {
+        [CustodyOperation.Deliver] = "bi-box-arrow-up",
+        [CustodyOperation.Return] = "bi-arrow-return-right",
+        [CustodyOperation.Transfer] = "bi-arrow-left-right",
+        [CustodyOperation.Ownership] = "bi-person-check",
+        [CustodyOperation.Loss] = "bi-droplet-half",
+        [CustodyOperation.Surplus] = "bi-plus-circle",
+        [CustodyOperation.Hold] = "bi-lock"
+    };
+
+    var kpis = new List<AkKpiItem>
+    {
+        new() { Title = UiText.T(Context, "موجودی", "Balance"), Value = NumberDisplay.Quantity(s.BalanceMt), Unit = "MT", Avatar = "total-inventory" },
+        new() { Title = UiText.T(Context, "قابل تحویل", "Deliverable"), Value = NumberDisplay.Quantity(s.FreeMt), Unit = "MT", State = "success" },
+        new() { Title = UiText.T(Context, "مسدود", "On hold"), Value = NumberDisplay.Quantity(s.HeldMt), Unit = "MT", State = s.HeldMt > 0m ? "warning" : null }
+    };
+    if (s.LoadedQuantityMt.HasValue)
+    {
+        kpis.Add(new() { Title = UiText.T(Context, "بارگیری / رسیده", "Loaded / received"),
+            Value = $"{NumberDisplay.Quantity(s.LoadedQuantityMt)} / {NumberDisplay.Quantity(s.ReceivedMt)}", Unit = "MT" });
+    }
+
+    var responsibilityLabels = new Dictionary<CustodyLossResponsibility, string>
+    {
+        [CustodyLossResponsibility.Undetermined] = UiText.T(Context, "در حال بررسی", "Under review"),
+        [CustodyLossResponsibility.Owner] = UiText.T(Context, "مالک", "Owner"),
+        [CustodyLossResponsibility.Holder] = UiText.T(Context, "نگهدارنده (ما)", "Holder (us)"),
+        [CustodyLossResponsibility.Carrier] = UiText.T(Context, "حمل‌کننده", "Carrier")
+    };
+    string KindLabel(CustodyMovementKind kind) => kind switch
+    {
+        CustodyMovementKind.Receipt => UiText.T(Context, "ورود", "Receipt"),
+        CustodyMovementKind.ReturnToOwner => UiText.T(Context, "برگشت به مالک", "Returned to owner"),
+        CustodyMovementKind.DeliveryToThirdParty => UiText.T(Context, "تحویل به دستور مالک", "Delivered on owner's order"),
+        CustodyMovementKind.LocationTransfer => UiText.T(Context, "انتقال بین مخازن", "Tank transfer"),
+        CustodyMovementKind.OwnershipTransfer => UiText.T(Context, "انتقال مالکیت", "Ownership transfer"),
+        CustodyMovementKind.Loss => UiText.T(Context, "کسر / ضایعات", "Loss"),
+        CustodyMovementKind.Surplus => UiText.T(Context, "اضافه موجودی", "Surplus"),
+        CustodyMovementKind.Sale => UiText.T(Context, "فروش امانی", "Custody sale"),
+        _ => kind.ToString()
+    };
+
+    var info = new List<AkInfoItem>
+    {
+        new() { Label = UiText.T(Context, "مالک", "Owner"), Value = $"{s.OwnerName} ({CustodyParty.TypeLabel(s.OwnerPartyType)})", Tone = "primary",
+            Href = Url.Action("Owner", new { key = ownerKey }) },
+        new() { Label = UiText.T(Context, "جنس", "Product"), Value = s.ProductName, Tone = "primary" },
+        new() { Label = UiText.T(Context, "محل فعلی", "Current location"), Value = s.Locations },
+        new() { Label = UiText.T(Context, "تاریخ بارگیری", "Loading date"), Value = lot.LoadedDate?.ToDisplayDate() },
+        new() { Label = UiText.T(Context, "مبدأ / مسیر", "Origin"), Value = lot.OriginDescription },
+        new() { Label = UiText.T(Context, "وسیله حمل", "Vehicle"), Value = lot.TransportReference },
+        new() { Label = UiText.T(Context, "شماره سند", "Document"), Value = lot.DocumentNumber },
+        new() { Label = UiText.T(Context, "از بار", "From lot"), Value = Model.ParentLotNumber,
+            Href = lot.ParentCustodyLotId.HasValue ? Url.Action("Details", new { id = lot.ParentCustodyLotId }) : null },
+        new() { Label = UiText.T(Context, "توضیحات", "Notes"), Value = lot.Notes, IsWide = true }
+    };
+}
+
+<div class="ak-form-page ak-detail-page" data-ak-detail-v2="true">
+    <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+             model="@((UiText.T(Context, "بار امانی", "Custody lot") + " " + s.LotNumber, false,
+                       primaryLabel, primaryIcon, primaryHref, (string?)null,
+                       UiText.T(Context, "امانی", "Custody"), "bi-arrow-right", (string?)Url.Action("Index")))" />
+
+    <partial name="~/Views/Shared/Partials/_DetailKpiStrip.cshtml" model="@((IReadOnlyList<AkKpiItem>)kpis)" />
+
+    @if (operations.Length > 0)
+    {
+        <div class="ak-list-toolbar">
+            <div class="ak-list-toolbar-actions">
+                @foreach (var op in operations)
+                {
+                    <a class="btn btn-sm btn-light ak-secondary-action" asp-action="Operation" asp-route-id="@s.LotId" asp-route-op="@op">
+                        <i class="bi @operationIcons[op]" aria-hidden="true"></i> @CustodyOperationForm.Title(op)
+                    </a>
+                }
+            </div>
+        </div>
+    }
+
+    <partial name="~/Views/Shared/Partials/_DetailSummaryCard.cshtml"
+             model="@((UiText.T(Context, "مشخصات بار", "Lot details"), (string?)null, (IReadOnlyList<AkInfoItem>)info))" />
+
+    @if (s.TransitDifferenceMt is { } difference && difference != 0m)
+    {
+        <section class="ak-form-section ak-detail-section">
+            <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                     model="@((UiText.T(Context, "اختلاف بارگیری و رسید", "Loading vs receipt difference"),
+                               (string?)UiText.T(Context, "فقط ثبت مقدار و مسئول است؛ هیچ مصرف یا بدهی خودکار ساخته نمی‌شود.", "Records quantity and responsibility only; no automatic expense or payable.")))" />
+            <p class="mb-2">
+                @(difference > 0m ? UiText.T(Context, "کسر", "Shortage") : UiText.T(Context, "اضافه", "Surplus")):
+                <bdi class="ak-num"><strong>@NumberDisplay.Quantity(Math.Abs(difference), "MT")</strong></bdi>
+                · @UiText.T(Context, "مسئول:", "Responsible:") @responsibilityLabels[lot.TransitLossResponsibility]
+            </p>
+            @if (canManage)
+            {
+                <form asp-action="TransitResponsibility" asp-route-id="@s.LotId" method="post" class="ak-list-toolbar-actions">
+                    @Html.AntiForgeryToken()
+                    <select name="responsibility" class="ak-input" aria-label="@UiText.T(Context, "مسئول اختلاف", "Responsible party")">
+                        @foreach (var item in responsibilityLabels)
+                        {
+                            <option value="@item.Key" selected="@(item.Key == lot.TransitLossResponsibility)">@item.Value</option>
+                        }
+                    </select>
+                    <button type="submit" class="btn btn-sm btn-light ak-secondary-action">@UiText.T(Context, "ثبت مسئول", "Save")</button>
+                </form>
+            }
+        </section>
+    }
+
+    <section class="ak-form-section ak-detail-section">
+        <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml" model="@((UiText.T(Context, "محل نگهداری", "Where it is"), (string?)null))" />
+        <div class="ak-table-wrap">
+            <table class="ak-table ak-detail-table">
+                <thead><tr>
+                    <th class="ak-col-grow">@UiText.T(Context, "ترمینال / مخزن", "Terminal / tank")</th>
+                    <th class="text-end">@UiText.T(Context, "مقدار (MT)", "Quantity (MT)")</th>
+                </tr></thead>
+                <tbody>
+                    @foreach (var p in Model.Positions)
+                    {
+                        <tr>
+                            <td class="ak-col-grow">@p.TerminalName@(p.TankCode is null ? "" : " / " + p.TankCode)</td>
+                            <td class="text-end ak-num">@NumberDisplay.Quantity(p.QuantityMt)</td>
+                        </tr>
+                    }
+                    @if (!Model.Positions.Any())
+                    {
+                        <tr><td colspan="2"><div class="ak-empty">@(isTransit ? UiText.T(Context, "هنوز رسید نشده", "Not received yet") : UiText.T(Context, "موجودی ندارد", "No balance"))</div></td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    @if (Model.Holds.Any())
+    {
+        <section class="ak-form-section ak-detail-section">
+            <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml" model="@((UiText.T(Context, "مسدودیت‌ها", "Holds"), (string?)null))" />
+            <div class="ak-table-wrap">
+                <table class="ak-table ak-detail-table">
+                    <thead><tr>
+                        <th>@UiText.T(Context, "تاریخ", "Date")</th>
+                        <th class="ak-col-grow">@UiText.T(Context, "دلیل", "Reason")</th>
+                        <th class="text-end">@UiText.T(Context, "مقدار (MT)", "Quantity (MT)")</th>
+                        <th>@UiText.T(Context, "وضعیت", "Status")</th>
+                    </tr></thead>
+                    <tbody>
+                        @foreach (var h in Model.Holds)
+                        {
+                            <tr>
+                                <td>@h.PlacedAtUtc.ToDisplayDate()</td>
+                                <td class="ak-col-grow">@h.Reason</td>
+                                <td class="text-end ak-num">@NumberDisplay.Quantity(h.QuantityMt)</td>
+                                <td>
+                                    @if (h.ReleasedAtUtc.HasValue)
+                                    {
+                                        <span class="ak-status is-inactive">@UiText.T(Context, "رفع شده", "Released")</span>
+                                        <small class="text-muted">@h.ReleasedAtUtc.Value.ToDisplayDate() @h.ReleaseNote</small>
+                                    }
+                                    else if (canManage)
+                                    {
+                                        <form asp-action="ReleaseHold" asp-route-id="@s.LotId" method="post" class="ak-list-toolbar-actions"
+                                              data-ptg-confirm="true"
+                                              data-ptg-confirm-title="@UiText.T(Context, "رفع مسدودیت", "Release hold")"
+                                              data-ptg-confirm-message="@UiText.T(Context, "این مقدار دوباره قابل تحویل می‌شود. ادامه می‌دهید؟", "This quantity becomes deliverable again. Continue?")">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="holdId" value="@h.Id" />
+                                            <input name="note" class="ak-input" maxlength="500" placeholder="@UiText.T(Context, "یادداشت رفع", "Release note")" aria-label="@UiText.T(Context, "یادداشت رفع", "Release note")" />
+                                            <button type="submit" class="btn btn-sm btn-light ak-secondary-action">@UiText.T(Context, "رفع مسدودیت", "Release")</button>
+                                        </form>
+                                    }
+                                    else
+                                    {
+                                        <span class="ak-status is-warning">@UiText.T(Context, "مسدود", "Held")</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+
+    <section class="ak-form-section ak-detail-section">
+        <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                 model="@((UiText.T(Context, "تاریخچه", "History"), (string?)Model.Movements.Count.ToString("N0")))" />
+        <div class="ak-table-wrap">
+            <table class="ak-table ak-detail-table">
+                <thead><tr>
+                    <th>@UiText.T(Context, "تاریخ", "Date")</th>
+                    <th>@UiText.T(Context, "عملیات", "Operation")</th>
+                    <th>@UiText.T(Context, "محل", "Location")</th>
+                    <th class="text-end">@UiText.T(Context, "ورود (MT)", "In (MT)")</th>
+                    <th class="text-end">@UiText.T(Context, "خروج (MT)", "Out (MT)")</th>
+                    <th class="ak-col-grow">@UiText.T(Context, "جزئیات", "Details")</th>
+                    <th></th>
+                </tr></thead>
+                <tbody>
+                    @{ var reverseShown = new HashSet<Guid>(); }
+                    @foreach (var m in Model.Movements)
+                    {
+                        var muted = m.IsReversed || m.IsReversal;
+                        var details = new List<string>();
+                        if (m.IsReversal) details.Add(UiText.T(Context, "لغو", "Reversal"));
+                        if (!string.IsNullOrWhiteSpace(m.CounterpartyName)) details.Add(UiText.T(Context, "گیرنده: ", "To: ") + m.CounterpartyName);
+                        if (!string.IsNullOrWhiteSpace(m.VehicleReference)) details.Add(m.VehicleReference!);
+                        if (m.LossResponsibility.HasValue) details.Add(UiText.T(Context, "مسئول: ", "Responsible: ") + responsibilityLabels[m.LossResponsibility.Value]);
+                        if (!string.IsNullOrWhiteSpace(m.DocumentNumber)) details.Add(UiText.T(Context, "سند ", "Doc ") + m.DocumentNumber);
+                        if (!string.IsNullOrWhiteSpace(m.Notes)) details.Add(m.Notes!);
+                        <tr class="@(muted ? "text-muted" : null)">
+                            <td>@m.MovementDate.ToDisplayDate()</td>
+                            <td>
+                                @KindLabel(m.Kind)
+                                @if (m.IsReversed)
+                                {
+                                    <span class="ak-status is-inactive">@UiText.T(Context, "لغو شده", "Reversed")</span>
+                                }
+                            </td>
+                            <td>@m.TerminalName@(m.TankCode is null ? "" : " / " + m.TankCode)</td>
+                            <td class="text-end ak-num">@(m.Direction == CustodyDirection.In ? NumberDisplay.Quantity(m.QuantityMt) : "")</td>
+                            <td class="text-end ak-num">@(m.Direction == CustodyDirection.Out ? NumberDisplay.Quantity(m.QuantityMt) : "")</td>
+                            <td class="ak-col-grow">
+                                @string.Join(" · ", details)
+                                @if (m.RelatedLotId.HasValue)
+                                {
+                                    <a asp-action="Details" asp-route-id="@m.RelatedLotId">@m.RelatedLotNumber</a>
+                                }
+                            </td>
+                            <td>
+                                @if (m.Kind == CustodyMovementKind.Sale)
+                                {
+                                    @* خروجِ فروش اثر مالی دارد؛ لغوش فقط از حساب مالک، همراه با اسناد مالی. *@
+                                    <a class="btn btn-sm btn-light ak-secondary-action" asp-action="Owner" asp-route-key="@ownerKey">@UiText.T(Context, "حساب مالک", "Owner account")</a>
+                                }
+                                else if (canManage && !m.IsReversed && !m.IsReversal && reverseShown.Add(m.OperationKey))
+                                {
+                                    <form asp-action="Reverse" asp-route-id="@s.LotId" method="post" class="ak-list-toolbar-actions"
+                                          data-ptg-confirm="true"
+                                          data-ptg-confirm-title="@UiText.T(Context, "لغو عملیات", "Reverse operation")"
+                                          data-ptg-confirm-message="@UiText.T(Context, "این عملیات با یک ثبت معکوس لغو می‌شود و تاریخچه باقی می‌ماند. ادامه می‌دهید؟", "The operation is reversed with an opposite entry; history is kept. Continue?")">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="operationKey" value="@m.OperationKey" />
+                                        <input name="reason" class="ak-input" maxlength="300" required placeholder="@UiText.T(Context, "دلیل لغو", "Reason")" aria-label="@UiText.T(Context, "دلیل لغو", "Reason")" />
+                                        <button type="submit" class="btn btn-sm btn-light ak-secondary-action text-danger">@UiText.T(Context, "لغو", "Reverse")</button>
+                                    </form>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    @if (!Model.Movements.Any())
+                    {
+                        <tr><td colspan="7"><div class="ak-empty">@UiText.T(Context, "هنوز عملیاتی ثبت نشده", "No operations yet")</div></td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>

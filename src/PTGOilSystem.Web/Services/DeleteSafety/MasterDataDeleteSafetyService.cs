@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PTGOilSystem.Web.Data;
+using PTGOilSystem.Web.Models.Entities;
 
 namespace PTGOilSystem.Web.Services.DeleteSafety;
 
@@ -36,6 +37,9 @@ public class MasterDataDeleteSafetyService
     {
         var usageAreas = new List<string>();
 
+        if (await _db.CustodyLots.AnyAsync(l => l.ProductId == productId))
+            usageAreas.Add("امانی");
+
         if (await _db.Contracts.AnyAsync(c => c.ProductId == productId))
             usageAreas.Add("قراردادها");
         if (await _db.DailyPlattsPrices.AnyAsync(p => p.ProductId == productId))
@@ -60,6 +64,10 @@ public class MasterDataDeleteSafetyService
     {
         var usageAreas = new List<string>();
 
+        if (await _db.CustodyLots.AnyAsync(l => l.OwnerPartyType == AccountingPartyType.Company && l.OwnerPartyId == companyId)
+            || await _db.Terminals.AnyAsync(t => t.CustodianPartyType == AccountingPartyType.Company && t.CustodianPartyId == companyId))
+            usageAreas.Add("امانی");
+
         if (await _db.Contracts.AnyAsync(c => c.CompanyId == companyId))
             usageAreas.Add("قراردادها");
         if (await _db.SalesTransactions.AnyAsync(s => s.CompanyId == companyId))
@@ -72,6 +80,10 @@ public class MasterDataDeleteSafetyService
     {
         var usageAreas = new List<string>();
 
+        if (await _db.CustodyLots.AnyAsync(l => l.OwnerPartyType == AccountingPartyType.Supplier && l.OwnerPartyId == supplierId)
+            || await _db.Terminals.AnyAsync(t => t.CustodianPartyType == AccountingPartyType.Supplier && t.CustodianPartyId == supplierId))
+            usageAreas.Add("امانی");
+
         if (await _db.Contracts.AnyAsync(c => c.SupplierId == supplierId))
             usageAreas.Add("قراردادها");
         if (await _db.LedgerEntries.AnyAsync(l => l.SupplierId == supplierId))
@@ -83,6 +95,10 @@ public class MasterDataDeleteSafetyService
     public async Task<MasterDataDeleteSafetyResult> EvaluateCustomerAsync(int customerId)
     {
         var usageAreas = new List<string>();
+
+        if (await _db.CustodyLots.AnyAsync(l => l.OwnerPartyType == AccountingPartyType.Customer && l.OwnerPartyId == customerId)
+            || await _db.Terminals.AnyAsync(t => t.CustodianPartyType == AccountingPartyType.Customer && t.CustodianPartyId == customerId))
+            usageAreas.Add("امانی");
 
         if (await _db.Contracts.AnyAsync(c => c.CustomerId == customerId))
             usageAreas.Add("قراردادها");
@@ -100,6 +116,9 @@ public class MasterDataDeleteSafetyService
     {
         var usageAreas = new List<string>();
 
+        if (await _db.CustodyMovements.AnyAsync(m => m.TerminalId == terminalId))
+            usageAreas.Add("امانی");
+
         if (await _db.StorageTanks.AnyAsync(t => t.TerminalId == terminalId))
             usageAreas.Add("مخازن");
         if (await _db.InventoryBatches.AnyAsync(b => b.TerminalId == terminalId))
@@ -113,6 +132,9 @@ public class MasterDataDeleteSafetyService
     public async Task<MasterDataDeleteSafetyResult> EvaluateStorageTankAsync(int storageTankId)
     {
         var usageAreas = new List<string>();
+
+        if (await _db.CustodyMovements.AnyAsync(m => m.StorageTankId == storageTankId))
+            usageAreas.Add("امانی");
 
         if (await _db.InventoryMovements.AnyAsync(m => m.StorageTankId == storageTankId))
             usageAreas.Add("حرکات موجودی");
@@ -195,6 +217,10 @@ public class MasterDataDeleteSafetyService
     public async Task<MasterDataDeleteSafetyResult> EvaluatePartnerAsync(int partnerId)
     {
         var usageAreas = new List<string>();
+
+        if (await _db.CustodyLots.AnyAsync(l => l.OwnerPartyType == AccountingPartyType.Partner && l.OwnerPartyId == partnerId)
+            || await _db.Terminals.AnyAsync(t => t.CustodianPartyType == AccountingPartyType.Partner && t.CustodianPartyId == partnerId))
+            usageAreas.Add("امانی");
 
         if (await _db.ContractPartners.AnyAsync(cp => cp.PartnerId == partnerId))
             usageAreas.Add("قراردادهای مشارکتی");

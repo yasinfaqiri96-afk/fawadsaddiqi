@@ -20,7 +20,8 @@ public sealed record CompanyPeriodPerformanceSnapshot(
     decimal OperatingExpenseUsd,
     decimal LoadingPeriodExpenseUsd,
     decimal ExchangeGainUsd,
-    decimal ExchangeLossUsd)
+    decimal ExchangeLossUsd,
+    decimal CustodyIncomeUsd = 0m)
 {
     public decimal PeriodExpensesUsd => OperatingExpenseUsd + LoadingPeriodExpenseUsd;
     public decimal NetExchangeResultUsd => ExchangeGainUsd - ExchangeLossUsd;
@@ -31,8 +32,12 @@ public sealed record CompanyPeriodPerformanceSnapshot(
         ? PnlConfidence.NeedsReview
         : ContractCostedSaleCount > 0 ? PnlConfidence.Estimated : PnlConfidence.Verified;
     public decimal GrossProfitUsd => PnlMath.GrossProfit(SalesRevenueUsd, CostOfSalesUsd);
+    /// <summary>
+    /// کمیشن و حق خدماتِ امانی جزوِ مفاد است، نه جزوِ «فروش»: مبلغِ فروشِ امانی متعلق به مالک است و
+    /// هرگز در <see cref="SalesRevenueUsd"/> نمی‌آید.
+    /// </summary>
     public decimal NetProfitUsd => PnlMath.NetProfit(
-        SalesRevenueUsd, CostOfSalesUsd, PeriodExpensesUsd, ExchangeGainUsd, ExchangeLossUsd);
+        SalesRevenueUsd, CostOfSalesUsd, PeriodExpensesUsd, ExchangeGainUsd, ExchangeLossUsd) + CustodyIncomeUsd;
 }
 
 public sealed partial class ProfitAndLossService
@@ -83,7 +88,37 @@ public sealed partial class ProfitAndLossService
             company.OperatingExpenseUsd,
             loadingPeriodExpenseUsd,
             company.ExchangeGainUsd,
-            company.ExchangeLossUsd);
+            company.ExchangeLossUsd,
+            await CustodyIncomeAsync(filter, ct));
+    }
+
+    /// <summary>
+    /// درآمدِ امانیِ دوره: کمیشنِ درآمدشده (هنگام فروش یا به تناسب وصول) و حق خدمات. فیلترِ قرارداد یا
+    /// مشتری به اسناد امانی ربط ندارد، پس در آن حالت صفر است تا عددِ یک قرارداد/مشتری آلوده نشود.
+    /// </summary>
+    private async Task<decimal> CustodyIncomeAsync(ManagementReportFilterViewModel filter, CancellationToken ct)
+    {
+        if (filter.ContractId.HasValue || filter.CustomerId.HasValue)
+            return 0m;
+
+        var from = filter.FromDate?.Date;
+        var toExclusive = filter.ToDate?.Date.AddDays(1);
+
+        var sales = _db.CustodySales.AsNoTracking().Where(s => s.Status == CustodyDocumentStatus.Posted);
+        if (from.HasValue) sales = sales.Where(s => s.SaleDate >= from.Value);
+        if (toExclusive.HasValue) sales = sales.Where(s => s.SaleDate < toExclusive.Value);
+        if (filter.ProductId.HasValue) sales = sales.Where(s => s.ProductId == filter.ProductId.Value);
+
+        var entries = _db.CustodyFinanceEntries.AsNoTracking().Where(e => e.Status == CustodyDocumentStatus.Posted);
+        if (from.HasValue) entries = entries.Where(e => e.EntryDate >= from.Value);
+        if (toExclusive.HasValue) entries = entries.Where(e => e.EntryDate < toExclusive.Value);
+        if (filter.ProductId.HasValue)
+            entries = entries.Where(e => e.CustodyLot != null && e.CustodyLot.ProductId == filter.ProductId.Value);
+
+        var commissionAtSale = await sales.SumAsync(s => s.CommissionRecognizedAtSaleUsd, ct);
+        var commissionOnCollection = await entries.SumAsync(e => e.CommissionUsd, ct);
+        var serviceFees = await entries.Where(e => e.Kind == CustodyFinanceKind.ServiceFee).SumAsync(e => e.AmountUsd, ct);
+        return commissionAtSale + commissionOnCollection + serviceFees;
     }
 
     /// <summary>فروش‌های لغونشدهٔ فیلتر؛ تنها تعریفِ «فروش دوره» در سطح شرکت.</summary>

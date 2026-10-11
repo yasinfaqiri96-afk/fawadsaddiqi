@@ -102,6 +102,9 @@ builder.Services.Configure<PTGOilSystem.Web.Configuration.OnboardingOptions>(
     builder.Configuration.GetSection(PTGOilSystem.Web.Configuration.OnboardingOptions.SectionName));
 builder.Services.AddScoped<IOnboardingService, OnboardingService>();
 builder.Services.AddScoped<IStockService, StockService>();
+// امانی — دفترِ جنسِ متعلق به دیگران؛ هرگز InventoryMovement یا سند مالی نمی‌سازد.
+builder.Services.AddScoped<PTGOilSystem.Web.Services.Custody.ICustodyService, PTGOilSystem.Web.Services.Custody.CustodyService>();
+builder.Services.AddScoped<PTGOilSystem.Web.Services.Custody.ICustodyReadService, PTGOilSystem.Web.Services.Custody.CustodyReadService>();
 // تنها نقطهٔ اجرای قواعد مشترک ثبت حرکت موجودی (مقدار، قفل، نگهبان موجودی، سند).
 // تراکنش را caller مالک است؛ Writer تراکنش مستقل باز نمی‌کند.
 builder.Services.AddScoped<IInventoryMovementWriter, InventoryMovementWriter>();
@@ -133,6 +136,8 @@ builder.Services.AddScoped<IChartOfAccountsReadService, ChartOfAccountsReadServi
 builder.Services.AddScoped<IAccountingMappingService, AccountingMappingService>();
 builder.Services.AddScoped<IAccountingJournalNumberGenerator, AccountingJournalNumberGenerator>();
 builder.Services.AddScoped<IContractBalanceTransferAccountingAdapter, ContractBalanceTransferAccountingAdapter>();
+builder.Services.AddScoped<ICustodyAccountingAdapter, CustodyAccountingAdapter>();
+builder.Services.AddScoped<PTGOilSystem.Web.Services.Custody.ICustodySaleService, PTGOilSystem.Web.Services.Custody.CustodySaleService>();
 builder.Services.AddScoped<ISupplierPaymentAllocationAccountingAdapter, SupplierPaymentAllocationAccountingAdapter>();
 builder.Services.AddScoped<ICompanyOwnershipReportService, CompanyOwnershipReportService>();
 // مرحله ۹ — گزارش فقط‌خواندنیِ آمادگی Cutover. هیچ Flag را روشن و هیچ Migration را اجرا نمی‌کند.

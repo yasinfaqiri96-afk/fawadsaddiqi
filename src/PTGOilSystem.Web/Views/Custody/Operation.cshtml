@@ -1,0 +1,169 @@
+@model PTGOilSystem.Web.Models.Custody.CustodyOperationViewModel
+@using PTGOilSystem.Web.Models.Custody
+@using PTGOilSystem.Web.Models.Entities
+@{
+    var form = Model.Form;
+    var op = form.Operation;
+    var lot = Model.Lot;
+    var title = CustodyOperationForm.Title(op);
+    ViewData["Title"] = title;
+    var backUrl = Url.Action("Details", new { id = lot.LotId });
+    // اضافه موجودی در هر مخزنِ خودمان؛ بقیهٔ عملیات فقط از محلی که این بار در آن موجود است.
+    var locationOptions = op == CustodyOperation.Surplus ? Model.TargetLocations : Model.SourceLocations;
+    var needsLocation = op != CustodyOperation.Hold;
+    var responsibilities = new[]
+    {
+        (CustodyLossResponsibility.Undetermined, UiText.T(Context, "در حال بررسی", "Under review")),
+        (CustodyLossResponsibility.Owner, UiText.T(Context, "مالک", "Owner")),
+        (CustodyLossResponsibility.Holder, UiText.T(Context, "نگهدارنده (ما)", "Holder (us)")),
+        (CustodyLossResponsibility.Carrier, UiText.T(Context, "حمل‌کننده", "Carrier"))
+    };
+}
+
+<div class="ak-form-page">
+    <div class="ak-form-page-content">
+        <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+                 model="@((title + " — " + lot.LotNumber, true,
+                           (string?)null, (string?)null, (string?)null, (string?)null,
+                           UiText.T(Context, "بازگشت", "Back"), "bi-arrow-right",
+                           (string?)backUrl))" />
+
+        <form asp-action="Operation" method="post" class="ak-form">
+            @Html.AntiForgeryToken()
+            @Html.FormToken()
+            <input type="hidden" name="LotId" value="@lot.LotId" />
+            <input type="hidden" name="Operation" value="@op" />
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger ak-form-alert"></div>
+
+            <div class="alert alert-info ak-form-alert">
+                <i class="bi bi-info-circle" aria-hidden="true"></i>
+                @CustodyOperationForm.Explanation(op)
+            </div>
+
+            <section class="ak-form-section">
+                <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                         model="@((lot.OwnerName + " · " + lot.ProductName,
+                                   (string?)(UiText.T(Context, "موجودی این بار", "Lot balance") + ": " + NumberDisplay.Quantity(lot.BalanceMt, "MT")
+                                             + " · " + UiText.T(Context, "قابل تحویل", "Deliverable") + ": " + NumberDisplay.Quantity(lot.FreeMt, "MT"))))" />
+                <div class="ak-form-grid">
+                    @if (needsLocation)
+                    {
+                        <div class="ak-field">
+                            <label for="LocationKey" class="ak-label">
+                                @(op == CustodyOperation.Transfer ? UiText.T(Context, "از مخزن", "From") : UiText.T(Context, "ترمینال / مخزن", "Terminal / tank"))
+                                <span class="ak-req">*</span>
+                            </label>
+                            <select id="LocationKey" name="LocationKey" class="ak-input">
+                                <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                                @foreach (var l in locationOptions)
+                                {
+                                    <option value="@l.Key" selected="@(l.Key == form.LocationKey)">@l.Label</option>
+                                }
+                            </select>
+                            <span class="ak-field-error">@Html.ValidationMessage("LocationKey")</span>
+                        </div>
+                    }
+                    @if (op == CustodyOperation.Transfer)
+                    {
+                        <div class="ak-field">
+                            <label for="ToLocationKey" class="ak-label">@UiText.T(Context, "به مخزن", "To") <span class="ak-req">*</span></label>
+                            <select id="ToLocationKey" name="ToLocationKey" class="ak-input">
+                                <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                                @foreach (var l in Model.TargetLocations)
+                                {
+                                    <option value="@l.Key" selected="@(l.Key == form.ToLocationKey)">@l.Label</option>
+                                }
+                            </select>
+                            <span class="ak-field-error">@Html.ValidationMessage("ToLocationKey")</span>
+                        </div>
+                    }
+                    @if (op == CustodyOperation.Ownership)
+                    {
+                        <div class="ak-field">
+                            <label for="NewOwnerKey" class="ak-label">@UiText.T(Context, "مالک جدید", "New owner") <span class="ak-req">*</span></label>
+                            <select id="NewOwnerKey" name="NewOwnerKey" class="ak-input" data-ak-entity-combobox>
+                                <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                                @foreach (var group in Model.Owners.GroupBy(o => o.PartyType))
+                                {
+                                    <optgroup label="@CustodyParty.GroupLabel(group.Key)">
+                                        @foreach (var o in group)
+                                        {
+                                            var key = CustodyParty.Key(o.PartyType, o.PartyId);
+                                            <option value="@key" selected="@(key == form.NewOwnerKey)">@o.Name</option>
+                                        }
+                                    </optgroup>
+                                }
+                            </select>
+                            <span class="ak-field-error">@Html.ValidationMessage("NewOwnerKey")</span>
+                        </div>
+                    }
+                    <div class="ak-field">
+                        <label for="QuantityMt" class="ak-label">@UiText.T(Context, "مقدار (MT)", "Quantity (MT)") <span class="ak-req">*</span></label>
+                        <input id="QuantityMt" name="QuantityMt" type="number" step="0.0001" min="0" class="ak-input" value="@form.QuantityMt" />
+                        <span class="ak-field-error">@Html.ValidationMessage("QuantityMt")</span>
+                    </div>
+                    @if (op != CustodyOperation.Hold)
+                    {
+                        <div class="ak-field">
+                            <label for="Date" class="ak-label">@UiText.T(Context, "تاریخ", "Date") <span class="ak-req">*</span></label>
+                            <input id="Date" name="Date" type="date" class="ak-input" value="@form.Date.ToString("yyyy-MM-dd")" />
+                        </div>
+                    }
+                    else
+                    {
+                        <input type="hidden" name="Date" value="@form.Date.ToString("yyyy-MM-dd")" />
+                    }
+                    @if (op == CustodyOperation.Deliver)
+                    {
+                        <div class="ak-field">
+                            <label for="CounterpartyName" class="ak-label">@UiText.T(Context, "گیرنده", "Recipient") <span class="ak-req">*</span></label>
+                            <input id="CounterpartyName" name="CounterpartyName" class="ak-input" value="@form.CounterpartyName" maxlength="200" />
+                            <span class="ak-field-error">@Html.ValidationMessage("CounterpartyName")</span>
+                        </div>
+                    }
+                    @if (op is CustodyOperation.Return or CustodyOperation.Deliver)
+                    {
+                        <div class="ak-field">
+                            <label for="VehicleReference" class="ak-label">@UiText.T(Context, "موتر / راننده", "Vehicle / driver")</label>
+                            <input id="VehicleReference" name="VehicleReference" class="ak-input" value="@form.VehicleReference" maxlength="200" />
+                        </div>
+                    }
+                    @if (op is CustodyOperation.Loss or CustodyOperation.Surplus)
+                    {
+                        <div class="ak-field">
+                            <label for="Responsibility" class="ak-label">@UiText.T(Context, "مسئول اختلاف", "Responsible party")</label>
+                            <select id="Responsibility" name="Responsibility" class="ak-input">
+                                @foreach (var (value, label) in responsibilities)
+                                {
+                                    <option value="@value" selected="@(value == form.Responsibility)">@label</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    @if (op == CustodyOperation.Hold)
+                    {
+                        <div class="ak-field ak-col-full">
+                            <label for="Reason" class="ak-label">@UiText.T(Context, "دلیل مسدودیت", "Reason") <span class="ak-req">*</span></label>
+                            <input id="Reason" name="Reason" class="ak-input" value="@form.Reason" maxlength="500" />
+                            <span class="ak-field-error">@Html.ValidationMessage("Reason")</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="ak-field">
+                            <label for="DocumentNumber" class="ak-label">@UiText.T(Context, "شماره سند", "Document no.")</label>
+                            <input id="DocumentNumber" name="DocumentNumber" class="ak-input" value="@form.DocumentNumber" maxlength="100" />
+                        </div>
+                        <div class="ak-field ak-col-full">
+                            <label for="Notes" class="ak-label">@UiText.T(Context, "توضیحات (اختیاری)", "Notes (optional)")</label>
+                            <textarea id="Notes" name="Notes" class="ak-input" rows="2" maxlength="1000">@form.Notes</textarea>
+                        </div>
+                    }
+                </div>
+            </section>
+
+            <partial name="~/Views/Shared/Components/Ak/_AkFooterActions.cshtml"
+                     model="@((UiText.T(Context, "ثبت", "Save"), backUrl ?? "/", UiText.T(Context, "انصراف", "Cancel")))" />
+        </form>
+    </div>
+</div>

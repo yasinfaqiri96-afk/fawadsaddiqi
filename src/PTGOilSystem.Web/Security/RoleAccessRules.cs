@@ -96,7 +96,7 @@ public static class RoleAccessRules
                 "Shipments", "ShipmentContracts", "ShipmentPnl", "Dispatch", "TruckSettlements", "Expenses",
                 "LossEvents", "LoadingReceipts", "CustomsDeclarations", "QualityInspections"]),
         new(RoleNavigationKeys.Inventory, "موجودی", "bi-box-seam-fill",
-            ["Inventory", "InventoryReports"]),
+            ["Inventory", "InventoryReports", "Custody"]),
         new(RoleNavigationKeys.OperationalAssets, "دارایی‌های عملیاتی", "bi-truck-front-fill",
             ["OperationalAssets"]),
         new(RoleNavigationKeys.Sales, "فروش", "bi-cart-check-fill",

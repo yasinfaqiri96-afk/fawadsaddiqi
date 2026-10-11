@@ -1,0 +1,130 @@
+@model PTGOilSystem.Web.Models.Custody.CustodyFinanceViewModel
+@using PTGOilSystem.Web.Models.Custody
+@using PTGOilSystem.Web.Models.Entities
+@{
+    var form = Model.Form;
+    var kind = form.Kind;
+    var account = Model.Account;
+    var title = CustodyFinanceForm.Title(kind);
+    ViewData["Title"] = title;
+    var backUrl = Url.Action("Owner", new { key = form.OwnerKey });
+    var collects = kind is CustodyFinanceKind.Collection or CustodyFinanceKind.DirectToOwner;
+    var usesCash = kind is CustodyFinanceKind.Collection or CustodyFinanceKind.OwnerPayout or CustodyFinanceKind.ReimbursableExpense;
+    var isCharge = kind is CustodyFinanceKind.ReimbursableExpense or CustodyFinanceKind.ServiceFee;
+    var balance = account.FundsBalanceUsd;
+}
+
+<div class="ak-form-page">
+    <div class="ak-form-page-content">
+        <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+                 model="@((title + " — " + account.OwnerName, true,
+                           (string?)null, (string?)null, (string?)null, (string?)null,
+                           UiText.T(Context, "بازگشت", "Back"), "bi-arrow-right",
+                           (string?)backUrl))" />
+
+        <form asp-action="Finance" method="post" class="ak-form">
+            @Html.AntiForgeryToken()
+            @Html.FormToken()
+            <input type="hidden" name="Kind" value="@kind" />
+            <input type="hidden" name="OwnerKey" value="@form.OwnerKey" />
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger ak-form-alert"></div>
+
+            <div class="alert alert-info ak-form-alert">
+                <i class="bi bi-info-circle" aria-hidden="true"></i>
+                @CustodyFinanceForm.Explanation(kind)
+            </div>
+
+            <section class="ak-form-section">
+                <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                         model="@((account.OwnerName,
+                                   (string?)((balance >= 0m ? UiText.T(Context, "مانده قابل پرداخت به مالک", "Payable to owner") : UiText.T(Context, "مالک به شرکت بدهکار است", "Owner owes company"))
+                                             + ": " + Math.Abs(balance).ToString("N2") + " USD")))" />
+                <div class="ak-form-grid">
+                    @if (collects)
+                    {
+                        <div class="ak-field ak-col-full">
+                            <label for="SaleId" class="ak-label">@UiText.T(Context, "فروش", "Sale") <span class="ak-req">*</span></label>
+                            <select id="SaleId" name="SaleId" class="ak-input">
+                                <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                                @foreach (var s in Model.OpenSales)
+                                {
+                                    <option value="@s.Id" selected="@(s.Id == form.SaleId)">
+                                        @s.SaleNumber — @s.CustomerName — @UiText.T(Context, "وصول‌نشده", "outstanding") @s.OutstandingUsd.ToString("N2") USD
+                                    </option>
+                                }
+                            </select>
+                            <span class="ak-field-error">@Html.ValidationMessage("SaleId")</span>
+                        </div>
+                    }
+                    else if (isCharge && Model.Account.Sales.Any(s => s.Status == CustodyDocumentStatus.Posted))
+                    {
+                        <div class="ak-field">
+                            <label for="SaleId" class="ak-label">@UiText.T(Context, "مربوط به فروش (اختیاری)", "Related sale (optional)")</label>
+                            <select id="SaleId" name="SaleId" class="ak-input">
+                                <option value="">@UiText.T(Context, "- هیچ -", "- None -")</option>
+                                @foreach (var s in Model.Account.Sales.Where(s => s.Status == CustodyDocumentStatus.Posted))
+                                {
+                                    <option value="@s.Id" selected="@(s.Id == form.SaleId)">@s.SaleNumber — @s.CustomerName</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    <div class="ak-field">
+                        <label for="AmountUsd" class="ak-label">@UiText.T(Context, "مبلغ (دالر)", "Amount (USD)") <span class="ak-req">*</span></label>
+                        <input id="AmountUsd" name="AmountUsd" type="number" step="0.01" min="0" class="ak-input" value="@form.AmountUsd" />
+                        <span class="ak-field-error">@Html.ValidationMessage("AmountUsd")</span>
+                    </div>
+                    <div class="ak-field">
+                        <label for="Date" class="ak-label">@UiText.T(Context, "تاریخ", "Date") <span class="ak-req">*</span></label>
+                        <input id="Date" name="Date" type="date" class="ak-input" value="@form.Date.ToString("yyyy-MM-dd")" />
+                    </div>
+                    @if (usesCash)
+                    {
+                        <div class="ak-field">
+                            <label for="CashAccountId" class="ak-label">@UiText.T(Context, "صندوق / بانک", "Till / bank") <span class="ak-req">*</span></label>
+                            <select id="CashAccountId" name="CashAccountId" class="ak-input">
+                                <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                                @foreach (var a in Model.CashAccounts)
+                                {
+                                    <option value="@a.Id" selected="@(a.Id == form.CashAccountId)">@a.Name</option>
+                                }
+                            </select>
+                            <span class="ak-field-error">@Html.ValidationMessage("CashAccountId")</span>
+                        </div>
+                    }
+                    @if (isCharge)
+                    {
+                        <div class="ak-field">
+                            <label for="ExpenseTypeId" class="ak-label">@UiText.T(Context, "نوع", "Type")</label>
+                            <select id="ExpenseTypeId" name="ExpenseTypeId" class="ak-input">
+                                <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                                @foreach (var t in Model.ExpenseTypes)
+                                {
+                                    <option value="@t.Id" selected="@(t.Id == form.ExpenseTypeId)">@t.Name</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    @if (kind == CustodyFinanceKind.ReimbursableExpense)
+                    {
+                        <div class="ak-field">
+                            <label for="PayeeName" class="ak-label">@UiText.T(Context, "به چه کسی پرداخت شد", "Paid to")</label>
+                            <input id="PayeeName" name="PayeeName" class="ak-input" value="@form.PayeeName" maxlength="200" />
+                        </div>
+                    }
+                    <div class="ak-field">
+                        <label for="DocumentNumber" class="ak-label">@UiText.T(Context, "شماره سند", "Document no.")</label>
+                        <input id="DocumentNumber" name="DocumentNumber" class="ak-input" value="@form.DocumentNumber" maxlength="100" />
+                    </div>
+                    <div class="ak-field ak-col-full">
+                        <label for="Description" class="ak-label">@UiText.T(Context, "توضیحات (اختیاری)", "Notes (optional)")</label>
+                        <textarea id="Description" name="Description" class="ak-input" rows="2" maxlength="1000">@form.Description</textarea>
+                    </div>
+                </div>
+            </section>
+
+            <partial name="~/Views/Shared/Components/Ak/_AkFooterActions.cshtml"
+                     model="@((UiText.T(Context, "ثبت", "Save"), backUrl ?? "/", UiText.T(Context, "انصراف", "Cancel")))" />
+        </form>
+    </div>
+</div>

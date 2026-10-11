@@ -23,6 +23,10 @@
     {
         performance.Add((Txt.ExchangeResult, Model.NetExchangeResult, false, null));
     }
+    if (Model.CustodyIncome != 0m)
+    {
+        performance.Add((Txt.CustodyIncome, Model.CustodyIncome, false, null));
+    }
     performance.Add((Txt.NetResultLabel(netProfitLoss), Math.Abs(netProfitLoss), true, null));
 }
 

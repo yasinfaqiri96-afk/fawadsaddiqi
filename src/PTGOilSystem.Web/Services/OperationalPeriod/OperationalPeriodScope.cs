@@ -35,6 +35,9 @@ public static partial class OperationalPeriodScope
         TruckDispatch x => x.DispatchDate,
         LossEvent x => x.EventDate,
         InventoryMovement x => x.MovementDate,
+        CustodyMovement x => x.MovementDate,
+        CustodySale x => x.SaleDate,
+        CustodyFinanceEntry x => x.EntryDate,
         LedgerEntry x => x.EntryDate,
         _ => null,
     };
@@ -55,6 +58,9 @@ public static partial class OperationalPeriodScope
         TruckDispatch => "ارسال موتر",
         LossEvent => "سند کسری",
         InventoryMovement => "حرکت موجودی",
+        CustodyMovement => "حرکت امانی",
+        CustodySale => "فروش امانی",
+        CustodyFinanceEntry => "سند مالی امانی",
         LedgerEntry => "ردیف دفتر کل",
         _ => "سند",
     };

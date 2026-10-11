@@ -69,9 +69,10 @@ public class TerminalsController : Controller
 
     [Authorize(Policy = AuthPolicies.ManageData)]
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> Create([Bind("Id,Code,Name,Location,IsActive,Notes")] Terminal model, string? returnUrl = null)
+    public async Task<IActionResult> Create([Bind("Id,Code,Name,Location,IsActive,Notes")] Terminal model, string? returnUrl = null, string? custodianKey = null)
     {
         Normalize(model);
+        ApplyCustodian(model, custodianKey);
         if (!ModelState.IsValid) return View(model);
         if (await _db.Terminals.AnyAsync(p => p.Code == model.Code))
         {
@@ -96,13 +97,22 @@ public class TerminalsController : Controller
 
     [Authorize(Policy = AuthPolicies.ManageData)]
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> Edit(int id, [Bind("Id,Code,Name,Location,IsActive,Notes")] Terminal model)
+    public async Task<IActionResult> Edit(int id, [Bind("Id,Code,Name,Location,IsActive,Notes")] Terminal model, string? custodianKey = null)
     {
         if (id != model.Id) return BadRequest();
         Normalize(model);
+        ApplyCustodian(model, custodianKey);
         if (!ModelState.IsValid) return View(model);
         var existing = await _db.Terminals.FirstOrDefaultAsync(x => x.Id == id);
         if (existing == null) return NotFound();
+        // تیلِ امانیِ دیگران فقط در تأسیساتِ خودِ ما نگهداری می‌شود؛ ترمینالی که امانی دارد
+        // نمی‌تواند به‌عنوان مخزنِ طرفِ دیگر علامت بخورد.
+        if (model.CustodianPartyType.HasValue && !existing.CustodianPartyType.HasValue
+            && await _db.CustodyMovements.AnyAsync(m => m.TerminalId == id))
+        {
+            ModelState.AddModelError(string.Empty, "در این ترمینال تیلِ امانیِ دیگران ثبت شده است؛ نمی‌توان آن را مخزنِ طرفِ دیگر تعریف کرد.");
+            return View(model);
+        }
         if (existing.Code != model.Code && await _db.Terminals.AnyAsync(p => p.Code == model.Code))
         {
             ModelState.AddModelError(nameof(model.Code), "این کد قبلاً ثبت شده است.");
@@ -113,6 +123,8 @@ public class TerminalsController : Controller
         existing.Location = model.Location;
         existing.IsActive = model.IsActive;
         existing.Notes = model.Notes;
+        existing.CustodianPartyType = model.CustodianPartyType;
+        existing.CustodianPartyId = model.CustodianPartyId;
         existing.UpdatedAtUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         TempData["ok"] = "ویرایش با موفقیت انجام شد.";
@@ -155,6 +167,20 @@ public class TerminalsController : Controller
         await _audit.LogAndSaveAsync(nameof(Terminal), item.Id, AuditAction.Delete, diff: deleteDiff);
         TempData["ok"] = "ترمینال حذف شد.";
         return RedirectToAction(nameof(Index));
+    }
+
+    private void ApplyCustodian(Terminal model, string? custodianKey)
+    {
+        model.CustodianPartyType = null;
+        model.CustodianPartyId = null;
+        if (string.IsNullOrWhiteSpace(custodianKey)) return;
+        if (!PTGOilSystem.Web.Models.Custody.CustodyParty.TryParse(custodianKey, out var type, out var partyId))
+        {
+            ModelState.AddModelError(string.Empty, "نگهدارندهٔ انتخاب‌شده معتبر نیست.");
+            return;
+        }
+        model.CustodianPartyType = type;
+        model.CustodianPartyId = partyId;
     }
 
     private static void Normalize(Terminal model)

@@ -33,6 +33,17 @@ public sealed class AccountingPilotOptions
     public bool ExpensePayment { get; set; }
     public bool CommissionPayment { get; set; }
 
+    // امانی — فروش به نمایندگی مالک، وصول، کمیشن، مصارف به حساب مالک و پرداخت به مالک.
+    //   فروش              Dr دریافتنی مشتری             Cr طلب امانی به نفع مالک (کاهندهٔ دریافتنی)
+    //   وصول نقدی         Dr صندوق/بانک                 Cr دریافتنی مشتری
+    //                     Dr طلب امانی به نفع مالک      Cr وجوه امانی پرداختنی (مالک)
+    //   وصول مستقیم مالک  Dr طلب امانی به نفع مالک      Cr دریافتنی مشتری
+    //   کمیشن             Dr وجوه امانی پرداختنی         Cr درآمد کمیشن امانی
+    //   حق خدمات          Dr وجوه امانی پرداختنی         Cr درآمد خدمات امانی
+    //   مصرف به حساب مالک Dr وجوه امانی پرداختنی         Cr صندوق/بانک
+    //   پرداخت به مالک    Dr وجوه امانی پرداختنی         Cr صندوق/بانک
+    public bool Custody { get; set; }
+
     // Stage 6 — purchase and inventory. Purchase raises the supplier payable against goods in
     // transit; InventoryReceipt moves those goods from in-transit into inventory, so the two
     // are normally enabled together.

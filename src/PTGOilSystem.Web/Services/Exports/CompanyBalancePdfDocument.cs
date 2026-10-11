@@ -198,6 +198,10 @@ internal sealed class CompanyBalancePdfDocument(CompanyBalanceReportViewModel mo
         {
             cells.Add((Text.ExchangeResult, model.NetExchangeResult, false));
         }
+        if (model.CustodyIncome != 0m)
+        {
+            cells.Add((Text.CustodyIncome, model.CustodyIncome, false));
+        }
 
         cells.Add((Text.NetResultLabel(model.NetProfitLoss), Math.Abs(model.NetProfitLoss), true));
 

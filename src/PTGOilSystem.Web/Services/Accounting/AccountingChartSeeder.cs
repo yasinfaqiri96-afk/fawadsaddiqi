@@ -23,6 +23,9 @@ public sealed class AccountingChartSeeder(
     [
         new("1100", "Cash/Bank Control", AccountType.Asset, NormalBalance.Debit, MonetaryTreatment.Monetary),
         new("1200", "Accounts Receivable", AccountType.Asset, NormalBalance.Debit, MonetaryTreatment.Monetary),
+        // امانی: کاهندهٔ دریافتنی — طلبِ نسیهٔ فروشِ امانی که پولش از آنِ مالک است. شرکت تا وصول به
+        // مالک بدهکار نیست، پس این طلب نه دارایی شرکت است نه بدهی‌اش؛ ۱۲۰۰ − ۱۲۱۰ = صفر.
+        new("1210", "Custody Receivables for Owners (contra)", AccountType.Asset, NormalBalance.Credit, MonetaryTreatment.Monetary),
         new("1300", "Inventory", AccountType.Asset, NormalBalance.Debit, MonetaryTreatment.NonMonetary),
         new("1310", "Inventory In Transit", AccountType.Asset, NormalBalance.Debit, MonetaryTreatment.NonMonetary),
         new("1400", "Supplier Prepayment", AccountType.Asset, NormalBalance.Debit, MonetaryTreatment.NonMonetary),
@@ -35,6 +38,8 @@ public sealed class AccountingChartSeeder(
         new("2400", "Commission Payable", AccountType.Liability, NormalBalance.Credit, MonetaryTreatment.NonMonetary),
         new("2500", "Employee Payable", AccountType.Liability, NormalBalance.Credit, MonetaryTreatment.NonMonetary),
         new("2510", "Accrued Expenses Payable", AccountType.Liability, NormalBalance.Credit, MonetaryTreatment.NonMonetary),
+        // امانی: پولِ مالکان نزد شرکت و عوایدِ فروشِ هنوز وصول‌نشده — هر دو با هویتِ مالک روی سطر.
+        new("2600", "Custody Funds Payable to Owners", AccountType.Liability, NormalBalance.Credit, MonetaryTreatment.Monetary),
         new("3100", "Current Year Profit/Loss", AccountType.Equity, NormalBalance.Credit, MonetaryTreatment.NonMonetary),
         new("3200", "Retained Earnings", AccountType.Equity, NormalBalance.Credit, MonetaryTreatment.NonMonetary),
         // جاریِ شرکا: یک حسابِ کنترلی، هویتِ شریک روی سطر (PartyType=Partner). مانده‌اش دوطرفه
@@ -45,6 +50,8 @@ public sealed class AccountingChartSeeder(
         new("4200", "Exchange Gain", AccountType.Revenue, NormalBalance.Credit, MonetaryTreatment.NonMonetary),
         new("4300", "Asset Rental Revenue", AccountType.Revenue, NormalBalance.Credit, MonetaryTreatment.NonMonetary),
         new("4400", "Internal Asset Recovery", AccountType.Revenue, NormalBalance.Credit, MonetaryTreatment.NonMonetary),
+        new("4500", "Custody Commission Revenue", AccountType.Revenue, NormalBalance.Credit, MonetaryTreatment.NonMonetary),
+        new("4510", "Custody Service Revenue", AccountType.Revenue, NormalBalance.Credit, MonetaryTreatment.NonMonetary),
         new("5100", "Cost of Goods Sold", AccountType.Expense, NormalBalance.Debit, MonetaryTreatment.NonMonetary),
         new("5200", "General Expense", AccountType.Expense, NormalBalance.Debit, MonetaryTreatment.NonMonetary),
         new("5300", "Exchange Loss", AccountType.Expense, NormalBalance.Debit, MonetaryTreatment.NonMonetary),
@@ -71,6 +78,57 @@ public sealed class AccountingChartSeeder(
 
         await EnsurePartnerCurrentAccountAsync(cancellationToken);
         await EnsureSalaryExpenseAccountAsync(cancellationToken);
+        await EnsureCustodyAccountsAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// حساب‌های امانی (۲۶۰۰، ۱۲۱۰، ۴۵۰۰، ۴۵۱۰) بعد از تنظیماتِ شرکت‌های موجود اضافه شدند. همان الگوی
+    /// ۵۷۰۰: فقط ارجاعِ خالی کامل می‌شود؛ حسابِ هم‌کدی که نوعش جور نیست خودکار وصل نمی‌شود.
+    /// </summary>
+    private async Task EnsureCustodyAccountsAsync(CancellationToken cancellationToken)
+    {
+        var pending = await db.AccountingSettings
+            .Where(x => x.CustodyFundsPayableAccountId == null
+                || x.CustodyPendingCollectionAccountId == null
+                || x.CustodyCommissionRevenueAccountId == null
+                || x.CustodyServiceRevenueAccountId == null)
+            .ToListAsync(cancellationToken);
+
+        foreach (var settings in pending)
+        {
+            settings.CustodyFundsPayableAccountId ??= await EnsureAccountAsync(settings.CompanyId, "2600", cancellationToken);
+            settings.CustodyPendingCollectionAccountId ??= await EnsureAccountAsync(settings.CompanyId, "1210", cancellationToken);
+            settings.CustodyCommissionRevenueAccountId ??= await EnsureAccountAsync(settings.CompanyId, "4500", cancellationToken);
+            settings.CustodyServiceRevenueAccountId ??= await EnsureAccountAsync(settings.CompanyId, "4510", cancellationToken);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<int?> EnsureAccountAsync(int companyId, string code, CancellationToken cancellationToken)
+    {
+        var seed = DefaultAccounts.Single(x => x.Code == code);
+        var account = await db.Accounts
+            .SingleOrDefaultAsync(x => x.CompanyId == companyId && x.Code == seed.Code, cancellationToken);
+        if (account is null)
+        {
+            account = new Account
+            {
+                CompanyId = companyId,
+                Code = seed.Code,
+                Name = seed.Name,
+                AccountType = seed.AccountType,
+                NormalBalance = seed.NormalBalance,
+                IsControlAccount = true,
+                AllowManualPosting = false,
+                IsActive = true,
+                MonetaryTreatment = seed.MonetaryTreatment
+            };
+            db.Accounts.Add(account);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        return account.AccountType == seed.AccountType ? account.Id : null;
     }
 
     /// <summary>
@@ -242,6 +300,10 @@ public sealed class AccountingChartSeeder(
                 DepreciationExpenseAccountId = accountsByCode["5500"].Id,
                 AssetOperatingExpenseAccountId = accountsByCode["5600"].Id,
                 SalaryExpenseAccountId = accountsByCode["5700"].Id,
+                CustodyFundsPayableAccountId = accountsByCode["2600"].Id,
+                CustodyPendingCollectionAccountId = accountsByCode["1210"].Id,
+                CustodyCommissionRevenueAccountId = accountsByCode["4500"].Id,
+                CustodyServiceRevenueAccountId = accountsByCode["4510"].Id,
                 FixedAssetAccountId = accountsByCode["1500"].Id,
                 AccumulatedDepreciationAccountId = accountsByCode["1590"].Id
             });

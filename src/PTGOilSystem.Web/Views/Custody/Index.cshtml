@@ -1,0 +1,232 @@
+@model PTGOilSystem.Web.Models.Custody.CustodyIndexViewModel
+@using PTGOilSystem.Web.Models.Custody
+@using PTGOilSystem.Web.Models.Entities
+@using PTGOilSystem.Web.Models.StatCards
+@{
+    ViewData["Title"] = UiText.T(Context, "امانی", "Custody");
+    var canManage = PTGOilSystem.Web.Security.RoleAccessRules.CanManageData(User);
+    var active = Model.Lots.Where(l => l.Status == CustodyLotStatus.Active).ToList();
+    var inTransit = Model.Lots.Count(l => l.Status == CustodyLotStatus.InTransit);
+    var tabs = new (string Key, string Label, string Icon)[]
+    {
+        ("others", UiText.T(Context, "تیل دیگران نزد ما", "Others' stock with us"), "bi-box-arrow-in-down"),
+        ("ours", UiText.T(Context, "تیل ما نزد دیگران", "Our stock with others"), "bi-box-arrow-up"),
+        ("tanks", UiText.T(Context, "موجودی فزیکی مخازن", "Physical tank stock"), "bi-database")
+    };
+}
+
+<div class="ak-list-page">
+    <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+             model="@((UiText.T(Context, "امانی", "Custody"), true,
+                       canManage ? UiText.T(Context, "ثبت ورود امانی", "Receive custody stock") : (string?)null, "bi-plus-lg",
+                       canManage ? (string?)Url.Action("Receive") : (string?)null, (string?)null,
+                       canManage ? UiText.T(Context, "ثبت بار در راه", "Register in-transit load") : (string?)null, "bi-truck",
+                       canManage ? (string?)Url.Action("Receive", new { inTransit = true }) : (string?)null))" />
+
+    <p class="text-muted small">
+        @UiText.T(Context,
+            "تیلی که مالکش کس دیگری است. ثبت آن خرید، بدهی، فروش یا مفاد برای شرکت نمی‌سازد و در ارزش موجودی شرکت شمرده نمی‌شود.",
+            "Stock owned by someone else. Recording it creates no purchase, payable, sale or profit and is not part of company inventory value.")
+    </p>
+
+    <section class="ak-stat-grid" aria-label="@UiText.T(Context, "خلاصه امانی", "Custody summary")">
+        <vc:stat-card title="@UiText.T(Context, "تیل دیگران نزد ما", "Others' stock with us")"
+                      value="@StatCardFormatter.Number(active.Sum(l => l.BalanceMt), 2)"
+                      unit="MT"
+                      avatar="total-inventory"></vc:stat-card>
+        <vc:stat-card title="@UiText.T(Context, "قابل تحویل", "Deliverable")"
+                      value="@StatCardFormatter.Number(active.Sum(l => l.FreeMt), 2)"
+                      unit="MT"></vc:stat-card>
+        <vc:stat-card title="@UiText.T(Context, "مسدود", "On hold")"
+                      value="@StatCardFormatter.Number(active.Sum(l => l.HeldMt), 2)"
+                      unit="MT"></vc:stat-card>
+        <vc:stat-card title="@UiText.T(Context, "بارهای در راه", "Loads in transit")"
+                      value="@StatCardFormatter.Count(inTransit)"
+                      unit="@UiText.T(Context, "بار", "loads")"
+                      avatar="transported"></vc:stat-card>
+    </section>
+
+    <nav class="ptg-tabs-rail" role="tablist" aria-label="@UiText.T(Context, "تب‌های امانی", "Custody tabs")">
+        @foreach (var tab in tabs)
+        {
+            var isActive = Model.Tab == tab.Key;
+            <a class="ptg-tab-item @(isActive ? "is-active" : null)"
+               asp-action="Index" asp-route-tab="@tab.Key"
+               aria-current="@(isActive ? "page" : null)">
+                <i class="bi @tab.Icon" aria-hidden="true"></i>
+                <span>@tab.Label</span>
+            </a>
+        }
+    </nav>
+
+    @if (Model.Tab == "others")
+    {
+        <div class="ak-list">
+            <form method="get" class="ak-list-toolbar">
+                <input type="hidden" name="tab" value="others" />
+                <div class="ak-list-toolbar-actions">
+                    <select name="owner" class="ak-input" aria-label="@UiText.T(Context, "مالک", "Owner")">
+                        <option value="">@UiText.T(Context, "همه مالکان", "All owners")</option>
+                        @foreach (var o in Model.Owners)
+                        {
+                            var key = CustodyParty.Key(o.PartyType, o.PartyId);
+                            <option value="@key" selected="@(key == Model.OwnerKey)">@o.Name</option>
+                        }
+                    </select>
+                    <select name="productId" class="ak-input" aria-label="@UiText.T(Context, "جنس", "Product")">
+                        <option value="">@UiText.T(Context, "همه اجناس", "All products")</option>
+                        @foreach (var p in Model.Products)
+                        {
+                            <option value="@p.Id" selected="@(p.Id == Model.ProductId)">@p.Name</option>
+                        }
+                    </select>
+                    <button type="submit" class="btn btn-sm btn-light ak-secondary-action">
+                        <i class="bi bi-funnel" aria-hidden="true"></i> @UiText.T(Context, "فیلتر", "Filter")
+                    </button>
+                </div>
+            </form>
+            <div class="ak-table-wrap">
+                <table class="ak-table" aria-label="@UiText.T(Context, "بارهای امانی", "Custody lots")">
+                    <thead><tr>
+                        <th>@UiText.T(Context, "بار", "Lot")</th>
+                        <th class="ak-col-grow">@UiText.T(Context, "مالک", "Owner")</th>
+                        <th>@UiText.T(Context, "جنس", "Product")</th>
+                        <th>@UiText.T(Context, "محل", "Location")</th>
+                        <th class="text-end">@UiText.T(Context, "موجودی (MT)", "Balance (MT)")</th>
+                        <th class="text-end">@UiText.T(Context, "قابل تحویل (MT)", "Deliverable (MT)")</th>
+                        <th>@UiText.T(Context, "وضعیت", "Status")</th>
+                    </tr></thead>
+                    <tbody>
+                        @foreach (var lot in Model.Lots)
+                        {
+                            <tr>
+                                <td><a asp-action="Details" asp-route-id="@lot.LotId"><strong>@lot.LotNumber</strong></a></td>
+                                <td class="ak-col-grow"><a asp-action="Owner" asp-route-key="@CustodyParty.Key(lot.OwnerPartyType, lot.OwnerPartyId)">@lot.OwnerName</a> <small class="text-muted">(@CustodyParty.TypeLabel(lot.OwnerPartyType))</small></td>
+                                <td>@lot.ProductName</td>
+                                <td>@(string.IsNullOrEmpty(lot.Locations) ? "—" : lot.Locations)</td>
+                                <td class="text-end ak-num">@NumberDisplay.Quantity(lot.BalanceMt)</td>
+                                <td class="text-end ak-num">@NumberDisplay.Quantity(lot.FreeMt)</td>
+                                <td>
+                                    @if (lot.Status == CustodyLotStatus.InTransit)
+                                    {
+                                        <span class="ak-status is-pending">@UiText.T(Context, "در راه", "In transit")</span>
+                                    }
+                                    else if (lot.HeldMt > 0m)
+                                    {
+                                        <span class="ak-status is-warning">@UiText.T(Context, "بخشی مسدود", "Partly held")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="ak-status is-active">@UiText.T(Context, "در نگهداری", "In storage")</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        @if (!Model.Lots.Any())
+                        {
+                            <tr><td colspan="7"><div class="ak-empty"><i class="bi bi-boxes" aria-hidden="true"></i>@UiText.T(Context, "تیل امانی موجود نیست", "No custody stock")</div></td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else if (Model.Tab == "ours")
+    {
+        <p class="text-muted small">
+            @UiText.T(Context,
+                "تیلِ ملکیِ شرکت که در مخزنِ دیگران است. در موجودی ملکی و ارزش موجودی شرکت هست، ولی جزو موجودی فزیکی مخازن ما نیست. فروش، انتقال و تحویل آن از همان مسیرهای عادی موجودی انجام می‌شود. برای تعریف مخزنِ طرف دیگر، در ترمینال «متعلق به طرف دیگر» را انتخاب کنید.",
+                "Company-owned stock held at someone else's facility. It is company inventory but not in our physical tanks. Mark a terminal as belonging to another party to track it here.")
+        </p>
+        <div class="ak-list">
+            <div class="ak-table-wrap">
+                <table class="ak-table" aria-label="@UiText.T(Context, "تیل ما نزد دیگران", "Our stock with others")">
+                    <thead><tr>
+                        <th class="ak-col-grow">@UiText.T(Context, "نگهدارنده", "Held by")</th>
+                        <th>@UiText.T(Context, "ترمینال / مخزن", "Terminal")</th>
+                        <th>@UiText.T(Context, "جنس", "Product")</th>
+                        <th class="text-end">@UiText.T(Context, "مقدار (MT)", "Quantity (MT)")</th>
+                    </tr></thead>
+                    <tbody>
+                        @foreach (var row in Model.AtThirdParties)
+                        {
+                            <tr>
+                                <td class="ak-col-grow">@row.CustodianName</td>
+                                <td>@row.TerminalName</td>
+                                <td>@row.ProductName</td>
+                                <td class="text-end ak-num">@NumberDisplay.Quantity(row.QuantityMt)</td>
+                            </tr>
+                        }
+                        @if (!Model.AtThirdParties.Any())
+                        {
+                            <tr><td colspan="4"><div class="ak-empty"><i class="bi bi-box-arrow-up" aria-hidden="true"></i>@UiText.T(Context, "تیلی از ما نزد دیگران ثبت نشده", "None recorded")</div></td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else
+    {
+        <p class="text-muted small">
+            @UiText.T(Context,
+                "مجموعِ داخلِ هر مخزن = تیلِ ملکیِ شرکت + سهمِ هر مالکِ امانی. فقط تأسیساتِ خودِ ما.",
+                "Each tank total = company-owned stock + each custody owner's share. Our own facilities only.")
+        </p>
+        <div class="ak-list">
+            <div class="ak-table-wrap">
+                <table class="ak-table" aria-label="@UiText.T(Context, "موجودی فزیکی مخازن", "Physical tank stock")">
+                    <thead><tr>
+                        <th>@UiText.T(Context, "ترمینال / مخزن", "Terminal / tank")</th>
+                        <th>@UiText.T(Context, "جنس", "Product")</th>
+                        <th class="ak-col-grow">@UiText.T(Context, "سهم مالکان", "Owner shares")</th>
+                        <th class="text-end">@UiText.T(Context, "ملکی (MT)", "Company (MT)")</th>
+                        <th class="text-end">@UiText.T(Context, "امانی (MT)", "Custody (MT)")</th>
+                        <th class="text-end">@UiText.T(Context, "مجموع (MT)", "Total (MT)")</th>
+                        <th class="text-end">@UiText.T(Context, "ظرفیت (MT)", "Capacity (MT)")</th>
+                    </tr></thead>
+                    <tbody>
+                        @foreach (var p in Model.Physical)
+                        {
+                            var over = p.CapacityMt.HasValue && p.TotalMt > p.CapacityMt.Value;
+                            <tr>
+                                <td>@p.TerminalName@(p.TankCode is null ? "" : " / " + p.TankCode)</td>
+                                <td>@p.ProductName</td>
+                                <td class="ak-col-grow">
+                                    @foreach (var share in p.Shares)
+                                    {
+                                        <div>
+                                            @if (share.LotId.HasValue)
+                                            {
+                                                <a asp-action="Details" asp-route-id="@share.LotId">@share.OwnerName</a>
+                                            }
+                                            else
+                                            {
+                                                <span>@share.OwnerName</span>
+                                            }
+                                            <bdi class="ak-num text-muted">@NumberDisplay.Quantity(share.QuantityMt, "MT")</bdi>
+                                        </div>
+                                    }
+                                </td>
+                                <td class="text-end ak-num">@NumberDisplay.Quantity(p.CompanyMt)</td>
+                                <td class="text-end ak-num">@NumberDisplay.Quantity(p.CustodyMt)</td>
+                                <td class="text-end ak-num"><strong>@NumberDisplay.Quantity(p.TotalMt)</strong></td>
+                                <td class="text-end ak-num">
+                                    @NumberDisplay.Quantity(p.CapacityMt)
+                                    @if (over)
+                                    {
+                                        <span class="ak-status is-danger">@UiText.T(Context, "بیش از ظرفیت", "Over capacity")</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        @if (!Model.Physical.Any())
+                        {
+                            <tr><td colspan="7"><div class="ak-empty"><i class="bi bi-database" aria-hidden="true"></i>@UiText.T(Context, "مخزنی با موجودی نیست", "No tank stock")</div></td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>

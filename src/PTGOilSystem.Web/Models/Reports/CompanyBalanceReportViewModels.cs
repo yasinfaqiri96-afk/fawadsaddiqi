@@ -107,12 +107,16 @@ public sealed class CompanyBalanceReportViewModel
 
     /// <summary>سود منهای زیان ارزیِ محقق همان دوره (از ProfitAndLossService).</summary>
     public decimal NetExchangeResult { get; init; }
-    public decimal NetProfitLoss => GrossProfit - PeriodExpenses + NetExchangeResult;
+
+    /// <summary>کمیشن و حق خدمات امانی؛ مبلغِ فروشِ امانی از آنِ مالک است و اینجا نمی‌آید.</summary>
+    public decimal CustodyIncome { get; init; }
+    public decimal NetProfitLoss => GrossProfit - PeriodExpenses + NetExchangeResult + CustodyIncome;
 
     public decimal SalesRevenueUsd { get; init; }
     public decimal CostOfSalesUsd { get; init; }
     public decimal PeriodExpensesUsd { get; init; }
     public decimal NetExchangeResultUsd { get; init; }
+    public decimal CustodyIncomeUsd { get; init; }
     public int UncostedSaleCount { get; init; }
 
     public IReadOnlyDictionary<CompanyBalanceSection, IReadOnlyList<CompanyBalanceDetailRowViewModel>> Details { get; init; }
@@ -162,6 +166,7 @@ public static class CompanyBalanceReportText
     public const string GrossProfit = "مفاد ناخالص";
     public const string PeriodExpenses = "مصارف دوره";
     public const string ExchangeResult = "نتیجه تبدیل ارز";
+    public const string CustodyIncome = "درآمد کمیشن و خدمات امانی";
     public const string NetProfit = "مفاد خالص دوره";
     public const string NetLoss = "ضرر خالص دوره";
     public const string GrossLoss = "ضرر ناخالص";

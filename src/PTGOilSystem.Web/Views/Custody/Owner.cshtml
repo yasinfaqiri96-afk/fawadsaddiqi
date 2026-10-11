@@ -1,0 +1,241 @@
+@model PTGOilSystem.Web.Services.Custody.CustodyOwnerAccount
+@using PTGOilSystem.Web.Models.Custody
+@using PTGOilSystem.Web.Models.Entities
+@using PTGOilSystem.Web.Models.Shared
+@using PTGOilSystem.Web.Services.Custody
+@{
+    var key = CustodyParty.Key(Model.Owner.PartyType, Model.Owner.PartyId);
+    var canManage = PTGOilSystem.Web.Security.RoleAccessRules.CanManageData(User) && Model.SupportsFinance;
+    var lots = ViewBag.Lots as IReadOnlyList<CustodyLotSummary> ?? [];
+    ViewData["Title"] = UiText.T(Context, "حساب امانی", "Custody account") + " — " + Model.OwnerName;
+    ViewData["HideSectionTabs"] = true;
+    ViewData["AkHeaderContext"] = CustodyParty.TypeLabel(Model.Owner.PartyType);
+    var balance = Model.FundsBalanceUsd;
+    ViewData["AkHeaderKebab"] = canManage
+        ? new List<AkHeaderMenuItem>
+        {
+            new() { Label = CustodyFinanceForm.Title(CustodyFinanceKind.ReimbursableExpense), Href = Url.Action("Finance", new { key, kind = CustodyFinanceKind.ReimbursableExpense }), Icon = "bi-receipt" },
+            new() { Label = CustodyFinanceForm.Title(CustodyFinanceKind.ServiceFee), Href = Url.Action("Finance", new { key, kind = CustodyFinanceKind.ServiceFee }), Icon = "bi-tools" }
+        }
+        : null;
+
+    var kpis = new List<AkKpiItem>
+    {
+        new() { Title = UiText.T(Context, "مبلغ فروش‌ها", "Sales total"), Value = Model.SalesTotalUsd.ToString("N2"), Unit = "USD" },
+        new() { Title = UiText.T(Context, "وصول‌نشده از مشتری", "Not yet collected"), Value = Model.OutstandingUsd.ToString("N2"), Unit = "USD", State = Model.OutstandingUsd > 0m ? "warning" : null },
+        new() { Title = UiText.T(Context, "کمیشن شرکت", "Company commission"), Value = Model.CommissionRecognizedUsd.ToString("N2"), Unit = "USD" },
+        new() { Title = balance >= 0m ? UiText.T(Context, "قابل پرداخت به مالک", "Payable to owner") : UiText.T(Context, "طلب شرکت از مالک", "Owner owes company"),
+                Value = Math.Abs(balance).ToString("N2"), Unit = "USD", State = balance >= 0m ? "success" : "danger" }
+    };
+
+    string KindLabel(CustodyFinanceKind kind) => CustodyFinanceForm.Title(kind);
+}
+
+<div class="ak-form-page ak-detail-page" data-ak-detail-v2="true">
+    <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+             model="@((UiText.T(Context, "حساب امانی", "Custody account") + " — " + Model.OwnerName, false,
+                       canManage ? CustodyFinanceForm.Title(CustodyFinanceKind.OwnerPayout) : (string?)null, "bi-cash-coin",
+                       canManage ? (string?)Url.Action("Finance", new { key, kind = CustodyFinanceKind.OwnerPayout }) : (string?)null, (string?)null,
+                       UiText.T(Context, "امانی", "Custody"), "bi-arrow-right", (string?)Url.Action("Index")))" />
+
+    @if (!Model.SupportsFinance)
+    {
+        <div class="alert alert-secondary">
+            @UiText.T(Context,
+                "فروش و حساب مالی امانی فعلاً فقط برای مالکی است که مشتری یا فروشنده ثبت شده است. نگهداری، تحویل و انتقال برای این مالک کامل کار می‌کند.",
+                "Custody sales and money are currently supported only for owners registered as customers or suppliers.")
+        </div>
+    }
+
+    <partial name="~/Views/Shared/Partials/_DetailKpiStrip.cshtml" model="@((IReadOnlyList<AkKpiItem>)kpis)" />
+
+    <section class="ak-form-section ak-detail-section">
+        <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                 model="@((UiText.T(Context, "خلاصهٔ حساب", "Account summary"),
+                           (string?)UiText.T(Context, "پول وصول‌شده نزد شرکت، منهای کمیشن، مصارف، حق خدمات و پرداخت‌ها. پولی که مشتری مستقیم به مالک داده اینجا بدهی شرکت نیست.",
+                                             "Money collected by the company, less commission, charges and payouts. Money paid directly to the owner is not a company debt.")))" />
+        <dl class="row mb-0">
+            <dt class="col-sm-5">@UiText.T(Context, "وصول‌شده توسط شرکت", "Collected by company")</dt>
+            <dd class="col-sm-7 ak-num">@Model.CollectedByCompanyUsd.ToString("N2") USD</dd>
+            <dt class="col-sm-5">@UiText.T(Context, "پرداخت مستقیم مشتری به مالک", "Paid directly to owner")</dt>
+            <dd class="col-sm-7 ak-num">@Model.CollectedByOwnerUsd.ToString("N2") USD</dd>
+            <dt class="col-sm-5">@UiText.T(Context, "کمیشن درآمدشده", "Commission earned")</dt>
+            <dd class="col-sm-7 ak-num">− @Model.CommissionRecognizedUsd.ToString("N2") USD</dd>
+            @if (Model.CommissionPendingUsd > 0m)
+            {
+                <dt class="col-sm-5">@UiText.T(Context, "کمیشن منتظر وصول", "Commission pending collection")</dt>
+                <dd class="col-sm-7 ak-num text-muted">@Model.CommissionPendingUsd.ToString("N2") USD</dd>
+            }
+            <dt class="col-sm-5">@UiText.T(Context, "مصارف به حساب مالک", "Expenses charged to owner")</dt>
+            <dd class="col-sm-7 ak-num">− @Model.ExpensesUsd.ToString("N2") USD</dd>
+            <dt class="col-sm-5">@UiText.T(Context, "حق خدمات شرکت", "Company service fees")</dt>
+            <dd class="col-sm-7 ak-num">− @Model.ServiceFeesUsd.ToString("N2") USD</dd>
+            <dt class="col-sm-5">@UiText.T(Context, "پرداخت‌شده به مالک", "Paid to owner")</dt>
+            <dd class="col-sm-7 ak-num">− @Model.PayoutsUsd.ToString("N2") USD</dd>
+            <dt class="col-sm-5"><strong>@(balance >= 0m ? UiText.T(Context, "مانده قابل پرداخت به مالک", "Balance payable to owner") : UiText.T(Context, "مالک به شرکت بدهکار است", "Owner owes the company"))</strong></dt>
+            <dd class="col-sm-7 ak-num"><strong>@Math.Abs(balance).ToString("N2") USD</strong></dd>
+        </dl>
+    </section>
+
+    <section class="ak-form-section ak-detail-section">
+        <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                 model="@((UiText.T(Context, "فروش‌های امانی", "Custody sales"), (string?)Model.Sales.Count.ToString("N0")))" />
+        <div class="ak-table-wrap">
+            <table class="ak-table ak-detail-table">
+                <thead><tr>
+                    <th>@UiText.T(Context, "فروش", "Sale")</th>
+                    <th>@UiText.T(Context, "تاریخ", "Date")</th>
+                    <th class="ak-col-grow">@UiText.T(Context, "مشتری", "Customer")</th>
+                    <th class="text-end">@UiText.T(Context, "مقدار (MT)", "Qty (MT)")</th>
+                    <th class="text-end">@UiText.T(Context, "مبلغ (USD)", "Amount (USD)")</th>
+                    <th class="text-end">@UiText.T(Context, "وصول‌نشده", "Outstanding")</th>
+                    <th class="text-end">@UiText.T(Context, "کمیشن", "Commission")</th>
+                    <th></th>
+                </tr></thead>
+                <tbody>
+                    @foreach (var s in Model.Sales)
+                    {
+                        var cancelled = s.Status == CustodyDocumentStatus.Cancelled;
+                        <tr class="@(cancelled ? "text-muted" : null)">
+                            <td>
+                                <strong>@s.SaleNumber</strong>
+                                <div class="small"><a asp-action="Details" asp-route-id="@s.LotId">@s.LotNumber</a></div>
+                                @if (cancelled)
+                                {
+                                    <span class="ak-status is-inactive">@UiText.T(Context, "لغو شده", "Cancelled")</span>
+                                }
+                            </td>
+                            <td>@s.SaleDate.ToDisplayDate()</td>
+                            <td class="ak-col-grow">@s.CustomerName <small class="text-muted">· @s.ProductName</small></td>
+                            <td class="text-end ak-num">@NumberDisplay.Quantity(s.QuantityMt)</td>
+                            <td class="text-end ak-num">@s.AmountUsd.ToString("N2")</td>
+                            <td class="text-end ak-num">@s.OutstandingUsd.ToString("N2")</td>
+                            <td class="text-end ak-num">
+                                @s.CommissionRecognizedUsd.ToString("N2")
+                                @if (s.CommissionUsd != s.CommissionRecognizedUsd && !cancelled)
+                                {
+                                    <small class="text-muted">/ @s.CommissionUsd.ToString("N2")</small>
+                                }
+                            </td>
+                            <td>
+                                @if (canManage && !cancelled)
+                                {
+                                    <div class="ak-list-toolbar-actions">
+                                        @if (s.OutstandingUsd > 0m)
+                                        {
+                                            <a class="btn btn-sm btn-light ak-secondary-action" asp-action="Finance" asp-route-key="@key" asp-route-kind="@CustodyFinanceKind.Collection" asp-route-saleId="@s.Id">@UiText.T(Context, "دریافت", "Collect")</a>
+                                            <a class="btn btn-sm btn-light ak-secondary-action" asp-action="Finance" asp-route-key="@key" asp-route-kind="@CustodyFinanceKind.DirectToOwner" asp-route-saleId="@s.Id">@UiText.T(Context, "پرداخت به مالک شد", "Paid to owner")</a>
+                                        }
+                                        <form asp-action="CancelSale" asp-route-id="@s.Id" method="post" class="ak-list-toolbar-actions"
+                                              data-ptg-confirm="true"
+                                              data-ptg-confirm-title="@UiText.T(Context, "لغو فروش امانی", "Cancel custody sale")"
+                                              data-ptg-confirm-message="@UiText.T(Context, "تیل به موجودی مالک برمی‌گردد و اسناد مالی فروش معکوس می‌شود. ادامه می‌دهید؟", "Stock returns to the owner and the sale's financial records are reversed. Continue?")">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="key" value="@key" />
+                                            <input name="reason" class="ak-input" maxlength="300" required placeholder="@UiText.T(Context, "دلیل لغو", "Reason")" aria-label="@UiText.T(Context, "دلیل لغو", "Reason")" />
+                                            <button type="submit" class="btn btn-sm btn-light ak-secondary-action text-danger">@UiText.T(Context, "لغو", "Cancel")</button>
+                                        </form>
+                                    </div>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    @if (!Model.Sales.Any())
+                    {
+                        <tr><td colspan="8"><div class="ak-empty">@UiText.T(Context, "فروش امانی ثبت نشده. فروش را از صفحهٔ همان بار ثبت کنید.", "No custody sales. Record a sale from the lot page.")</div></td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="ak-form-section ak-detail-section">
+        <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                 model="@((UiText.T(Context, "دریافت‌ها، مصارف و پرداخت‌ها", "Receipts, charges and payouts"), (string?)Model.Entries.Count.ToString("N0")))" />
+        <div class="ak-table-wrap">
+            <table class="ak-table ak-detail-table">
+                <thead><tr>
+                    <th>@UiText.T(Context, "تاریخ", "Date")</th>
+                    <th>@UiText.T(Context, "سند", "Document")</th>
+                    <th class="ak-col-grow">@UiText.T(Context, "جزئیات", "Details")</th>
+                    <th class="text-end">@UiText.T(Context, "مبلغ (USD)", "Amount (USD)")</th>
+                    <th class="text-end">@UiText.T(Context, "کمیشن", "Commission")</th>
+                    <th></th>
+                </tr></thead>
+                <tbody>
+                    @foreach (var e in Model.Entries)
+                    {
+                        var cancelled = e.Status == CustodyDocumentStatus.Cancelled;
+                        var parts = new List<string>();
+                        if (e.SaleNumber is not null) parts.Add(e.SaleNumber);
+                        if (e.CashAccountName is not null) parts.Add(e.CashAccountName);
+                        if (e.ExpenseTypeName is not null) parts.Add(e.ExpenseTypeName);
+                        if (e.PayeeName is not null) parts.Add(e.PayeeName);
+                        if (e.DocumentNumber is not null) parts.Add(UiText.T(Context, "سند ", "Doc ") + e.DocumentNumber);
+                        if (e.Description is not null) parts.Add(e.Description);
+                        if (cancelled && e.CancellationReason is not null) parts.Add(UiText.T(Context, "لغو: ", "Cancelled: ") + e.CancellationReason);
+                        <tr class="@(cancelled ? "text-muted" : null)">
+                            <td>@e.EntryDate.ToDisplayDate()</td>
+                            <td>
+                                @KindLabel(e.Kind)
+                                @if (cancelled)
+                                {
+                                    <span class="ak-status is-inactive">@UiText.T(Context, "لغو شده", "Cancelled")</span>
+                                }
+                            </td>
+                            <td class="ak-col-grow">@string.Join(" · ", parts)</td>
+                            <td class="text-end ak-num">@e.AmountUsd.ToString("N2")</td>
+                            <td class="text-end ak-num">@(e.CommissionUsd > 0m ? e.CommissionUsd.ToString("N2") : "")</td>
+                            <td>
+                                @if (canManage && !cancelled)
+                                {
+                                    <form asp-action="CancelFinance" asp-route-id="@e.Id" method="post" class="ak-list-toolbar-actions"
+                                          data-ptg-confirm="true"
+                                          data-ptg-confirm-title="@UiText.T(Context, "لغو سند", "Cancel document")"
+                                          data-ptg-confirm-message="@UiText.T(Context, "اثر این سند (صندوق، حساب مالک و دفتر) معکوس می‌شود و تاریخچه باقی می‌ماند. ادامه می‌دهید؟", "This document's effect is reversed; history is kept. Continue?")">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="key" value="@key" />
+                                        <input name="reason" class="ak-input" maxlength="300" required placeholder="@UiText.T(Context, "دلیل لغو", "Reason")" aria-label="@UiText.T(Context, "دلیل لغو", "Reason")" />
+                                        <button type="submit" class="btn btn-sm btn-light ak-secondary-action text-danger">@UiText.T(Context, "لغو", "Cancel")</button>
+                                    </form>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    @if (!Model.Entries.Any())
+                    {
+                        <tr><td colspan="6"><div class="ak-empty">@UiText.T(Context, "سندی ثبت نشده", "No documents")</div></td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    @if (lots.Any())
+    {
+        <section class="ak-form-section ak-detail-section">
+            <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml" model="@((UiText.T(Context, "بارهای این مالک", "This owner's lots"), (string?)null))" />
+            <div class="ak-table-wrap">
+                <table class="ak-table ak-detail-table">
+                    <thead><tr>
+                        <th>@UiText.T(Context, "بار", "Lot")</th>
+                        <th class="ak-col-grow">@UiText.T(Context, "جنس / محل", "Product / location")</th>
+                        <th class="text-end">@UiText.T(Context, "موجودی (MT)", "Balance (MT)")</th>
+                        <th class="text-end">@UiText.T(Context, "قابل تحویل (MT)", "Deliverable (MT)")</th>
+                    </tr></thead>
+                    <tbody>
+                        @foreach (var l in lots)
+                        {
+                            <tr>
+                                <td><a asp-action="Details" asp-route-id="@l.LotId">@l.LotNumber</a></td>
+                                <td class="ak-col-grow">@l.ProductName <small class="text-muted">· @l.Locations</small></td>
+                                <td class="text-end ak-num">@NumberDisplay.Quantity(l.BalanceMt)</td>
+                                <td class="text-end ak-num">@NumberDisplay.Quantity(l.FreeMt)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+</div>

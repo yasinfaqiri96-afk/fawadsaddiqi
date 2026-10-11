@@ -1,4 +1,12 @@
 @model Terminal
+@using PTGOilSystem.Web.Models.Custody
+@inject PTGOilSystem.Web.Services.Custody.ICustodyReadService CustodyReader
+@{
+    var custodians = await CustodyReader.GetCustodianOptionsAsync();
+    var currentCustodian = Model.CustodianPartyType.HasValue && Model.CustodianPartyId.HasValue
+        ? CustodyParty.Key(Model.CustodianPartyType.Value, Model.CustodianPartyId.Value)
+        : null;
+}
 
 @Html.AntiForgeryToken()
 <div asp-validation-summary="ModelOnly" class="alert alert-danger ak-form-alert"></div>
@@ -21,6 +29,23 @@
             <label asp-for="Location" class="ak-label">موقعیت</label>
             <input asp-for="Location" class="ak-input" />
             <span asp-validation-for="Location" class="ak-field-error"></span>
+        </div>
+        <div class="ak-field">
+            <label for="custodianKey" class="ak-label">متعلق به طرف دیگر؟</label>
+            <select id="custodianKey" name="custodianKey" class="ak-input" data-ak-entity-combobox>
+                <option value="">خیر — تأسیسات خودِ ما</option>
+                @foreach (var group in custodians.GroupBy(c => c.PartyType))
+                {
+                    <optgroup label="@CustodyParty.GroupLabel(group.Key)">
+                        @foreach (var c in group)
+                        {
+                            var key = CustodyParty.Key(c.PartyType, c.PartyId);
+                            <option value="@key" selected="@(key == currentCustodian)">@c.Name</option>
+                        }
+                    </optgroup>
+                }
+            </select>
+            <span class="ak-note">اگر مخزنِ کسِ دیگری است، تیلِ ما اینجا «نزد دیگران» شمرده می‌شود و جزو موجودی فزیکی مخازن ما نیست.</span>
         </div>
         <div class="ak-toggle-field">
             <div class="form-check form-switch">

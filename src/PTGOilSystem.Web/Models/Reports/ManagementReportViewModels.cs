@@ -56,6 +56,9 @@ public sealed class CompanyFinancialOverviewViewModel
     public int UnvaluedLossCount { get; init; }
     public decimal ExchangeGainUsd { get; init; }
     public decimal ExchangeLossUsd { get; init; }
+
+    /// <summary>کمیشن و حق خدمات امانی (همان CompanyPeriodPerformanceSnapshot.CustodyIncomeUsd).</summary>
+    public decimal CustodyIncomeUsd { get; init; }
     public decimal NetCashMovementUsd { get; init; }
     public decimal CustomerReceivableUsd { get; init; }
     public decimal SupplierPayableUsd { get; init; }
@@ -102,7 +105,7 @@ public sealed class CompanyFinancialOverviewViewModel
         PurchaseCostUsd,
         ExpenseUsd,
         ExchangeGainUsd,
-        ExchangeLossUsd);
+        ExchangeLossUsd) + CustodyIncomeUsd;
 
     /// <summary>
     /// سود فقط وقتی منتشر می‌شود که همهٔ فروش‌های این بازه بها داشته باشند (Pool ثبت‌شده یا بهای

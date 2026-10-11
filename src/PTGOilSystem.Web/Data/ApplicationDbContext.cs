@@ -90,6 +90,13 @@ public partial class ApplicationDbContext : DbContext
     public DbSet<LossLotAllocation> LossLotAllocations => Set<LossLotAllocation>();
     public DbSet<ExpenseLotAllocation> ExpenseLotAllocations => Set<ExpenseLotAllocation>();
 
+    // --- Custody (امانی) — third-party owned goods; never part of company stock ---
+    public DbSet<CustodyLot> CustodyLots => Set<CustodyLot>();
+    public DbSet<CustodyMovement> CustodyMovements => Set<CustodyMovement>();
+    public DbSet<CustodyHold> CustodyHolds => Set<CustodyHold>();
+    public DbSet<CustodySale> CustodySales => Set<CustodySale>();
+    public DbSet<CustodyFinanceEntry> CustodyFinanceEntries => Set<CustodyFinanceEntry>();
+
     // --- Customs & Declarations ---
     public DbSet<CustomsDeclaration> CustomsDeclarations => Set<CustomsDeclaration>();
     public DbSet<CustomsDeclarationItem> CustomsDeclarationItems => Set<CustomsDeclarationItem>();
@@ -2279,6 +2286,7 @@ public partial class ApplicationDbContext : DbContext
         modelBuilder.ConfigureAccountingCore();
         modelBuilder.ConfigureHumanResources();
         ConfigureInventoryLineage(modelBuilder);
+        modelBuilder.ConfigureCustody();
     }
 
     private static void ConfigureTransportOutcomeAllocations(ModelBuilder modelBuilder)

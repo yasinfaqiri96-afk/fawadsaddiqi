@@ -171,6 +171,15 @@ public class Terminal : BaseEntity
     [MaxLength(200)] public string? Location { get; set; }
     public bool IsActive { get; set; } = true;
     [MaxLength(1000)] public string? Notes { get; set; }
+
+    /// <summary>
+    /// خالی = تأسیساتِ خودِ ما. پر = مخزن/انبارِ طرفِ دیگر؛ تیلِ ملکیِ ما اینجا «نزد دیگران»
+    /// است و در موجودی فزیکی مخازن ما شمرده نمی‌شود. تیل امانیِ دیگران اینجا ثبت نمی‌شود.
+    /// </summary>
+    public AccountingPartyType? CustodianPartyType { get; set; }
+    public int? CustodianPartyId { get; set; }
+
+    public bool IsThirdPartyFacility => CustodianPartyType.HasValue && CustodianPartyId.HasValue;
 }
 
 public class StorageTank : BaseEntity

@@ -489,6 +489,7 @@ public partial class ReportsController : Controller
             UnvaluedLossCount = unvaluedLossCount,
             ExchangeGainUsd = period.ExchangeGainUsd,
             ExchangeLossUsd = period.ExchangeLossUsd,
+            CustodyIncomeUsd = period.CustodyIncomeUsd,
             NetCashMovementUsd = cashInUsd - cashOutUsd,
             CustomerReceivableUsd = balances.CustomerReceivableUsd,
             SupplierPayableUsd = balances.SupplierPayableUsd,

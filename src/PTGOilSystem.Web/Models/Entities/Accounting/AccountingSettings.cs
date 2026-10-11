@@ -82,5 +82,20 @@ public class AccountingSettings : BaseEntity
     public int? SalaryExpenseAccountId { get; set; }
     public Account? SalaryExpenseAccount { get; set; }
 
+    // امانی — Nullable مثل بقیهٔ حساب‌های بعداً افزوده‌شده: تا تعیین نشده، سند ژورنالِ امانی با
+    // دلیلِ صریح Skip می‌شود و دفتر عملیاتی (Ledger/روزنامچه) کامل کار می‌کند.
+    /// <summary>وجوه امانی پرداختنی به مالکان (۲۶۰۰) — مالک روی سطر سند.</summary>
+    public int? CustodyFundsPayableAccountId { get; set; }
+    public Account? CustodyFundsPayableAccount { get; set; }
+    /// <summary>طلب امانی به نفع مالکان (۱۲۱۰، کاهندهٔ دریافتنی) — تا وصول تعهدِ بالفعل به مالک نیست.</summary>
+    public int? CustodyPendingCollectionAccountId { get; set; }
+    public Account? CustodyPendingCollectionAccount { get; set; }
+    /// <summary>درآمد کمیشن امانی (۴۵۰۰).</summary>
+    public int? CustodyCommissionRevenueAccountId { get; set; }
+    public Account? CustodyCommissionRevenueAccount { get; set; }
+    /// <summary>درآمد خدمات امانی — حق مخزن، بارگیری و مانند آن (۴۵۱۰).</summary>
+    public int? CustodyServiceRevenueAccountId { get; set; }
+    public Account? CustodyServiceRevenueAccount { get; set; }
+
     public uint RowVersion { get; set; }
 }

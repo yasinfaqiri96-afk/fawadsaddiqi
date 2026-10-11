@@ -1,0 +1,163 @@
+@model PTGOilSystem.Web.Models.Custody.CustodySaleViewModel
+@using PTGOilSystem.Web.Models.Custody
+@using PTGOilSystem.Web.Models.Entities
+@using PTGOilSystem.Web.Services.Custody
+@{
+    var form = Model.Form;
+    var lot = Model.Lot;
+    var title = UiText.T(Context, "فروش امانی", "Custody sale") + " — " + lot.LotNumber;
+    ViewData["Title"] = title;
+    var backUrl = Url.Action("Details", new { id = lot.LotId });
+    var methods = new[]
+    {
+        (CustodyCommissionMethod.PercentOfSale, UiText.T(Context, "فیصدی از مبلغ فروش", "Percent of sale")),
+        (CustodyCommissionMethod.PerMt, UiText.T(Context, "مبلغ ثابت فی تُن (دالر)", "Fixed per MT (USD)")),
+        (CustodyCommissionMethod.FixedPerSale, UiText.T(Context, "مبلغ ثابت برای همین فروش (دالر)", "Fixed for this sale (USD)")),
+        (CustodyCommissionMethod.None, UiText.T(Context, "بدون کمیشن", "No commission"))
+    };
+    var settlements = new[]
+    {
+        (CustodySaleSettlement.Credit, UiText.T(Context, "نسیه — بعداً وصول می‌شود", "Credit — collected later")),
+        (CustodySaleSettlement.CashToCompany, UiText.T(Context, "نقد — پول به صندوق/بانک شرکت آمد", "Cash to company till/bank")),
+        (CustodySaleSettlement.DirectToOwner, UiText.T(Context, "مشتری مستقیم به مالک پرداخت کرد", "Customer paid the owner directly"))
+    };
+}
+
+<div class="ak-form-page">
+    <div class="ak-form-page-content">
+        <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+                 model="@((title, true,
+                           (string?)null, (string?)null, (string?)null, (string?)null,
+                           UiText.T(Context, "بازگشت", "Back"), "bi-arrow-right",
+                           (string?)backUrl))" />
+
+        <form asp-action="Sale" method="post" class="ak-form">
+            @Html.AntiForgeryToken()
+            @Html.FormToken()
+            <input type="hidden" name="LotId" value="@lot.LotId" />
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger ak-form-alert"></div>
+
+            <div class="alert alert-info ak-form-alert">
+                <i class="bi bi-info-circle" aria-hidden="true"></i>
+                @UiText.T(Context,
+                    "شرکت به نمایندگی مالک می‌فروشد. تیل از موجودی همین مالک کم می‌شود؛ مبلغ فروش از آنِ مالک است و فقط کمیشن درآمد شرکت است. موجودی ملکی و فروش شرکت تغییر نمی‌کند.",
+                    "The company sells on the owner's behalf. Stock leaves this owner's lot; the sale amount belongs to the owner and only the commission is company revenue.")
+            </div>
+
+            <section class="ak-form-section">
+                <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                         model="@((lot.OwnerName + " · " + lot.ProductName,
+                                   (string?)(UiText.T(Context, "قابل فروش", "Available") + ": " + NumberDisplay.Quantity(lot.FreeMt, "MT"))))" />
+                <div class="ak-form-grid">
+                    <div class="ak-field">
+                        <label for="CustomerId" class="ak-label">@UiText.T(Context, "مشتری (خریدار)", "Customer") <span class="ak-req">*</span></label>
+                        <select id="CustomerId" name="CustomerId" class="ak-input" data-ak-entity-combobox>
+                            <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                            @foreach (var c in Model.Customers)
+                            {
+                                <option value="@c.Id" selected="@(c.Id == form.CustomerId)">@c.Name</option>
+                            }
+                        </select>
+                        <span class="ak-field-error">@Html.ValidationMessage("CustomerId")</span>
+                    </div>
+                    <div class="ak-field">
+                        <label for="LocationKey" class="ak-label">@UiText.T(Context, "از مخزن", "From") <span class="ak-req">*</span></label>
+                        <select id="LocationKey" name="LocationKey" class="ak-input">
+                            <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                            @foreach (var l in Model.SourceLocations)
+                            {
+                                <option value="@l.Key" selected="@(l.Key == form.LocationKey)">@l.Label</option>
+                            }
+                        </select>
+                        <span class="ak-field-error">@Html.ValidationMessage("LocationKey")</span>
+                    </div>
+                    <div class="ak-field">
+                        <label for="QuantityMt" class="ak-label">@UiText.T(Context, "مقدار (MT)", "Quantity (MT)") <span class="ak-req">*</span></label>
+                        <input id="QuantityMt" name="QuantityMt" type="number" step="0.0001" min="0" class="ak-input" value="@form.QuantityMt" />
+                        <span class="ak-field-error">@Html.ValidationMessage("QuantityMt")</span>
+                    </div>
+                    <div class="ak-field">
+                        <label for="UnitPriceUsd" class="ak-label">@UiText.T(Context, "قیمت فی تُن (دالر)", "Price per MT (USD)") <span class="ak-req">*</span></label>
+                        <input id="UnitPriceUsd" name="UnitPriceUsd" type="number" step="0.0001" min="0" class="ak-input" value="@form.UnitPriceUsd" />
+                        <span class="ak-field-error">@Html.ValidationMessage("UnitPriceUsd")</span>
+                    </div>
+                    <div class="ak-field">
+                        <label for="Date" class="ak-label">@UiText.T(Context, "تاریخ فروش", "Sale date") <span class="ak-req">*</span></label>
+                        <input id="Date" name="Date" type="date" class="ak-input" value="@form.Date.ToString("yyyy-MM-dd")" />
+                    </div>
+                    <div class="ak-field">
+                        <label for="DocumentNumber" class="ak-label">@UiText.T(Context, "شماره بل / سند", "Invoice / document no.")</label>
+                        <input id="DocumentNumber" name="DocumentNumber" class="ak-input" value="@form.DocumentNumber" maxlength="100" />
+                    </div>
+                </div>
+            </section>
+
+            <section class="ak-form-section">
+                <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                         model="@((UiText.T(Context, "کمیشن شرکت", "Company commission"),
+                                   (string?)UiText.T(Context, "فقط کمیشن درآمد شرکت است و از پولِ مالک کسر می‌شود.", "Only the commission is company revenue; it is deducted from the owner's money.")))" />
+                <div class="ak-form-grid">
+                    <div class="ak-field">
+                        <label for="CommissionMethod" class="ak-label">@UiText.T(Context, "روش کمیشن", "Method")</label>
+                        <select id="CommissionMethod" name="CommissionMethod" class="ak-input">
+                            @foreach (var (value, label) in methods)
+                            {
+                                <option value="@value" selected="@(value == form.CommissionMethod)">@label</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="ak-field">
+                        <label for="CommissionRate" class="ak-label">@UiText.T(Context, "مقدار کمیشن (فیصد یا دالر)", "Rate (percent or USD)")</label>
+                        <input id="CommissionRate" name="CommissionRate" type="number" step="0.000001" min="0" class="ak-input" value="@form.CommissionRate" />
+                        <span class="ak-field-error">@Html.ValidationMessage("CommissionRate")</span>
+                    </div>
+                    <div class="ak-field ak-col-full">
+                        <label for="CommissionRecognition" class="ak-label">@UiText.T(Context, "حق کمیشن چه زمانی قطعی است؟", "When is the commission earned?")</label>
+                        <select id="CommissionRecognition" name="CommissionRecognition" class="ak-input">
+                            <option value="@CustodyCommissionRecognition.OnCollection" selected="@(form.CommissionRecognition == CustodyCommissionRecognition.OnCollection)">
+                                @UiText.T(Context, "به تناسب وصول پول از مشتری (پیش‌فرض)", "As the customer pays (default)")
+                            </option>
+                            <option value="@CustodyCommissionRecognition.OnSale" selected="@(form.CommissionRecognition == CustodyCommissionRecognition.OnSale)">
+                                @UiText.T(Context, "با انجام فروش، حتی اگر مشتری هنوز نپرداخته", "On sale, even if not yet paid")
+                            </option>
+                        </select>
+                    </div>
+                </div>
+            </section>
+
+            <section class="ak-form-section">
+                <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                         model="@((UiText.T(Context, "دریافت پول", "Payment"), (string?)null))" />
+                <div class="ak-form-grid">
+                    <div class="ak-field">
+                        <label for="Settlement" class="ak-label">@UiText.T(Context, "پول فروش", "Sale money")</label>
+                        <select id="Settlement" name="Settlement" class="ak-input">
+                            @foreach (var (value, label) in settlements)
+                            {
+                                <option value="@value" selected="@(value == form.Settlement)">@label</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="ak-field">
+                        <label for="CashAccountId" class="ak-label">@UiText.T(Context, "صندوق / بانک (فقط برای نقد)", "Till / bank (cash only)")</label>
+                        <select id="CashAccountId" name="CashAccountId" class="ak-input">
+                            <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                            @foreach (var a in Model.CashAccounts)
+                            {
+                                <option value="@a.Id" selected="@(a.Id == form.CashAccountId)">@a.Name</option>
+                            }
+                        </select>
+                        <span class="ak-field-error">@Html.ValidationMessage("CashAccountId")</span>
+                    </div>
+                    <div class="ak-field ak-col-full">
+                        <label for="Notes" class="ak-label">@UiText.T(Context, "توضیحات (اختیاری)", "Notes (optional)")</label>
+                        <textarea id="Notes" name="Notes" class="ak-input" rows="2" maxlength="1000">@form.Notes</textarea>
+                    </div>
+                </div>
+            </section>
+
+            <partial name="~/Views/Shared/Components/Ak/_AkFooterActions.cshtml"
+                     model="@((UiText.T(Context, "ثبت فروش امانی", "Record custody sale"), backUrl ?? "/", UiText.T(Context, "انصراف", "Cancel")))" />
+        </form>
+    </div>
+</div>

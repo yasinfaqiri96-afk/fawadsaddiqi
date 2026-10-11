@@ -895,6 +895,12 @@ public class PaymentsController : Controller
             return NotFound();
         }
 
+        if (await IsCustodyOwnedPaymentAsync(id))
+        {
+            TempData["err"] = CustodyOwnedPaymentMessage;
+            return RedirectToAction(nameof(Details), new { id });
+        }
+
         var model = new PaymentCreateViewModel
         {
             Id = payment.Id,
@@ -964,6 +970,12 @@ public class PaymentsController : Controller
         if (id != model.Id)
         {
             return BadRequest();
+        }
+
+        if (await IsCustodyOwnedPaymentAsync(id))
+        {
+            TempData["err"] = CustodyOwnedPaymentMessage;
+            return RedirectToAction(nameof(Details), new { id });
         }
 
         NormalizeCreateModel(model);
@@ -3187,6 +3199,14 @@ public class PaymentsController : Controller
                 && _db.InventoryTransportLegs.Any(l =>
                     l.Id == r.InventoryTransportLegId
                     && l.SourcePurchaseContractId == contractId));
+
+    // پول نقدِ امانی (وصول، پرداخت به مالک، مصرف به حساب مالک) را سند امانی می‌سازد و مالکِ
+    // آن است؛ اصلاح از اینجا موجودی صندوق را از حساب مالک و ژورنال امانی جدا می‌کرد.
+    private const string CustodyOwnedPaymentMessage =
+        "این سند از بخش امانی ساخته شده است؛ اصلاح یا لغو آن فقط از «حساب مالک» در بخش امانی ممکن است.";
+
+    private Task<bool> IsCustodyOwnedPaymentAsync(int paymentId)
+        => _db.CustodyFinanceEntries.AnyAsync(e => e.PaymentTransactionId == paymentId || e.ReversalPaymentTransactionId == paymentId);
 
     private static LedgerSide GetLedgerSide(PaymentKind paymentKind)
         => paymentKind switch

@@ -1,0 +1,193 @@
+@model PTGOilSystem.Web.Models.Custody.CustodyReceiveViewModel
+@using PTGOilSystem.Web.Models.Custody
+@{
+    var form = Model.Form;
+    var transit = Model.TransitLot;
+    var inTransitOnly = form.InTransitOnly && transit is null;
+    var pageTitle = transit is not null
+        ? UiText.T(Context, "رسید بار در راه", "Receive in-transit load") + " " + transit.LotNumber
+        : inTransitOnly
+            ? UiText.T(Context, "ثبت بار امانی در راه", "Register in-transit custody load")
+            : UiText.T(Context, "ثبت ورود امانی", "Receive custody stock");
+    ViewData["Title"] = pageTitle;
+    var backUrl = transit is not null ? Url.Action("Details", new { id = transit.LotId }) : Url.Action("Index");
+}
+
+<div class="ak-form-page">
+    <div class="ak-form-page-content">
+        <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+                 model="@((pageTitle, true,
+                           (string?)null, (string?)null, (string?)null, (string?)null,
+                           UiText.T(Context, "بازگشت", "Back"), "bi-arrow-right",
+                           (string?)backUrl))" />
+
+        <form asp-action="Receive" method="post" class="ak-form">
+            @Html.AntiForgeryToken()
+            @Html.FormToken()
+            <input type="hidden" name="LotId" value="@form.LotId" />
+            <input type="hidden" name="InTransitOnly" value="@(inTransitOnly ? "true" : "false")" />
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger ak-form-alert"></div>
+
+            <div class="alert alert-info ak-form-alert">
+                <i class="bi bi-info-circle" aria-hidden="true"></i>
+                @UiText.T(Context,
+                    "این تیل متعلق به مالکِ انتخاب‌شده است. قیمت، قرارداد خرید و بدهی لازم نیست و ساخته نمی‌شود؛ در موجودی ملکی و مفاد شرکت هم شمرده نمی‌شود.",
+                    "This stock belongs to the selected owner. No price, purchase contract or payable is needed or created; it is not company inventory or profit.")
+            </div>
+
+            @if (transit is not null)
+            {
+                <section class="ak-form-section">
+                    <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                             model="@((UiText.T(Context, "بار در راه", "In-transit load"), (string?)null))" />
+                    <dl class="row mb-0">
+                        <dt class="col-sm-3">@UiText.T(Context, "مالک", "Owner")</dt>
+                        <dd class="col-sm-9">@transit.OwnerName</dd>
+                        <dt class="col-sm-3">@UiText.T(Context, "جنس", "Product")</dt>
+                        <dd class="col-sm-9">@transit.ProductName</dd>
+                        <dt class="col-sm-3">@UiText.T(Context, "مقدار بارگیری", "Loaded quantity")</dt>
+                        <dd class="col-sm-9 ak-num">@NumberDisplay.Quantity(transit.LoadedQuantityMt, "MT")</dd>
+                        <dt class="col-sm-3">@UiText.T(Context, "تا حال رسیده", "Received so far")</dt>
+                        <dd class="col-sm-9 ak-num">@NumberDisplay.Quantity(transit.ReceivedMt, "MT")</dd>
+                    </dl>
+                </section>
+            }
+            else
+            {
+                <section class="ak-form-section">
+                    <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                             model="@((UiText.T(Context, "مالک و جنس", "Owner and product"), (string?)null))" />
+                    <div class="ak-form-grid">
+                        <div class="ak-field">
+                            <label for="OwnerKey" class="ak-label">@UiText.T(Context, "مالک تیل", "Owner") <span class="ak-req">*</span></label>
+                            <select id="OwnerKey" name="OwnerKey" class="ak-input" data-ak-entity-combobox>
+                                <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                                @foreach (var group in Model.Owners.GroupBy(o => o.PartyType))
+                                {
+                                    <optgroup label="@CustodyParty.GroupLabel(group.Key)">
+                                        @foreach (var o in group)
+                                        {
+                                            var key = CustodyParty.Key(o.PartyType, o.PartyId);
+                                            <option value="@key" selected="@(key == form.OwnerKey)">@o.Name</option>
+                                        }
+                                    </optgroup>
+                                }
+                            </select>
+                            <span class="ak-field-error">@Html.ValidationMessage("OwnerKey")</span>
+                        </div>
+                        <div class="ak-field">
+                            <label for="ProductId" class="ak-label">@UiText.T(Context, "جنس", "Product") <span class="ak-req">*</span></label>
+                            <select id="ProductId" name="ProductId" class="ak-input">
+                                <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                                @foreach (var p in Model.Products)
+                                {
+                                    <option value="@p.Id" selected="@(p.Id == form.ProductId)">@p.Name</option>
+                                }
+                            </select>
+                            <span class="ak-field-error">@Html.ValidationMessage("ProductId")</span>
+                        </div>
+                    </div>
+                </section>
+            }
+
+            @if (inTransitOnly)
+            {
+                <section class="ak-form-section">
+                    <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                             model="@((UiText.T(Context, "بارگیری و حمل", "Loading and transport"),
+                                       (string?)UiText.T(Context, "تا رسیدن، موجودی مخزن تغییر نمی‌کند.", "Tank stock does not change until it arrives.")))" />
+                    <div class="ak-form-grid">
+                        <div class="ak-field">
+                            <label for="LoadedQuantityMt" class="ak-label">@UiText.T(Context, "مقدار بارگیری (MT)", "Loaded quantity (MT)") <span class="ak-req">*</span></label>
+                            <input id="LoadedQuantityMt" name="LoadedQuantityMt" type="number" step="0.0001" min="0" class="ak-input" value="@form.LoadedQuantityMt" />
+                            <span class="ak-field-error">@Html.ValidationMessage("LoadedQuantityMt")</span>
+                        </div>
+                        <div class="ak-field">
+                            <label for="LoadedDate" class="ak-label">@UiText.T(Context, "تاریخ بارگیری", "Loading date")</label>
+                            <input id="LoadedDate" name="LoadedDate" type="date" class="ak-input" value="@((form.LoadedDate ?? form.Date).ToString("yyyy-MM-dd"))" />
+                        </div>
+                        <div class="ak-field">
+                            <label for="OriginDescription" class="ak-label">@UiText.T(Context, "مبدأ / مسیر", "Origin / route")</label>
+                            <input id="OriginDescription" name="OriginDescription" class="ak-input" value="@form.OriginDescription" maxlength="200" />
+                        </div>
+                        <div class="ak-field">
+                            <label for="TransportReference" class="ak-label">@UiText.T(Context, "وسیله حمل (موتر، واگن، بارنامه)", "Vehicle / waybill")</label>
+                            <input id="TransportReference" name="TransportReference" class="ak-input" value="@form.TransportReference" maxlength="200" />
+                        </div>
+                        <input type="hidden" name="Date" value="@form.Date.ToString("yyyy-MM-dd")" />
+                    </div>
+                </section>
+            }
+            else
+            {
+                <section class="ak-form-section">
+                    <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                             model="@((UiText.T(Context, "ورود به مخزن", "Into storage"), (string?)null))" />
+                    <div class="ak-form-grid">
+                        <div class="ak-field">
+                            <label for="LocationKey" class="ak-label">@UiText.T(Context, "ترمینال / مخزن", "Terminal / tank") <span class="ak-req">*</span></label>
+                            <select id="LocationKey" name="LocationKey" class="ak-input">
+                                <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                                @foreach (var l in Model.Locations)
+                                {
+                                    <option value="@l.Key" selected="@(l.Key == form.LocationKey)">@l.Label</option>
+                                }
+                            </select>
+                            <span class="ak-field-error">@Html.ValidationMessage("LocationKey")</span>
+                        </div>
+                        <div class="ak-field">
+                            <label for="QuantityMt" class="ak-label">@UiText.T(Context, "مقدار رسید (MT)", "Received quantity (MT)") <span class="ak-req">*</span></label>
+                            <input id="QuantityMt" name="QuantityMt" type="number" step="0.0001" min="0" class="ak-input" value="@form.QuantityMt" />
+                            <span class="ak-field-error">@Html.ValidationMessage("QuantityMt")</span>
+                        </div>
+                        <div class="ak-field">
+                            <label for="Date" class="ak-label">@UiText.T(Context, "تاریخ رسید", "Receipt date") <span class="ak-req">*</span></label>
+                            <input id="Date" name="Date" type="date" class="ak-input" value="@form.Date.ToString("yyyy-MM-dd")" />
+                        </div>
+                        <div class="ak-field">
+                            <label for="DocumentNumber" class="ak-label">@UiText.T(Context, "شماره سند رسید", "Receipt document no.")</label>
+                            <input id="DocumentNumber" name="DocumentNumber" class="ak-input" value="@form.DocumentNumber" maxlength="100" />
+                        </div>
+                    </div>
+                </section>
+
+                @if (transit is null)
+                {
+                    <details class="ak-advanced">
+                        <summary class="ak-advanced-summary fw-bold">@UiText.T(Context, "اطلاعات بارگیری (اختیاری — برای ثبت کسر بین بارگیری و رسید)", "Loading info (optional — to record loading/receipt difference)")</summary>
+                        <div class="ak-form-grid">
+                            <div class="ak-field">
+                                <label for="LoadedQuantityMt" class="ak-label">@UiText.T(Context, "مقدار بارگیری (MT)", "Loaded quantity (MT)")</label>
+                                <input id="LoadedQuantityMt" name="LoadedQuantityMt" type="number" step="0.0001" min="0" class="ak-input" value="@form.LoadedQuantityMt" />
+                            </div>
+                            <div class="ak-field">
+                                <label for="LoadedDate" class="ak-label">@UiText.T(Context, "تاریخ بارگیری", "Loading date")</label>
+                                <input id="LoadedDate" name="LoadedDate" type="date" class="ak-input" value="@form.LoadedDate?.ToString("yyyy-MM-dd")" />
+                            </div>
+                            <div class="ak-field">
+                                <label for="OriginDescription" class="ak-label">@UiText.T(Context, "مبدأ / مسیر", "Origin / route")</label>
+                                <input id="OriginDescription" name="OriginDescription" class="ak-input" value="@form.OriginDescription" maxlength="200" />
+                            </div>
+                            <div class="ak-field">
+                                <label for="TransportReference" class="ak-label">@UiText.T(Context, "وسیله حمل (موتر، واگن، بارنامه)", "Vehicle / waybill")</label>
+                                <input id="TransportReference" name="TransportReference" class="ak-input" value="@form.TransportReference" maxlength="200" />
+                            </div>
+                        </div>
+                    </details>
+                }
+            }
+
+            <section class="ak-form-section">
+                <div class="ak-form-grid">
+                    <div class="ak-field ak-col-full">
+                        <label for="Notes" class="ak-label">@UiText.T(Context, "توضیحات (اختیاری)", "Notes (optional)")</label>
+                        <textarea id="Notes" name="Notes" class="ak-input" rows="2" maxlength="1000">@form.Notes</textarea>
+                    </div>
+                </div>
+            </section>
+
+            <partial name="~/Views/Shared/Components/Ak/_AkFooterActions.cshtml"
+                     model="@((inTransitOnly ? UiText.T(Context, "ثبت بار در راه", "Register load") : UiText.T(Context, "ثبت ورود", "Record receipt"), backUrl ?? "/", UiText.T(Context, "انصراف", "Cancel")))" />
+        </form>
+    </div>
+</div>
