@@ -2298,6 +2298,12 @@ namespace PTGOilSystem.Web.Migrations
                     b.Property<int>("CustodyLotId")
                         .HasColumnType("integer");
 
+                    b.Property<decimal?>("DensityKgPerM3")
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<decimal?>("DensityTemperatureC")
+                        .HasColumnType("numeric(8,3)");
+
                     b.Property<int>("Direction")
                         .HasColumnType("integer");
 
@@ -2314,6 +2320,13 @@ namespace PTGOilSystem.Web.Migrations
                     b.Property<int?>("LossResponsibility")
                         .HasColumnType("integer");
 
+                    b.Property<string>("MeasurementReference")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<decimal?>("MeasurementTemperatureC")
+                        .HasColumnType("numeric(8,3)");
+
                     b.Property<DateTime>("MovementDate")
                         .HasColumnType("timestamp with time zone");
 
@@ -2329,6 +2342,9 @@ namespace PTGOilSystem.Web.Migrations
 
                     b.Property<int?>("ReversalOfCustodyMovementId")
                         .HasColumnType("integer");
+
+                    b.Property<decimal?>("SourceLiters")
+                        .HasColumnType("numeric(18,4)");
 
                     b.Property<int?>("StorageTankId")
                         .HasColumnType("integer");
@@ -2361,6 +2377,8 @@ namespace PTGOilSystem.Web.Migrations
 
                     b.ToTable("CustodyMovements", null, t =>
                         {
+                            t.HasCheckConstraint("CK_CustodyMovements_Measurement", "(\"SourceLiters\" IS NULL AND \"DensityKgPerM3\" IS NULL AND \"MeasurementTemperatureC\" IS NULL AND \"DensityTemperatureC\" IS NULL AND \"MeasurementReference\" IS NULL) OR (\"SourceLiters\" IS NOT NULL AND \"SourceLiters\" > 0 AND \"DensityKgPerM3\" IS NOT NULL AND \"DensityKgPerM3\" > 0 AND \"MeasurementTemperatureC\" IS NOT NULL AND \"DensityTemperatureC\" IS NOT NULL AND \"MeasurementTemperatureC\" = \"DensityTemperatureC\" AND \"MeasurementReference\" IS NOT NULL AND length(trim(\"MeasurementReference\")) > 0 AND round(\"SourceLiters\" * \"DensityKgPerM3\" / 1000000, 4) = \"QuantityMt\")");
+
                             t.HasCheckConstraint("CK_CustodyMovements_PositiveQuantity", "\"QuantityMt\" > 0");
                         });
                 });

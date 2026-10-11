@@ -259,6 +259,7 @@
                         if (m.LossResponsibility.HasValue) details.Add(UiText.T(Context, "مسئول: ", "Responsible: ") + responsibilityLabels[m.LossResponsibility.Value]);
                         if (!string.IsNullOrWhiteSpace(m.DocumentNumber)) details.Add(UiText.T(Context, "سند ", "Doc ") + m.DocumentNumber);
                         if (!string.IsNullOrWhiteSpace(m.Notes)) details.Add(m.Notes!);
+                        if (!string.IsNullOrWhiteSpace(m.MeasurementDescription)) details.Add(m.MeasurementDescription!);
                         <tr class="@(muted ? "text-muted" : null)">
                             <td>@m.MovementDate.ToDisplayDate()</td>
                             <td>

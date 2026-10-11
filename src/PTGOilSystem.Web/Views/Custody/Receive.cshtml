@@ -26,7 +26,7 @@
             @Html.FormToken()
             <input type="hidden" name="LotId" value="@form.LotId" />
             <input type="hidden" name="InTransitOnly" value="@(inTransitOnly ? "true" : "false")" />
-            <div asp-validation-summary="ModelOnly" class="alert alert-danger ak-form-alert"></div>
+            <div asp-validation-summary="All" class="alert alert-danger ak-form-alert"></div>
 
             <div class="alert alert-info ak-form-alert">
                 <i class="bi bi-info-circle" aria-hidden="true"></i>
@@ -136,9 +136,26 @@
                             <span class="ak-field-error">@Html.ValidationMessage("LocationKey")</span>
                         </div>
                         <div class="ak-field">
+                            <label for="QuantityUnit" class="ak-label">واحد اندازه‌گیری</label>
+                            <select id="QuantityUnit" name="QuantityUnit" class="ak-input">
+                                <option value="MT" selected="@(form.QuantityUnit == "MT")">تُن متریک (MT)</option>
+                                <option value="L" selected="@(form.QuantityUnit == "L")">لیتر</option>
+                            </select>
+                        </div>
+                        <div class="ak-field" data-custody-measurement="MT">
                             <label for="QuantityMt" class="ak-label">@UiText.T(Context, "مقدار رسید (MT)", "Received quantity (MT)") <span class="ak-req">*</span></label>
                             <input id="QuantityMt" name="QuantityMt" type="number" step="0.0001" min="0" class="ak-input" value="@form.QuantityMt" />
                             <span class="ak-field-error">@Html.ValidationMessage("QuantityMt")</span>
+                        </div>
+                        <div class="ak-col-full" data-custody-measurement="L" hidden="@(form.QuantityUnit != "L")">
+                            <p class="text-muted">چگالیِ همین محصول در دمای حجم ثبت‌شده لازم است. نرخ تبدیل پیش‌فرض یا تصحیح حرارتی حدسی انجام نمی‌شود.</p>
+                            <div class="ak-form-grid">
+                                <div class="ak-field"><label for="QuantityLiters" class="ak-label">مقدار رسید (لیتر)</label><input id="QuantityLiters" name="QuantityLiters" type="number" step="0.0001" min="0.0001" class="ak-input" value="@form.QuantityLiters" /></div>
+                                <div class="ak-field"><label for="DensityKgPerM3" class="ak-label">چگالی معتبر (kg/m³)</label><input id="DensityKgPerM3" name="DensityKgPerM3" type="number" step="0.000001" min="0.000001" class="ak-input" value="@form.DensityKgPerM3" /></div>
+                                <div class="ak-field"><label for="VolumeTemperatureC" class="ak-label">دمای اندازه‌گیری حجم (°C)</label><input id="VolumeTemperatureC" name="VolumeTemperatureC" type="number" step="0.001" class="ak-input" value="@form.VolumeTemperatureC" /></div>
+                                <div class="ak-field"><label for="DensityTemperatureC" class="ak-label">دمای چگالی سند (°C)</label><input id="DensityTemperatureC" name="DensityTemperatureC" type="number" step="0.001" class="ak-input" value="@form.DensityTemperatureC" /></div>
+                                <div class="ak-field ak-col-full"><label for="MeasurementReference" class="ak-label">مرجع اندازه‌گیری و چگالی محصول</label><input id="MeasurementReference" name="MeasurementReference" class="ak-input" maxlength="500" value="@form.MeasurementReference" /></div>
+                            </div>
                         </div>
                         <div class="ak-field">
                             <label for="Date" class="ak-label">@UiText.T(Context, "تاریخ رسید", "Receipt date") <span class="ak-req">*</span></label>
@@ -191,3 +208,19 @@
         </form>
     </div>
 </div>
+
+@section Scripts {
+    <script>
+        (() => {
+            const unit = document.getElementById('QuantityUnit');
+            if (!unit) return;
+            const update = () => document.querySelectorAll('[data-custody-measurement]').forEach(group => {
+                const active = group.dataset.custodyMeasurement === unit.value;
+                group.hidden = !active;
+                group.querySelectorAll('input').forEach(input => { input.disabled = !active; });
+            });
+            unit.addEventListener('change', update);
+            update();
+        })();
+    </script>
+}

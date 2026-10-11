@@ -43,8 +43,13 @@ public static class CustodyModelConfiguration
         movement.ToTable("CustodyMovements", table =>
         {
             table.HasCheckConstraint("CK_CustodyMovements_PositiveQuantity", "\"QuantityMt\" > 0");
+            table.HasCheckConstraint("CK_CustodyMovements_Measurement", "(\"SourceLiters\" IS NULL AND \"DensityKgPerM3\" IS NULL AND \"MeasurementTemperatureC\" IS NULL AND \"DensityTemperatureC\" IS NULL AND \"MeasurementReference\" IS NULL) OR (\"SourceLiters\" IS NOT NULL AND \"SourceLiters\" > 0 AND \"DensityKgPerM3\" IS NOT NULL AND \"DensityKgPerM3\" > 0 AND \"MeasurementTemperatureC\" IS NOT NULL AND \"DensityTemperatureC\" IS NOT NULL AND \"MeasurementTemperatureC\" = \"DensityTemperatureC\" AND \"MeasurementReference\" IS NOT NULL AND length(trim(\"MeasurementReference\")) > 0 AND round(\"SourceLiters\" * \"DensityKgPerM3\" / 1000000, 4) = \"QuantityMt\")");
         });
         movement.Property(x => x.QuantityMt).HasColumnType("numeric(18,4)");
+        movement.Property(x => x.SourceLiters).HasColumnType("numeric(18,4)");
+        movement.Property(x => x.DensityKgPerM3).HasColumnType("numeric(18,6)");
+        movement.Property(x => x.MeasurementTemperatureC).HasColumnType("numeric(8,3)");
+        movement.Property(x => x.DensityTemperatureC).HasColumnType("numeric(8,3)");
         movement.HasIndex(x => new { x.CustodyLotId, x.TerminalId, x.StorageTankId });
         movement.HasIndex(x => new { x.TerminalId, x.StorageTankId });
         movement.HasIndex(x => x.OperationKey);

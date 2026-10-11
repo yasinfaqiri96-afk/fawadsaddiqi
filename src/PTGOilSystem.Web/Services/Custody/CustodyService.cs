@@ -48,6 +48,7 @@ public sealed class CustodyInTransitInput
 
 public sealed class CustodyReceiptInput
 {
+    public CustodyMeasurement? Measurement { get; init; }
     /// <summary>پر = رسیدِ یک بارِ در راه؛ خالی = ورودِ مستقیمِ بارِ تازه.</summary>
     public int? LotId { get; init; }
     public CustodyOwner? Owner { get; init; }
@@ -164,7 +165,10 @@ public sealed class CustodyService(
     public Task<int> ReceiveAsync(CustodyReceiptInput input, CancellationToken ct = default)
         => InTransactionAsync(async () =>
         {
-            RequirePositive(input.QuantityMt, "مقدار رسید");
+            var quantityMt = input.Measurement?.ToMt() ?? input.QuantityMt;
+            RequirePositive(quantityMt, "مقدار رسید");
+            if (input.Measurement is not null && input.QuantityMt != 0m && input.QuantityMt != quantityMt)
+                throw Rule("CUSTODY_MEASUREMENT_MISMATCH", "مقدار MT با لیتر و چگالی سند یکسان نیست.");
             CustodyLot lot;
             if (input.LotId.HasValue)
             {
@@ -193,11 +197,19 @@ public sealed class CustodyService(
                 db.CustodyLots.Add(lot);
             }
 
-            await EnsureInboundLocationAsync(input.Location, lot.ProductId, input.QuantityMt, ct);
+            await EnsureInboundLocationAsync(input.Location, lot.ProductId, quantityMt, ct);
 
             var operationKey = Guid.NewGuid();
             var movement = NewMovement(lot, CustodyMovementKind.Receipt, CustodyDirection.In, input.Location,
-                input.ReceiptDate, input.QuantityMt, operationKey);
+                input.ReceiptDate, quantityMt, operationKey);
+            if (input.Measurement is { } measured)
+            {
+                movement.SourceLiters = measured.Liters;
+                movement.DensityKgPerM3 = measured.DensityKgPerM3;
+                movement.MeasurementTemperatureC = measured.VolumeTemperatureC;
+                movement.DensityTemperatureC = measured.DensityTemperatureC;
+                movement.MeasurementReference = measured.Reference.Trim();
+            }
             movement.DocumentNumber = Clean(input.DocumentNumber);
             movement.Notes = Clean(input.Notes);
             formTokens.Stamp(input.FormToken, "Custody.Receipt", MovementEntity);
@@ -514,6 +526,11 @@ public sealed class CustodyService(
                     reversalDate ?? original.MovementDate, original.QuantityMt, reversalKey);
                 reversal.ReversalOfCustodyMovement = original;
                 reversal.LossResponsibility = original.LossResponsibility;
+                reversal.SourceLiters = original.SourceLiters;
+                reversal.DensityKgPerM3 = original.DensityKgPerM3;
+                reversal.MeasurementTemperatureC = original.MeasurementTemperatureC;
+                reversal.DensityTemperatureC = original.DensityTemperatureC;
+                reversal.MeasurementReference = original.MeasurementReference;
                 reversal.DocumentNumber = original.DocumentNumber;
                 reversal.Notes = $"لغو: {reason.Trim()}";
                 reversals.Add(reversal);
@@ -835,7 +852,9 @@ public sealed class CustodyService(
             movement.StorageTankId,
             movement.QuantityMt,
             movement.MovementDate,
-            movement.OperationKey
+            movement.OperationKey,
+            movement.SourceLiters, movement.DensityKgPerM3, movement.MeasurementTemperatureC,
+            movement.DensityTemperatureC, movement.MeasurementReference
         }), ct: ct);
 
     private static void RequirePositive(decimal value, string label)

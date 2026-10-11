@@ -80,6 +80,12 @@ public sealed class CustodyIndexViewModel
 
 public sealed class CustodyReceiveForm
 {
+    public string QuantityUnit { get; set; } = "MT";
+    public decimal? QuantityLiters { get; set; }
+    public decimal? DensityKgPerM3 { get; set; }
+    public decimal? VolumeTemperatureC { get; set; }
+    public decimal? DensityTemperatureC { get; set; }
+    [MaxLength(500)] public string? MeasurementReference { get; set; }
     /// <summary>پر = رسیدِ بارِ در راه.</summary>
     public int? LotId { get; set; }
 

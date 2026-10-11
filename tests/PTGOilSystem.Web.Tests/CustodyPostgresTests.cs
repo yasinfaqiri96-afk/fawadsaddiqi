@@ -648,4 +648,65 @@ public sealed class CustodyPostgresTests(ConcurrencyVersionPostgresFixture fixtu
         => (await Reader(db).GetPhysicalPositionsAsync())
             .Where(p => p.StorageTankId == tankId)
             .Sum(p => p.TotalMt);
+    [Fact]
+    public async Task Liter_Receipt_Preserves_Source_And_Reversal_Without_Recalculating_Old_MT_Stock()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        var oldLot = await ReceiveAsync(w, 20m, tankId: w.SmallTankId);
+        int lotId;
+        await using (var db = fixture.CreateDbContext())
+        {
+            lotId = await Writer(db).ReceiveAsync(new CustodyReceiptInput
+            {
+                Owner = new(AccountingPartyType.Customer, w.CustomerId), ProductId = w.ProductId,
+                Location = new(w.TerminalId, w.SmallTankId), ReceiptDate = Day2,
+                Measurement = new(100000m, 800m, 15m, 15m, "Diesel density certificate D-2026")
+            });
+            var movement = await db.CustodyMovements.SingleAsync(x => x.CustodyLotId == lotId);
+            Assert.Equal(80m, movement.QuantityMt);
+            Assert.Equal(100000m, movement.SourceLiters);
+            Assert.Equal(800m, movement.DensityKgPerM3);
+            Assert.Equal(15m, movement.MeasurementTemperatureC);
+            Assert.Equal(15m, movement.DensityTemperatureC);
+            var detail = await Reader(db).GetLotDetailAsync(lotId);
+            Assert.Contains("Diesel density certificate", Assert.Single(detail!.Movements).MeasurementDescription);
+            await Writer(db).ReverseOperationAsync(movement.OperationKey, "Measurement cancelled");
+            var reversal = await db.CustodyMovements.SingleAsync(x => x.ReversalOfCustodyMovementId == movement.Id);
+            Assert.Equal(movement.SourceLiters, reversal.SourceLiters);
+            Assert.Equal(movement.MeasurementReference, reversal.MeasurementReference);
+        }
+        Assert.Equal(20m, (await LotAsync(oldLot)).BalanceMt);
+        Assert.Equal(0m, (await LotAsync(lotId)).BalanceMt);
+        await using var verify = fixture.CreateDbContext();
+        Assert.Null((await verify.CustodyMovements.SingleAsync(x => x.CustodyLotId == oldLot)).SourceLiters);
+        Assert.False(await verify.InventoryMovements.AnyAsync(x => x.StorageTankId == w.SmallTankId));
+    }
+
+    [Fact]
+    public async Task Liter_Receipt_Uses_Converted_Mass_For_Capacity_And_Rejects_MT_Mismatch()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        await ReceiveAsync(w, 100m, tankId: w.SmallTankId);
+        await using var db = fixture.CreateDbContext();
+        var input = new CustodyReceiptInput
+        {
+            Owner = new(AccountingPartyType.Customer, w.CustomerId), ProductId = w.ProductId,
+            Location = new(w.TerminalId, w.SmallTankId), ReceiptDate = Day2,
+            Measurement = new(30000m, 800m, 15m, 15m, "Verified product certificate")
+        };
+        var ex = await Assert.ThrowsAsync<BusinessRuleException>(() => Writer(db).ReceiveAsync(input));
+        Assert.Equal("CUSTODY_TANK_CAPACITY", ex.Code);
+        db.ChangeTracker.Clear();
+        ex = await Assert.ThrowsAsync<BusinessRuleException>(() => Writer(db).ReceiveAsync(new()
+        {
+            Owner = input.Owner, ProductId = w.ProductId, Location = input.Location, ReceiptDate = Day2,
+            QuantityMt = 23m, Measurement = input.Measurement
+        }));
+        Assert.Equal("CUSTODY_MEASUREMENT_MISMATCH", ex.Code);
+        Assert.Equal(100m, await db.CustodyMovements.Where(x => x.StorageTankId == w.SmallTankId)
+            .SumAsync(x => x.Direction == CustodyDirection.In ? x.QuantityMt : -x.QuantityMt));
+    }
+
 }

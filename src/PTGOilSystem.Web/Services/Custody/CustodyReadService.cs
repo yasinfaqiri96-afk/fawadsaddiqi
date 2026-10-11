@@ -67,7 +67,8 @@ public sealed record CustodyMovementRow(
     bool IsReversed,
     bool IsReversal,
     int? RelatedLotId,
-    string? RelatedLotNumber);
+    string? RelatedLotNumber,
+    string? MeasurementDescription = null);
 
 public sealed record CustodyHoldRow(
     int Id,
@@ -284,6 +285,7 @@ public sealed class CustodyReadService(
             .Select(m => new
             {
                 m.Id, m.OperationKey, m.Kind, m.Direction, m.MovementDate, m.QuantityMt,
+                m.SourceLiters, m.DensityKgPerM3, m.MeasurementTemperatureC, m.MeasurementReference,
                 TerminalName = m.Terminal!.Name,
                 TankCode = m.StorageTank != null ? m.StorageTank.TankCode : null,
                 m.DocumentNumber, m.CounterpartyName, m.VehicleReference, m.LossResponsibility, m.Notes,
@@ -325,7 +327,8 @@ public sealed class CustodyReadService(
                 return new CustodyMovementRow(m.Id, m.OperationKey, m.Kind, m.Direction, m.MovementDate, m.QuantityMt,
                     m.TerminalName, m.TankCode, m.DocumentNumber, m.CounterpartyName, m.VehicleReference,
                     m.LossResponsibility, m.Notes, m.IsReversed, m.IsReversal,
-                    other?.CustodyLotId, other?.LotNumber);
+                    other?.CustodyLotId, other?.LotNumber,
+                    m.SourceLiters.HasValue ? $"{m.SourceLiters:0.####} لیتر · چگالی {m.DensityKgPerM3:0.######} kg/m³ · دما {m.MeasurementTemperatureC:0.###} °C · {m.MeasurementReference}" : null);
             }).ToList(),
             holds);
     }

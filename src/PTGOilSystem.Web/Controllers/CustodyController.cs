@@ -154,8 +154,12 @@ public class CustodyController(
         }
 
         var location = CustodyLocationKey.Parse(form.LocationKey);
+        if (form.QuantityUnit is not ("MT" or "L"))
+            ModelState.AddModelError(nameof(form.QuantityUnit), "واحد اندازه‌گیری معتبر نیست.");
         if (form.InTransitOnly && !form.LotId.HasValue)
         {
+            if (form.QuantityUnit != "MT")
+                ModelState.AddModelError(nameof(form.QuantityUnit), "ثبت بار در راه فعلاً به MT است؛ لیتر و چگالی را در رسید مخزن ثبت کنید.");
             if (form.LoadedQuantityMt is not > 0m)
                 ModelState.AddModelError(nameof(form.LoadedQuantityMt), "مقدار بارگیری را وارد کنید.");
         }
@@ -163,7 +167,14 @@ public class CustodyController(
         {
             if (location is null)
                 ModelState.AddModelError(nameof(form.LocationKey), "مخزن را انتخاب کنید.");
-            if (form.QuantityMt is not > 0m)
+            if (form.QuantityUnit == "L")
+            {
+                if (form.QuantityLiters is not > 0m || form.DensityKgPerM3 is not > 0m
+                    || !form.VolumeTemperatureC.HasValue || !form.DensityTemperatureC.HasValue
+                    || string.IsNullOrWhiteSpace(form.MeasurementReference))
+                    ModelState.AddModelError(nameof(form.QuantityLiters), "لیتر، چگالی، دمای حجم و چگالی و مرجع معتبر همین محصول را کامل کنید.");
+            }
+            else if (form.QuantityMt is not > 0m)
                 ModelState.AddModelError(nameof(form.QuantityMt), "مقدار رسید را وارد کنید.");
         }
 
@@ -198,7 +209,10 @@ public class CustodyController(
                     ProductId = form.ProductId,
                     Location = location!,
                     ReceiptDate = form.Date,
-                    QuantityMt = form.QuantityMt!.Value,
+                    QuantityMt = form.QuantityUnit == "L" ? 0m : form.QuantityMt!.Value,
+                    Measurement = form.QuantityUnit == "L" ? new CustodyMeasurement(form.QuantityLiters!.Value,
+                        form.DensityKgPerM3!.Value, form.VolumeTemperatureC!.Value, form.DensityTemperatureC!.Value,
+                        form.MeasurementReference!) : null,
                     LoadedDate = form.LoadedDate,
                     LoadedQuantityMt = form.LoadedQuantityMt,
                     OriginDescription = form.OriginDescription,

@@ -104,6 +104,11 @@ public class CustodyMovement : BaseEntity
 
     public DateTime MovementDate { get; set; }
     public decimal QuantityMt { get; set; }
+    public decimal? SourceLiters { get; set; }
+    public decimal? DensityKgPerM3 { get; set; }
+    public decimal? MeasurementTemperatureC { get; set; }
+    public decimal? DensityTemperatureC { get; set; }
+    [MaxLength(500)] public string? MeasurementReference { get; set; }
 
     public Guid OperationKey { get; set; }
 
