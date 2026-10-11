@@ -1,0 +1,41 @@
+@model PTGOilSystem.Web.Services.Custody.CustodyReconciliationPreview
+@using PTGOilSystem.Web.Helpers
+@{
+    ViewData["Title"] = "تطبیق دفتر کل امانی";
+    ViewData["HideSectionTabs"] = true;
+}
+<div class="ak-form-page">
+    <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+             model="@(("تطبیق دفتر کل امانی", false, (string?)null, (string?)null, (string?)null, (string?)null,
+                       "حساب مالک", "bi-arrow-right", (string?)Url.Action("Owner", new { key = ViewBag.OwnerKey })))" />
+    <section class="ak-form-section">
+        <h2 class="h6">پیش‌نمایش اسناد @ViewBag.OwnerName</h2>
+        <p class="text-muted">فقط اسناد ثبت‌شده و فعال با تاریخ و مبلغ اصلی‌شان وارد دفتر کل می‌شوند. اسناد موجود دوباره ثبت نمی‌شوند. صندوق، موجودی و حساب عملیاتی تغییر نمی‌کنند.</p>
+        @if (Model.Blocker is not null) { <div class="alert alert-warning">@Model.Blocker</div> }
+        <div class="ak-table-wrap">
+            <table class="ak-table">
+                <thead><tr><th>سند</th><th>تاریخ</th><th>مبلغ (دالر)</th><th>کمیشن (دالر)</th><th>وضعیت</th></tr></thead>
+                <tbody>
+                @foreach (var row in Model.Rows)
+                {
+                    <tr><td>@row.Reference</td><td>@row.Date.ToCalendarString("yyyy-MM-dd")</td>
+                        <td class="ak-num">@row.AmountUsd.ToString("N2")</td><td class="ak-num">@row.CommissionUsd.ToString("N2")</td>
+                        <td>@(row.Blocker ?? (row.AlreadyPosted ? "قبلاً ثبت شده" : "نیازمند ثبت"))</td></tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </section>
+    @if (Model.CanApply)
+    {
+        <form asp-action="Reconcile" method="post" class="ak-form-section">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="key" value="@ViewBag.OwnerKey" />
+            <input type="hidden" name="fingerprint" value="@Model.Fingerprint" />
+            <div class="mb-3"><label for="reason" class="form-label">دلیل تطبیق</label><input id="reason" name="reason" class="form-control" maxlength="500" required /></div>
+            <div class="form-check mb-3"><input id="confirmed" name="confirmed" value="true" type="checkbox" class="form-check-input" required />
+                <label for="confirmed" class="form-check-label">پیش‌نمایش را بررسی کردم و ثبت @Model.MissingCount سند را تأیید می‌کنم.</label></div>
+            <button class="btn btn-primary" type="submit">تأیید و ثبت تطبیق</button>
+        </form>
+    }
+</div>

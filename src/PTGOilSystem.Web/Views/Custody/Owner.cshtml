@@ -18,6 +18,12 @@
             new() { Label = CustodyFinanceForm.Title(CustodyFinanceKind.ServiceFee), Href = Url.Action("Finance", new { key, kind = CustodyFinanceKind.ServiceFee }), Icon = "bi-tools" }
         }
         : null;
+    if (User.IsInRole(PTGOilSystem.Web.Security.AuthRoles.Admin) && Model.SupportsFinance)
+    {
+        var menu = ViewData["AkHeaderKebab"] as List<AkHeaderMenuItem> ?? new();
+        menu.Add(new() { Label = "تطبیق دفتر کل", Href = Url.Action("Reconcile", new { key }), Icon = "bi-check2-square" });
+        ViewData["AkHeaderKebab"] = menu;
+    }
 
     var kpis = new List<AkKpiItem>
     {

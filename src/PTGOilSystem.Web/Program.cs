@@ -138,6 +138,7 @@ builder.Services.AddScoped<IAccountingJournalNumberGenerator, AccountingJournalN
 builder.Services.AddScoped<IContractBalanceTransferAccountingAdapter, ContractBalanceTransferAccountingAdapter>();
 builder.Services.AddScoped<ICustodyAccountingAdapter, CustodyAccountingAdapter>();
 builder.Services.AddScoped<PTGOilSystem.Web.Services.Custody.ICustodySaleService, PTGOilSystem.Web.Services.Custody.CustodySaleService>();
+builder.Services.AddScoped<PTGOilSystem.Web.Services.Custody.CustodyAccountingReconciliationService>();
 builder.Services.AddScoped<ISupplierPaymentAllocationAccountingAdapter, SupplierPaymentAllocationAccountingAdapter>();
 builder.Services.AddScoped<ICompanyOwnershipReportService, CompanyOwnershipReportService>();
 // مرحله ۹ — گزارش فقط‌خواندنیِ آمادگی Cutover. هیچ Flag را روشن و هیچ Migration را اجرا نمی‌کند.

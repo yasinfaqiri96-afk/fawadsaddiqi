@@ -22,7 +22,8 @@ public class CustodyController(
     ICustodyReadService reader,
     IFormTokenGuard formTokens,
     IAfghanistanBusinessClock businessClock,
-    ICustodySaleService sales) : Controller
+    ICustodySaleService sales,
+    CustodyAccountingReconciliationService reconciliation) : Controller
 {
     public async Task<IActionResult> Index(string tab = "others", string? owner = null, int? productId = null)
     {
@@ -407,6 +408,33 @@ public class CustodyController(
         var account = await reader.GetOwnerAccountAsync(new CustodyOwner(type, partyId));
         ViewBag.Lots = await reader.GetLotSummariesAsync(new CustodyLotFilter(type, partyId));
         return View(account);
+    }
+
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    public async Task<IActionResult> Reconcile(string key)
+    {
+        if (!CustodyParty.TryParse(key, out var type, out var partyId)) return NotFound();
+        ViewBag.OwnerKey = key;
+        ViewBag.OwnerName = await reader.GetPartyNameAsync(type, partyId);
+        return View(await reconciliation.PreviewAsync(new CustodyOwner(type, partyId)));
+    }
+
+    [Authorize(Policy = AuthPolicies.AdminOnly)]
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> Reconcile(string key, string fingerprint, bool confirmed, string reason)
+    {
+        if (!CustodyParty.TryParse(key, out var type, out var partyId)) return NotFound();
+        try
+        {
+            var count = await reconciliation.ApplyAsync(new CustodyOwner(type, partyId), fingerprint, confirmed, reason ?? "");
+            TempData["ok"] = $"تطبیق امانی انجام شد؛ {count} سند دفتر کل ثبت شد.";
+            return RedirectToAction(nameof(Owner), new { key });
+        }
+        catch (Exception ex) when (ex is BusinessRuleException or PTGOilSystem.Web.Services.Accounting.AccountingValidationException)
+        {
+            TempData["err"] = ex is BusinessRuleException ? ex.Message : "تطبیق انجام نشد؛ دوره و حساب‌های دفتر کل را بررسی کنید.";
+            return RedirectToAction(nameof(Reconcile), new { key });
+        }
     }
 
     [Authorize(Policy = AuthPolicies.ManageData)]

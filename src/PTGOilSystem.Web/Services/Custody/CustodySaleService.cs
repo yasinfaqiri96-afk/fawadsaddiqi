@@ -101,10 +101,15 @@ public sealed class CustodySaleService(
             RequireUsd(input.Currency);
             RequirePositive(input.QuantityMt, "مقدار فروش", 4);
             RequirePositive(input.UnitPriceUsd, "قیمت فی تُن", 4);
+            if (!Enum.IsDefined(input.Settlement) || !Enum.IsDefined(input.CommissionRecognition))
+                throw Rule("CUSTODY_SALE_TERMS", "شرایط فروش و زمان کمیشن معتبر نیست.");
 
             var lot = await db.CustodyLots.AsNoTracking().FirstOrDefaultAsync(l => l.Id == input.LotId, ct)
                 ?? throw Rule("CUSTODY_LOT_NOT_FOUND", "بار امانی پیدا نشد.");
             RequireFinancialOwner(lot.OwnerPartyType);
+            var owner = new CustodyOwner(lot.OwnerPartyType, lot.OwnerPartyId);
+            await LockOwnerAsync(owner, ct);
+            await EnsureAccountingCompleteAsync(owner, ct);
             var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == input.CustomerId, ct)
                 ?? throw Rule("CUSTODY_CUSTOMER", "مشتری را انتخاب کنید.");
             if (!customer.IsActive)
@@ -193,6 +198,8 @@ public sealed class CustodySaleService(
     {
         RequireUsd(input.Currency);
         RequirePositive(input.AmountUsd, "مبلغ", 2);
+        if (!Enum.IsDefined(input.Kind))
+            throw Rule("CUSTODY_FINANCE_KIND", "نوع سند مالی معتبر نیست.");
 
         CustodySale? sale = null;
         CustodyOwner owner;
@@ -237,6 +244,7 @@ public sealed class CustodySaleService(
             if (sale.Status != CustodyDocumentStatus.Posted)
                 throw Rule("CUSTODY_SALE_CANCELLED", "این فروش لغو شده است.");
         }
+        await EnsureAccountingCompleteAsync(owner, ct);
 
         var amount = input.AmountUsd;
         var commission = 0m;
@@ -315,10 +323,8 @@ public sealed class CustodySaleService(
             ledger.Post(row);
         await db.SaveChangesAsync(ct);
 
-        // ژورنالِ فروش اگر وقتی دفتر کل خاموش بود Skip شده، پیش از وصول ساخته می‌شود (Duplicate =
-        // قبلاً هست)؛ وگرنه وصول، دریافتنیِ مشتری را بی‌آن‌که بدهکار شده باشد بستانکار می‌کرد.
-        if (sale is not null)
-            RequireJournal(await accounting.TryPostSaleAsync(sale, ct));
+        // سند تاریخی فقط در تطبیقِ صریحِ دارای پیش‌نمایش ثبت می‌شود؛ دریافت امروز
+        // مجوز ساخت خودکار ژورنالِ فروش یا دریافت‌های تاریخی نیست.
         RequireJournal(await accounting.TryPostFinanceAsync(entry, sale, ct));
         await audit.LogAsync(FinanceEntity, entry.Id, AuditAction.Insert, diff: Describe(new
         {
@@ -593,6 +599,12 @@ public sealed class CustodySaleService(
     }
 
     // ---------------------------------------------------------------- helpers
+
+    private async Task EnsureAccountingCompleteAsync(CustodyOwner owner, CancellationToken ct)
+    {
+        if (accounting.IsEnabled && await CustodyAccountingReconciliationService.HasMissingJournalsAsync(db, owner, ct))
+            throw Rule("CUSTODY_RECONCILIATION_REQUIRED", "اسناد قبلی این مالک با دفتر کل تطبیق نشده‌اند؛ نخست پیش‌نمایش تطبیق امانی را بررسی و تأیید کنید.");
+    }
 
     private async Task<T> InTransactionAsync<T>(Func<Task<T>> work, CancellationToken ct)
     {

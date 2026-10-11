@@ -17,6 +17,8 @@ public sealed record CustodyAccountingResult(CustodyPostingStatus Status, Journa
 
 public interface ICustodyAccountingAdapter
 {
+    bool IsEnabled { get; }
+    bool IsPilotEnabled { get; }
     Task<CustodyAccountingResult> TryPostSaleAsync(CustodySale sale, CancellationToken cancellationToken = default);
 
     Task<CustodyAccountingResult> TryPostFinanceAsync(
@@ -51,6 +53,8 @@ public sealed class CustodyAccountingAdapter(
     public const string SourceModule = "Custody";
     public const string AccountingDisabledReason = "ACCOUNTING_DISABLED";
     private readonly AccountingOptions _options = options.Value;
+    public bool IsEnabled => _options.Enabled;
+    public bool IsPilotEnabled => _options.Pilots.Custody;
 
     public static string SaleEventId(int saleId) => $"Custody:Sale:{saleId}:Created";
     public static string FinanceEventId(int entryId) => $"Custody:Finance:{entryId}:Created";
@@ -93,6 +97,10 @@ public sealed class CustodyAccountingAdapter(
         var context = await ResolveContextAsync(entry.OwnerPartyType, cancellationToken);
         if (context.SkipReason is not null)
             return Skip("Finance", entry.Id, context.SkipReason);
+        if (sale is not null && !await db.JournalEntries.AsNoTracking().AnyAsync(j =>
+                j.CompanyId == context.CompanyId && j.SourceModule == SourceModule
+                && j.SourceEventId == SaleEventId(sale.Id) && j.Status == JournalEntryStatus.Posted, cancellationToken))
+            return Skip("Finance", entry.Id, "CUSTODY_RECONCILIATION_REQUIRED");
 
         var s = context.Settings!;
         var owner = (entry.OwnerPartyType, entry.OwnerPartyId);

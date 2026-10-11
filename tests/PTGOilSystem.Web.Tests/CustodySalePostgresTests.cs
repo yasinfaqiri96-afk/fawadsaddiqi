@@ -650,7 +650,7 @@ public sealed class CustodySalePostgresTests(ConcurrencyVersionPostgresFixture f
     }
 
     [Fact]
-    public async Task Collection_On_A_Sale_Recorded_While_Ledger_Was_Off_First_Posts_The_Missing_Sale_Journal()
+    public async Task Historical_Sale_Requires_Explicit_Preview_And_Reconciliation_Before_Collection()
     {
         RequirePostgres();
         var w = await SeedAsync();
@@ -665,12 +665,160 @@ public sealed class CustodySalePostgresTests(ConcurrencyVersionPostgresFixture f
             });
         }
 
+        var blocked = await Assert.ThrowsAsync<BusinessRuleException>(() => FinanceAsync(w, CustodyFinanceKind.Collection, 7_000m, saleId));
+        Assert.Equal("CUSTODY_RECONCILIATION_REQUIRED", blocked.Code);
+        Assert.Equal(0m, await CashBalanceAsync(w));
+        await using (var db = fixture.CreateDbContext())
+        {
+            Assert.False(await db.JournalEntries.AnyAsync(j => j.SourceEventId == CustodyAccountingAdapter.SaleEventId(saleId)));
+            var service = Reconciliation(db);
+            var owner = new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId);
+            var preview = await service.PreviewAsync(owner);
+            Assert.Equal(1, preview.MissingCount);
+            Assert.True(preview.CanApply);
+            Assert.Equal(1, await service.ApplyAsync(owner, preview.Fingerprint, true, "تأیید اسناد اصلی"));
+        }
         await FinanceAsync(w, CustodyFinanceKind.Collection, 7_000m, saleId);
 
         // بدونِ ژورنالِ فروش، وصول دریافتنیِ مشتری را منفی می‌کرد.
         Assert.Equal(8_000m, await JournalBalanceAsync(w.CompanyId, "1200", AccountingPartyType.Customer, w.CustomerId));
         Assert.Equal(-8_000m, await JournalBalanceAsync(w.CompanyId, "1210", AccountingPartyType.Supplier, w.OwnerId));
         Assert.Equal(-6_790m, await JournalBalanceAsync(w.CompanyId, "2600", AccountingPartyType.Supplier, w.OwnerId));
+    }
+
+    private static CustodyAccountingReconciliationService Reconciliation(ApplicationDbContext db)
+    {
+        var options = Options.Create(new AccountingOptions { Enabled = true, Pilots = new AccountingPilotOptions { Custody = true } });
+        var company = new SystemCompanyProvider(db);
+        var guard = new PeriodGuard(db, new FiscalCalendarService(db));
+        var posting = new AccountingPostingService(db, guard, options, company);
+        var adapter = new CustodyAccountingAdapter(db, posting, company, options, NullLogger<CustodyAccountingAdapter>.Instance);
+        return new(db, adapter, company, guard, new AuditService(db));
+    }
+
+    [Fact]
+    public async Task Concurrent_Historical_Reconciliation_Posts_The_Approved_Document_Only_Once()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        var owner = new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId);
+        string fingerprint;
+        await using (var db = fixture.CreateDbContext())
+        {
+            await Sales(db, accountingEnabled: false).RecordFinanceAsync(new CustodyFinanceInput
+                { Kind = CustodyFinanceKind.ServiceFee, Owner = owner, EntryDate = SaleDay, AmountUsd = 50m });
+            fingerprint = (await Reconciliation(db).PreviewAsync(owner)).Fingerprint;
+        }
+        async Task<bool> Apply()
+        {
+            await using var db = fixture.CreateDbContext();
+            try { Assert.Equal(1, await Reconciliation(db).ApplyAsync(owner, fingerprint, true, "تأیید")); return true; }
+            catch (BusinessRuleException ex) { Assert.Equal("CUSTODY_RECONCILIATION_STALE", ex.Code); return false; }
+        }
+        Assert.Single((await Task.WhenAll(Task.Run(Apply), Task.Run(Apply))).Where(ok => ok));
+        await using var verify = fixture.CreateDbContext();
+        Assert.False(await CustodyAccountingReconciliationService.HasMissingJournalsAsync(verify, owner, CancellationToken.None));
+        Assert.Equal(50m, await JournalBalanceAsync(w.CompanyId, "2600", AccountingPartyType.Supplier, w.OwnerId));
+    }
+
+    [Fact]
+    public async Task Customer_Statement_Shows_Custody_Sale_And_Collections_Without_Inflating_Company_Balance()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        var saleId = await SellAsync(w);
+        await FinanceAsync(w, CustodyFinanceKind.Collection, 6_000m, saleId);
+        await FinanceAsync(w, CustodyFinanceKind.DirectToOwner, 2_000m, saleId);
+        await using var db = fixture.CreateDbContext();
+        var reader = PTGOilSystem.Web.Services.PartyStatements.PartyStatementReadService.CreateDefault(db);
+        var statement = await reader.GetStatementAsync(new(PTGOilSystem.Web.Models.PartyStatements.PartyStatementPartyType.Customer, w.CustomerId), new());
+        var saleRow = Assert.Single(statement.Rows.Where(r => r.SourceType == "CustodyCustomerSale"));
+        Assert.Contains("7,000.00", saleRow.Description);
+        Assert.Contains("15,000.00", saleRow.Description);
+        Assert.Equal(2, statement.Rows.Count(r => r.SourceType == "CustodyCustomerFinance"));
+        Assert.All(statement.Rows, r => Assert.Equal(0m, r.SignedAmount));
+        Assert.Equal(0m, statement.Summary.ClosingBalance);
+        Assert.Equal(0m, statement.Summary.TotalTrade);
+        Assert.Equal(0m, statement.Summary.TotalReceipt);
+        Assert.False(await db.LedgerEntries.AnyAsync(l => l.CustomerId == w.CustomerId));
+        var filtered = await reader.GetStatementAsync(new(PTGOilSystem.Web.Models.PartyStatements.PartyStatementPartyType.Customer, w.CustomerId),
+            new() { FromDate = SaleDay.AddDays(1), ToDate = SaleDay.AddDays(1) });
+        Assert.DoesNotContain(filtered.Rows, r => r.SourceType == "CustodyCustomerSale");
+        Assert.Equal(2, filtered.Rows.Count(r => r.SourceType == "CustodyCustomerFinance"));
+        Assert.Equal(0m, filtered.Summary.OpeningBalance);
+        Assert.Equal(0m, filtered.Summary.ClosingBalance);
+    }
+
+    [Fact]
+    public async Task Historical_Cash_Sale_Reconciliation_Is_ReadOnly_Until_Confirmed_And_Posts_All_Documents_Once()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        await using (var db = fixture.CreateDbContext())
+            await Sales(db, accountingEnabled: false).CreateSaleAsync(new CustodySaleInput
+            {
+                LotId = w.LotId, Location = new CustodyLocation(w.TerminalId, w.TankId), CustomerId = w.CustomerId,
+                SaleDate = SaleDay, QuantityMt = 30m, UnitPriceUsd = 500m,
+                CommissionMethod = CustodyCommissionMethod.PercentOfSale, CommissionRate = 3m,
+                Settlement = CustodySaleSettlement.CashToCompany, CashAccountId = w.CashAccountId
+            });
+        await using var check = fixture.CreateDbContext();
+        var service = Reconciliation(check);
+        var owner = new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId);
+        var preview = await service.PreviewAsync(owner);
+        var journalsBefore = await check.JournalEntries.CountAsync();
+        var paymentsBefore = await check.PaymentTransactions.CountAsync();
+        var ledgerBefore = await check.LedgerEntries.CountAsync();
+        Assert.Equal(2, preview.MissingCount);
+        Assert.Equal(journalsBefore, await check.JournalEntries.CountAsync());
+        var noConfirmation = await Assert.ThrowsAsync<BusinessRuleException>(() => service.ApplyAsync(owner, preview.Fingerprint, false, "بررسی"));
+        Assert.Equal("CUSTODY_RECONCILIATION_CONFIRMATION", noConfirmation.Code);
+        Assert.Equal(2, await service.ApplyAsync(owner, preview.Fingerprint, true, "بررسی اسناد نقدی"));
+        Assert.Equal(paymentsBefore, await check.PaymentTransactions.CountAsync());
+        Assert.Equal(ledgerBefore, await check.LedgerEntries.CountAsync());
+        Assert.Equal(15_000m, await JournalBalanceAsync(w.CompanyId, "1100", cashAccountId: w.CashAccountId));
+        Assert.Equal(-14_550m, await JournalBalanceAsync(w.CompanyId, "2600", AccountingPartyType.Supplier, w.OwnerId));
+        Assert.Equal(0m, await JournalBalanceAsync(w.CompanyId, "1200", AccountingPartyType.Customer, w.CustomerId));
+        var repeat = await Assert.ThrowsAsync<BusinessRuleException>(() => service.ApplyAsync(owner, preview.Fingerprint, true, "دوباره"));
+        Assert.Equal("CUSTODY_RECONCILIATION_STALE", repeat.Code);
+        Assert.Equal(journalsBefore + 2, await check.JournalEntries.CountAsync());
+        Assert.False((await service.PreviewAsync(owner)).CanApply);
+    }
+
+    [Fact]
+    public async Task Historical_Reconciliation_Rejects_Changed_Preview_And_Closed_Period_Without_Partial_Posting()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        await using (var db = fixture.CreateDbContext())
+            await Sales(db, accountingEnabled: false).RecordFinanceAsync(new CustodyFinanceInput
+            {
+                Kind = CustodyFinanceKind.ServiceFee, Owner = new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId),
+                EntryDate = SaleDay, AmountUsd = 120m
+            });
+        await using var check = fixture.CreateDbContext();
+        var service = Reconciliation(check);
+        var owner = new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId);
+        var preview = await service.PreviewAsync(owner);
+        var period = await check.FiscalPeriods.SingleAsync(p => p.CompanyId == w.CompanyId && p.PeriodNumber == 9);
+        period.Status = FiscalPeriodStatus.HardLocked;
+        await check.SaveChangesAsync();
+        try
+        {
+            var stale = await Assert.ThrowsAsync<BusinessRuleException>(() => service.ApplyAsync(owner, preview.Fingerprint, true, "بررسی"));
+            Assert.Equal("CUSTODY_RECONCILIATION_STALE", stale.Code);
+            var closed = await service.PreviewAsync(owner);
+            Assert.False(closed.CanApply);
+            Assert.All(closed.Rows, r => Assert.NotNull(r.Blocker));
+            var blocked = await Assert.ThrowsAsync<BusinessRuleException>(() => service.ApplyAsync(owner, closed.Fingerprint, true, "بررسی"));
+            Assert.Equal("CUSTODY_RECONCILIATION_BLOCKED", blocked.Code);
+            Assert.True(await CustodyAccountingReconciliationService.HasMissingJournalsAsync(check, owner, CancellationToken.None));
+        }
+        finally
+        {
+            period.Status = FiscalPeriodStatus.Open;
+            await check.SaveChangesAsync();
+        }
     }
 
     [Fact]

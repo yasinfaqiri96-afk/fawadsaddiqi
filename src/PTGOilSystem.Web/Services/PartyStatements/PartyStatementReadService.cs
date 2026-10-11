@@ -284,6 +284,8 @@ public sealed class PartyStatementReadService : IPartyStatementReadService
         }
 
         var allRows = entries.Select(e => MapLedgerRow(e, policy)).ToList();
+        if (party.PartyType == PartyStatementPartyType.Customer && !filter.ContractId.HasValue && !filter.CompanyId.HasValue)
+            allRows.AddRange(await BuildCustodyCustomerRowsAsync(party.PartyId, filter, ct));
 
         // سند فروش همیشه ContractId را روی خودِ سطر دفتر ندارد؛ قرارداد از خودِ فاکتور
         // فروش خوانده می‌شود تا در نمای «قراردادها» زیر گروهِ اشتباه یا «بدون قرارداد»
@@ -302,6 +304,62 @@ public sealed class PartyStatementReadService : IPartyStatementReadService
         }
 
         return SplitAtPeriodStart(allRows, filter.FromDate);
+    }
+
+    /// <summary>
+    /// گردش امانی مشتری در همان صورت‌حساب و خروجی‌ها دیده می‌شود، با شرح مبلغ و مالک.
+    /// ستون‌های Receipt/Outflow تهی می‌مانند: این طلبِ مالک است و مانده ملکی شرکت نیست.
+    /// </summary>
+    private async Task<List<PartyStatementRow>> BuildCustodyCustomerRowsAsync(int customerId, PartyStatementFilter filter, CancellationToken ct)
+    {
+        var salesQuery = _db.CustodySales.AsNoTracking().Where(s => s.CustomerId == customerId);
+        var financeQuery = _db.CustodyFinanceEntries.AsNoTracking().Where(e => e.CustomerId == customerId
+            && (e.Kind == CustodyFinanceKind.Collection || e.Kind == CustodyFinanceKind.DirectToOwner));
+        if (filter.ToDate.HasValue)
+        {
+            var toExclusive = DateTime.SpecifyKind(filter.ToDate.Value.Date.AddDays(1), DateTimeKind.Utc);
+            salesQuery = salesQuery.Where(s => s.SaleDate < toExclusive);
+            financeQuery = financeQuery.Where(e => e.EntryDate < toExclusive);
+        }
+        var sales = await salesQuery.OrderBy(s => s.Id).ToListAsync(ct);
+        var finance = await financeQuery.OrderBy(e => e.Id).ToListAsync(ct);
+        var keys = sales.Select(s => new PartyKey(s.OwnerPartyType == AccountingPartyType.Customer
+            ? PartyStatementPartyType.Customer : PartyStatementPartyType.Supplier, s.OwnerPartyId)).Distinct().ToArray();
+        var names = await _parties.GetNamesAsync(keys, ct);
+        var rows = new List<PartyStatementRow>();
+        foreach (var sale in sales)
+        {
+            var ownerKey = new PartyKey(sale.OwnerPartyType == AccountingPartyType.Customer ? PartyStatementPartyType.Customer : PartyStatementPartyType.Supplier, sale.OwnerPartyId);
+            var paid = finance.Where(e => e.CustodySaleId == sale.Id && e.Status == CustodyDocumentStatus.Posted).Sum(e => e.AmountUsd);
+            rows.Add(new PartyStatementRow
+            {
+                Date = sale.SaleDate, CreatedAtUtc = sale.CreatedAtUtc, SourceType = "CustodyCustomerSale", SourceId = sale.Id,
+                Reference = sale.SaleNumber, OriginalCurrency = sale.Currency,
+                Title = sale.Status == CustodyDocumentStatus.Cancelled ? "فروش امانی لغو شده" : "فروش امانی به نمایندگی مالک",
+                Description = $"فروش امانی {sale.SaleNumber} · مالک: {names.GetValueOrDefault(ownerKey, "—")} · {sale.QuantityMt:N4} تُن × {sale.UnitPriceUsd:N4} دالر · مبلغ {sale.AmountUsd:N2} دالر · وصول‌نشده {(sale.Status == CustodyDocumentStatus.Cancelled ? 0m : sale.AmountUsd - paid):N2} دالر؛ این طلب مربوط به مالک است.",
+                Detail = $"مبلغ {sale.AmountUsd:N2} دالر · وصول‌نشده {(sale.Status == CustodyDocumentStatus.Cancelled ? 0m : sale.AmountUsd - paid):N2} دالر · مالک: {names.GetValueOrDefault(ownerKey, "—")}",
+                IsCancelled = sale.Status == CustodyDocumentStatus.Cancelled
+            });
+        }
+        foreach (var entry in finance)
+        {
+            var reference = sales.FirstOrDefault(s => s.Id == entry.CustodySaleId)?.SaleNumber ?? $"AF-{entry.Id:D5}";
+            var title = entry.Kind == CustodyFinanceKind.DirectToOwner ? "پرداخت مستقیم مشتری به مالک" : "دریافت مشتری برای مالک امانی";
+            if (entry.Status == CustodyDocumentStatus.Cancelled) title += " — لغو شده";
+            rows.Add(new PartyStatementRow
+            {
+                Date = entry.EntryDate, CreatedAtUtc = entry.CreatedAtUtc, SourceType = "CustodyCustomerFinance", SourceId = entry.Id,
+                Reference = reference, OriginalCurrency = entry.Currency, Title = title,
+                Description = $"{title} · {reference} · {entry.AmountUsd:N2} دالر؛ مربوط به حساب امانی مالک.",
+                Detail = $"{entry.AmountUsd:N2} دالر · فروش {reference}", IsCancelled = entry.Status == CustodyDocumentStatus.Cancelled
+            });
+        }
+        if (!string.IsNullOrWhiteSpace(filter.SourceType))
+            rows = rows.Where(r => r.SourceType == filter.SourceType).ToList();
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+            rows = rows.Where(r => r.Description.Contains(filter.Search.Trim(), StringComparison.OrdinalIgnoreCase)
+                || (r.Reference?.Contains(filter.Search.Trim(), StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+        return rows;
     }
 
     private const string SaleSourceType = "Sale";
