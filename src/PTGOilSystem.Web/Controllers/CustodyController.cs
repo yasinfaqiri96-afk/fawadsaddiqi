@@ -24,8 +24,13 @@ public class CustodyController(
     IAfghanistanBusinessClock businessClock,
     ICustodySaleService sales,
     CustodyAccountingReconciliationService reconciliation,
-    CustodyConversionService conversions) : Controller
+    CustodyConversionService conversions,
+    CustodyGlReadService glReports) : Controller
 {
+    [Authorize(Policy = AuthPolicies.ManageData)]
+    public async Task<IActionResult> LedgerReport(DateTime? asOf = null)
+        => View(await glReports.ReadAsync(asOf ?? businessClock.Today));
+
     [Authorize(Policy = AuthPolicies.ManageData)]
     public async Task<IActionResult> ConvertPurchase(int id)
     {

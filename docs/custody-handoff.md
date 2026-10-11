@@ -15,3 +15,7 @@
 - EF Pending-model و ارتقای بکاپ ساختگی پیش از امانی موفق شدند؛ Migration تازه وجود ندارد. E2E مرورگر و تکمیل سایر قابلیت‌ها هنوز تأیید نشده‌اند.
 - ادامه پس از fb536f4: تبدیل خرید USD/MT و پیوند با فروشنده موجود اضافه شده؛ Migration جدید و حدود تأیید در [custody-conversion-testing.md](custody-conversion-testing.md). ادامه بعدی از head همین شاخه باشد؛ ارقام Suite کامل قدیمی مربوط به قبل این Migration هستند.
 - ورود لیتر مخزن/رسید، با چگالی و دمای مستند و بدون بازنویسی داده قبلی، اضافه شده است؛ [custody-measurement-testing.md](custody-measurement-testing.md). سایر عملیات و بارگیری اولیه در راه هنوز MT هستند.
+
+### راپور GL افزوده‌شده
+
+راپور readonly تطبیق امانی از همان GL در `Custody/LedgerReport` با تفکیک طلب/بدهی هر مالک اضافه شد.32 تست فروش/GL و مرورگر سه عرض موفق‌اند؛ [custody-gl-report-testing.md](custody-gl-report-testing.md). بیلانس عمومی، چندارزی و سایر قابلیت‌های باز هنوز نیازمند ادامه‌اند.

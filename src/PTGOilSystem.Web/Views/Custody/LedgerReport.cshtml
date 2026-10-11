@@ -1,0 +1,42 @@
+@model PTGOilSystem.Web.Services.Custody.CustodyGlReport
+@using PTGOilSystem.Web.Models.Custody
+@{
+    ViewData["Title"] = "راپور دفتر کل امانی";
+    ViewData["HideSectionTabs"] = true;
+}
+<div class="ak-form-page ak-detail-page">
+    <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+             model="@(("راپور دفتر کل امانی", false, (string?)null, (string?)null, (string?)null, (string?)null,
+                "امانی", "bi-arrow-right", (string?)Url.Action("Index")))" />
+    <form method="get" class="ak-list-toolbar-actions">
+        <label for="asOf">تا تاریخ</label><input id="asOf" name="asOf" type="date" class="ak-input" value="@Model.AsOf.ToString("yyyy-MM-dd")" />
+        <button type="submit" class="btn btn-sm btn-light">نمایش راپور</button>
+    </form>
+    <p class="text-muted">بدهی و طلب هر مالک جدا محاسبه می‌شود؛ مانده مالکان مختلف تهاتر نمی‌شود. حساب طلب امانیِ منتظر وصول، کاهندهٔ دریافتنی مشتری است و بدهیِ بالفعل به مالک نیست.</p>
+    @foreach (var message in Model.Blockers)
+    { <div class="alert alert-warning">@message</div> }
+    @if (!Model.IsReconciled)
+    {
+        <div class="alert alert-warning">تطبیق کامل نیست. اسناد فعال بدون ژورنال: @Model.MissingActiveDocuments. اختلاف‌ها و سطرهای فاقد هویت را بررسی کنید؛ این صفحه هیچ سندی ثبت نمی‌کند.</div>
+    }
+    <section class="ak-form-section">
+        <dl class="row">
+            <dt class="col-sm-6">طلب شرکت از مالکان (دارایی)</dt><dd class="col-sm-6 ak-num">@Model.OwnerReceivablesUsd.ToString("N2") USD</dd>
+            <dt class="col-sm-6">وجوه پرداختنی به مالکان (بدهی)</dt><dd class="col-sm-6 ak-num">@Model.OwnerPayablesUsd.ToString("N2") USD</dd>
+            <dt class="col-sm-6">دریافتنی مشتریان فروش نمایندگی</dt><dd class="col-sm-6 ak-num">@Model.AgencyCustomerReceivableUsd.ToString("N2") USD</dd>
+            <dt class="col-sm-6">طلب امانی منتظر وصول (کاهندهٔ دریافتنی)</dt><dd class="col-sm-6 ak-num">@Model.PendingCollectionContraUsd.ToString("N2") USD</dd>
+            <dt class="col-sm-6">دریافتنی خالص نمایندگی برای شرکت</dt><dd class="col-sm-6 ak-num">@Model.AgencyNetCompanyReceivableUsd.ToString("N2") USD</dd>
+            @if (Model.UnassignedFundsNetCreditUsd != 0m || Model.UnassignedPendingNetCreditUsd != 0m)
+            {
+                <dt class="col-sm-6">مانده فاقد هویت معتبر (وجوه / منتظر وصول)</dt><dd class="col-sm-6 ak-num">@Model.UnassignedFundsNetCreditUsd.ToString("N2") / @Model.UnassignedPendingNetCreditUsd.ToString("N2") USD</dd>
+            }
+        </dl>
+        <div class="ak-table-wrap"><table class="ak-table ak-detail-table">
+            <thead><tr><th>مالک</th><th>طلب شرکت</th><th>بدهی به مالک</th><th>منتظر وصول</th><th>مانده عملیاتی</th><th>اختلاف GL و عملیاتی</th></tr></thead>
+            <tbody>@foreach (var row in Model.Owners)
+            {
+                <tr><td><a asp-action="Owner" asp-route-key="@CustodyParty.Key(row.Owner.PartyType, row.Owner.PartyId)">@row.Name</a></td><td class="ak-num">@row.OwnerReceivableUsd.ToString("N2")</td><td class="ak-num">@row.OwnerPayableUsd.ToString("N2")</td><td class="ak-num">@row.PendingNetCreditUsd.ToString("N2")</td><td class="ak-num">@row.OperationalFundsUsd.ToString("N2")</td><td class="ak-num">@row.DifferenceUsd.ToString("N2")</td></tr>
+            }</tbody>
+        </table></div>
+    </section>
+</div>

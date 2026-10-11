@@ -18,6 +18,12 @@
             new() { Label = CustodyFinanceForm.Title(CustodyFinanceKind.ServiceFee), Href = Url.Action("Finance", new { key, kind = CustodyFinanceKind.ServiceFee }), Icon = "bi-tools" }
         }
         : null;
+    if (canManage)
+    {
+        var menu = ViewData["AkHeaderKebab"] as List<AkHeaderMenuItem> ?? new();
+        menu.Add(new() { Label = "راپور دفتر کل امانی", Href = Url.Action("LedgerReport"), Icon = "bi-journal-check" });
+        ViewData["AkHeaderKebab"] = menu;
+    }
     if (User.IsInRole(PTGOilSystem.Web.Security.AuthRoles.Admin) && Model.SupportsFinance)
     {
         var menu = ViewData["AkHeaderKebab"] as List<AkHeaderMenuItem> ?? new();

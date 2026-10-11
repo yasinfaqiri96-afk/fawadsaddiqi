@@ -11,6 +11,7 @@ using PTGOilSystem.Web.Services.Custody;
 using PTGOilSystem.Web.Services.Exceptions;
 using PTGOilSystem.Web.Services.Ledger;
 using PTGOilSystem.Web.Services.Reporting;
+using PTGOilSystem.Web.Services.Parties;
 using Xunit;
 
 namespace PTGOilSystem.Web.Tests;
@@ -24,6 +25,78 @@ namespace PTGOilSystem.Web.Tests;
 [Collection(CustodyPostgresCollection.CollectionName)]
 public sealed class CustodySalePostgresTests(ConcurrencyVersionPostgresFixture fixture)
 {
+    private static CustodyGlReadService GlReport(ApplicationDbContext db, bool enabled = true)
+        => new(db, new SystemCompanyProvider(db), new PartyDirectory(db), Options.Create(new AccountingOptions { Enabled = enabled }));
+
+    [Fact]
+    public async Task GlReport_SplitsDifferentOwnersDebitAndCredit_AndReconcilesAgencyContra()
+    {
+        RequirePostgres();
+        var payable = await SeedAsync();
+        var receivable = await SeedAsync();
+        await SellAsync(payable, settlement: CustodySaleSettlement.CashToCompany);
+        await SellAsync(receivable, recognition: CustodyCommissionRecognition.OnSale);
+        await using var db = fixture.CreateDbContext();
+        var report = await GlReport(db).ReadAsync(SaleDay.AddDays(1));
+        var credit = Assert.Single(report.Owners.Where(x => x.Owner == new CustodyOwner(AccountingPartyType.Supplier, payable.OwnerId)));
+        var debit = Assert.Single(report.Owners.Where(x => x.Owner == new CustodyOwner(AccountingPartyType.Supplier, receivable.OwnerId)));
+        Assert.Equal(14_550m, credit.OwnerPayableUsd);
+        Assert.Equal(0m, credit.OwnerReceivableUsd);
+        Assert.Equal(450m, debit.OwnerReceivableUsd);
+        Assert.Equal(0m, debit.OwnerPayableUsd);
+        Assert.Equal(0m, credit.DifferenceUsd);
+        Assert.Equal(0m, debit.DifferenceUsd);
+        Assert.Equal(15_000m, debit.PendingNetCreditUsd);
+        Assert.Equal(0m, report.AgencyNetCompanyReceivableUsd);
+        Assert.True(report.OwnerPayablesUsd >= credit.OwnerPayableUsd);
+        Assert.True(report.OwnerReceivablesUsd >= debit.OwnerReceivableUsd);
+    }
+
+    [Fact]
+    public async Task GlReport_CustomerOwnerUsesCorrectLedgerSign_AndHonorsCutoff()
+    {
+        RequirePostgres();
+        var world = await SeedAsync(ownerType: AccountingPartyType.Customer);
+        await using var db = fixture.CreateDbContext();
+        await Sales(db).RecordFinanceAsync(new CustodyFinanceInput
+        {
+            Kind = CustodyFinanceKind.ServiceFee,
+            Owner = new CustodyOwner(AccountingPartyType.Customer, world.OwnerId),
+            EntryDate = SaleDay.AddDays(1), AmountUsd = 100m
+        });
+        var before = await GlReport(db).ReadAsync(SaleDay);
+        Assert.DoesNotContain(before.Owners, x => x.Owner == new CustodyOwner(AccountingPartyType.Customer, world.OwnerId));
+        var after = await GlReport(db).ReadAsync(SaleDay.AddDays(1));
+        var row = Assert.Single(after.Owners.Where(x => x.Owner == new CustodyOwner(AccountingPartyType.Customer, world.OwnerId)));
+        Assert.Equal(100m, row.OwnerReceivableUsd);
+        Assert.Equal(-100m, row.OperationalFundsUsd);
+        Assert.Equal(0m, row.DifferenceUsd);
+    }
+
+    [Fact]
+    public async Task GlReport_DisabledAccountingAndHistoricalGapsAreExplicit_AndNeverPost()
+    {
+        RequirePostgres();
+        var world = await SeedAsync();
+        await using var db = fixture.CreateDbContext();
+        await Sales(db, accountingEnabled: false).RecordFinanceAsync(new CustodyFinanceInput
+        {
+            Kind = CustodyFinanceKind.ServiceFee,
+            Owner = new CustodyOwner(AccountingPartyType.Supplier, world.OwnerId),
+            EntryDate = SaleDay, AmountUsd = 120m
+        });
+        var journals = await db.JournalEntries.CountAsync();
+        var ledger = await db.LedgerEntries.CountAsync();
+        var report = await GlReport(db, enabled: false).ReadAsync(SaleDay.AddDays(1));
+        Assert.False(report.IsReconciled);
+        Assert.NotEmpty(report.Blockers);
+        Assert.True(report.MissingActiveDocuments > 0);
+        var row = Assert.Single(report.Owners.Where(x => x.Owner == new CustodyOwner(AccountingPartyType.Supplier, world.OwnerId)));
+        Assert.Equal(120m, row.DifferenceUsd);
+        Assert.Equal(journals, await db.JournalEntries.CountAsync());
+        Assert.Equal(ledger, await db.LedgerEntries.CountAsync());
+    }
+
     private static readonly DateTime SaleDay = new(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc);
 
     private void RequirePostgres()
