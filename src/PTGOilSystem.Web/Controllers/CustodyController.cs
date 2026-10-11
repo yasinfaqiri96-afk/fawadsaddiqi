@@ -23,8 +23,74 @@ public class CustodyController(
     IFormTokenGuard formTokens,
     IAfghanistanBusinessClock businessClock,
     ICustodySaleService sales,
-    CustodyAccountingReconciliationService reconciliation) : Controller
+    CustodyAccountingReconciliationService reconciliation,
+    CustodyConversionService conversions) : Controller
 {
+    [Authorize(Policy = AuthPolicies.ManageData)]
+    public async Task<IActionResult> ConvertPurchase(int id)
+    {
+        var lot = (await reader.GetLotDetailAsync(id))?.Summary;
+        if (lot is null) return NotFound();
+        return View(await ConversionViewAsync(new CustodyConversionForm { LotId = id, Date = businessClock.Today }, lot));
+    }
+
+    [Authorize(Policy = AuthPolicies.ManageData)]
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> ConvertPurchase(CustodyConversionForm form,
+        [FromForm(Name = FormTokenHtmlHelper.FieldName)] string? formToken = null)
+    {
+        var lot = (await reader.GetLotDetailAsync(form.LotId))?.Summary;
+        if (lot is null) return NotFound();
+        if (ModelState.IsValid)
+        {
+            try
+            {
+                var owner = new CustodyOwner(lot.OwnerPartyType, lot.OwnerPartyId);
+                if (await conversions.ResolveSupplierAsync(owner) is null && form.ConfirmIdentity)
+                {
+                    if (!User.IsInRole("Admin"))
+                        throw new BusinessRuleException("CUSTODY_IDENTITY_ADMIN", "تأیید پیوند هویت فقط توسط مدیر مجاز است.");
+                    await conversions.LinkSupplierIdentityAsync(owner, form.SupplierId ?? 0, form.IdentityEvidence ?? "", true);
+                }
+                await conversions.ConvertAsync(new(form.LotId, form.StorageTankId, form.Date,
+                    form.QuantityMt, form.UnitPriceUsd, form.AgreementReference, formToken));
+                TempData["ok"] = "خرید قطعی ثبت شد؛ مقدار فزیکی مخزن ثابت ماند و حساب امانی تهاتر نشد.";
+                return RedirectToAction(nameof(ConvertPurchase), new { id = form.LotId });
+            }
+            catch (Exception ex) when (ex is BusinessRuleException or PTGOilSystem.Web.Services.Accounting.AccountingValidationException)
+            { ModelState.AddModelError(string.Empty, ex.Message); }
+            catch (DbUpdateException ex) when (formTokens.IsDuplicate(ex))
+            { return RedirectToAction(nameof(ConvertPurchase), new { id = form.LotId }); }
+        }
+        return View(await ConversionViewAsync(form, lot));
+    }
+
+    [Authorize(Policy = AuthPolicies.ManageData)]
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> CancelConversion(int id, string? reason)
+    {
+        var row = await db.CustodyConversions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id);
+        if (row is null) return NotFound();
+        try
+        {
+            await conversions.CancelAsync(id, reason ?? "");
+            TempData["ok"] = "خرید و تغییر مالکیت با هم لغو شدند؛ مقدار فزیکی مخزن ثابت ماند.";
+        }
+        catch (Exception ex) when (ex is BusinessRuleException or PTGOilSystem.Web.Services.Accounting.AccountingValidationException)
+        { TempData["err"] = ex.Message; }
+        return RedirectToAction(nameof(ConvertPurchase), new { id = row.CustodyLotId });
+    }
+
+    private async Task<CustodyConversionViewModel> ConversionViewAsync(CustodyConversionForm form, CustodyLotSummary lot)
+    {
+        var suppliers = await db.Suppliers.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Name)
+            .Select(x => new { x.Id, x.Name }).ToListAsync();
+        return new(form, lot, await conversions.ResolveSupplierAsync(new(lot.OwnerPartyType, lot.OwnerPartyId)),
+            await reader.GetPositionsAsync(lot.LotId), suppliers.Select(x => (x.Id, x.Name)).ToList(),
+            await db.CustodyConversions.AsNoTracking().Include(x => x.Contract).Where(x => x.CustodyLotId == lot.LotId)
+                .OrderByDescending(x => x.Id).ToListAsync());
+    }
+
     public async Task<IActionResult> Index(string tab = "others", string? owner = null, int? productId = null)
     {
         tab = tab is "ours" or "tanks" ? tab : "others";

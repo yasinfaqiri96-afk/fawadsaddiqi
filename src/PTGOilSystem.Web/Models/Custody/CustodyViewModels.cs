@@ -252,3 +252,20 @@ public sealed class CustodyFinanceViewModel
     public IReadOnlyList<(int Id, string Name)> CashAccounts { get; init; } = [];
     public IReadOnlyList<(int Id, string Name)> ExpenseTypes { get; init; } = [];
 }
+
+public sealed class CustodyConversionForm
+{
+    public int LotId { get; set; }
+    public int StorageTankId { get; set; }
+    [DataType(DataType.Date)] public DateTime Date { get; set; }
+    public decimal QuantityMt { get; set; }
+    public decimal UnitPriceUsd { get; set; }
+    [Required, MaxLength(500)] public string AgreementReference { get; set; } = "";
+    public int? SupplierId { get; set; }
+    public bool ConfirmIdentity { get; set; }
+    [MaxLength(500)] public string? IdentityEvidence { get; set; }
+}
+
+public sealed record CustodyConversionViewModel(CustodyConversionForm Form, CustodyLotSummary Lot,
+    int? ResolvedSupplierId, IReadOnlyList<CustodyPosition> Positions,
+    IReadOnlyList<(int Id, string Name)> Suppliers, IReadOnlyList<CustodyConversion> Conversions);

@@ -13,3 +13,4 @@
 - کد بررسی‌شده: `0d661c3` و `8c7dda5`؛ هر دو Push شده‌اند. [PR پیش‌نویس #3](https://github.com/yasinfaqiri96-afk/oil/pull/3) بدون Merge برای بررسی موجود است.
 - نتیجه نهایی این اجرا: Build موفق؛ 128 تست هدفمند موفق؛ Suite کامل 4130 موفق، 18 ناموفق، صفر Skipped. همه شکست‌ها نبود `Payment.xlsx` در `PartnerSettlementImportTests` است. فایل مرجع مجاز را فقط در مسیر مورد انتظار fixture فراهم کنید و Suite را دوباره اجرا کنید؛ فایل واقعی/خصوصی را Commit یا برای سبزکردن تست جعل نکنید.
 - EF Pending-model و ارتقای بکاپ ساختگی پیش از امانی موفق شدند؛ Migration تازه وجود ندارد. E2E مرورگر و تکمیل سایر قابلیت‌ها هنوز تأیید نشده‌اند.
+- ادامه پس از fb536f4: تبدیل خرید USD/MT و پیوند با فروشنده موجود اضافه شده؛ Migration جدید و حدود تأیید در [custody-conversion-testing.md](custody-conversion-testing.md). ادامه بعدی از head همین شاخه باشد؛ ارقام Suite کامل قدیمی مربوط به قبل این Migration هستند.

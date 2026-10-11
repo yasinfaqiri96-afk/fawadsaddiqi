@@ -467,6 +467,10 @@ public sealed class LoadingReceiptCancellationService : ILoadingReceiptCancellat
             return blockers;
         }
 
+        if (await _db.CustodyConversions.AnyAsync(x => x.Status == CustodyDocumentStatus.Posted
+                && _db.LoadingRegisters.Any(l => l.Id == receipt.LoadingRegisterId && l.ContractId == x.ContractId), ct))
+            Add("این رسید مربوط به تبدیل امانی است؛ لغو باید از سند تبدیل و همراه برگشت مالکیت انجام شود.");
+
         var allocationIds = await _db.LoadingReceiptAllocations
             .AsNoTracking()
             .Where(a => a.LoadingReceiptId == receipt.Id)

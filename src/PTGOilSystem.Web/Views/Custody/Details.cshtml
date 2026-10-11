@@ -82,6 +82,7 @@
         CustodyMovementKind.Loss => UiText.T(Context, "کسر / ضایعات", "Loss"),
         CustodyMovementKind.Surplus => UiText.T(Context, "اضافه موجودی", "Surplus"),
         CustodyMovementKind.Sale => UiText.T(Context, "فروش امانی", "Custody sale"),
+        CustodyMovementKind.ConvertedToCompany => "تبدیل به خرید قطعی",
         _ => kind.ToString()
     };
 
@@ -113,6 +114,10 @@
     {
         <div class="ak-list-toolbar">
             <div class="ak-list-toolbar-actions">
+                @if (s.OwnerPartyType is AccountingPartyType.Supplier or AccountingPartyType.Customer or AccountingPartyType.Partner)
+                {
+                    <a class="btn btn-sm btn-light ak-secondary-action" asp-action="ConvertPurchase" asp-route-id="@s.LotId">تبدیل به خرید قطعی</a>
+                }
                 @foreach (var op in operations)
                 {
                     <a class="btn btn-sm btn-light ak-secondary-action" asp-action="Operation" asp-route-id="@s.LotId" asp-route-op="@op">

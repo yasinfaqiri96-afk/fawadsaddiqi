@@ -7,6 +7,23 @@ public static class CustodyModelConfiguration
 {
     public static void ConfigureCustody(this ModelBuilder modelBuilder)
     {
+        var identity = modelBuilder.Entity<CustodySupplierIdentityLink>();
+        identity.ToTable("CustodySupplierIdentityLinks", t => t.HasCheckConstraint("CK_CustodyIdentity_OneRole",
+            "(\"CustomerId\" IS NOT NULL AND \"PartnerId\" IS NULL) OR (\"PartnerId\" IS NOT NULL AND \"CustomerId\" IS NULL)"));
+        identity.HasIndex(x => x.CustomerId).IsUnique();
+        identity.HasIndex(x => x.PartnerId).IsUnique();
+        identity.HasOne<Customer>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
+        identity.HasOne<Partner>().WithMany().HasForeignKey(x => x.PartnerId).OnDelete(DeleteBehavior.Restrict);
+        identity.HasOne<Supplier>().WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Restrict);
+
+        var conversion = modelBuilder.Entity<CustodyConversion>();
+        conversion.ToTable("CustodyConversions", t => t.HasCheckConstraint("CK_CustodyConversion_Quantity", "\"QuantityMt\" > 0"));
+        conversion.Property(x => x.QuantityMt).HasColumnType("numeric(18,4)");
+        conversion.HasIndex(x => x.ContractId).IsUnique();
+        conversion.HasIndex(x => x.StockOperationKey).IsUnique();
+        conversion.HasOne(x => x.CustodyLot).WithMany().HasForeignKey(x => x.CustodyLotId).OnDelete(DeleteBehavior.Restrict);
+        conversion.HasOne(x => x.Contract).WithMany().HasForeignKey(x => x.ContractId).OnDelete(DeleteBehavior.Restrict);
+
         var lot = modelBuilder.Entity<CustodyLot>();
         lot.ToTable("CustodyLots", table =>
         {

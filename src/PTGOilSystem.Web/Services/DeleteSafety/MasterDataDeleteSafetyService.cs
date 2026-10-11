@@ -80,6 +80,9 @@ public class MasterDataDeleteSafetyService
     {
         var usageAreas = new List<string>();
 
+        if (await _db.CustodySupplierIdentityLinks.AnyAsync(x => x.SupplierId == supplierId))
+            usageAreas.Add("پیوند هویت امانی");
+
         if (await _db.CustodyLots.AnyAsync(l => l.OwnerPartyType == AccountingPartyType.Supplier && l.OwnerPartyId == supplierId)
             || await _db.Terminals.AnyAsync(t => t.CustodianPartyType == AccountingPartyType.Supplier && t.CustodianPartyId == supplierId))
             usageAreas.Add("امانی");
@@ -95,6 +98,9 @@ public class MasterDataDeleteSafetyService
     public async Task<MasterDataDeleteSafetyResult> EvaluateCustomerAsync(int customerId)
     {
         var usageAreas = new List<string>();
+
+        if (await _db.CustodySupplierIdentityLinks.AnyAsync(x => x.CustomerId == customerId))
+            usageAreas.Add("پیوند هویت امانی");
 
         if (await _db.CustodyLots.AnyAsync(l => l.OwnerPartyType == AccountingPartyType.Customer && l.OwnerPartyId == customerId)
             || await _db.Terminals.AnyAsync(t => t.CustodianPartyType == AccountingPartyType.Customer && t.CustodianPartyId == customerId))
@@ -217,6 +223,9 @@ public class MasterDataDeleteSafetyService
     public async Task<MasterDataDeleteSafetyResult> EvaluatePartnerAsync(int partnerId)
     {
         var usageAreas = new List<string>();
+
+        if (await _db.CustodySupplierIdentityLinks.AnyAsync(x => x.PartnerId == partnerId))
+            usageAreas.Add("پیوند هویت امانی");
 
         if (await _db.CustodyLots.AnyAsync(l => l.OwnerPartyType == AccountingPartyType.Partner && l.OwnerPartyId == partnerId)
             || await _db.Terminals.AnyAsync(t => t.CustodianPartyType == AccountingPartyType.Partner && t.CustodianPartyId == partnerId))

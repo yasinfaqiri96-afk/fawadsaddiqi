@@ -1,0 +1,72 @@
+@model PTGOilSystem.Web.Models.Custody.CustodyConversionViewModel
+@using PTGOilSystem.Web.Models.Entities
+@{
+    ViewData["Title"] = "تبدیل به خرید قطعی";
+    var form = Model.Form;
+    var identityNeeded = Model.ResolvedSupplierId is null;
+}
+<div class="ak-form-page">
+    <div class="ak-form-page-content">
+        <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+                 model="@(("تبدیل به خرید قطعی — " + Model.Lot.LotNumber, true,
+                    (string?)null, (string?)null, (string?)null, (string?)null,
+                    "بازگشت", "bi-arrow-right", (string?)Url.Action("Details", new { id = Model.Lot.LotId })))" />
+        <form asp-action="ConvertPurchase" method="post" class="ak-form">
+            @Html.AntiForgeryToken()
+            @Html.FormToken()
+            <input type="hidden" name="LotId" value="@Model.Lot.LotId" />
+            <div asp-validation-summary="All" class="alert alert-danger ak-form-alert"></div>
+            <p class="alert alert-info ak-form-alert">@Model.Lot.OwnerName · @Model.Lot.ProductName — مالکیت تغییر می‌کند؛ مقدار فزیکی مخزن ثابت می‌ماند. حساب امانی با بدهی خرید خودکار تهاتر نمی‌شود.</p>
+            <section class="ak-form-section">
+                <div class="ak-form-grid">
+                    <div class="ak-field"><label for="StorageTankId" class="ak-label">مخزن</label>
+                        <select id="StorageTankId" name="StorageTankId" class="ak-input" required>
+                            <option value="">انتخاب مخزن</option>
+                            @foreach (var p in Model.Positions.Where(x => x.StorageTankId.HasValue && x.QuantityMt > 0))
+                            { <option value="@p.StorageTankId" selected="@(form.StorageTankId == p.StorageTankId)">@p.TerminalName / @p.TankCode — @NumberDisplay.Quantity(p.QuantityMt, "MT")</option> }
+                        </select></div>
+                    <div class="ak-field"><label for="Date" class="ak-label">تاریخ خرید</label><input id="Date" name="Date" type="date" class="ak-input" value="@form.Date.ToString("yyyy-MM-dd")" required /></div>
+                    <div class="ak-field"><label for="QuantityMt" class="ak-label">مقدار خرید (MT)</label><input id="QuantityMt" name="QuantityMt" type="number" step="0.0001" min="0.0001" class="ak-input" value="@form.QuantityMt" required /></div>
+                    <div class="ak-field"><label for="UnitPriceUsd" class="ak-label">قیمت توافقی هر تُن (دالر)</label><input id="UnitPriceUsd" name="UnitPriceUsd" type="number" step="0.0001" min="0.0001" class="ak-input" value="@form.UnitPriceUsd" required /></div>
+                    <div class="ak-field"><label for="AgreementReference" class="ak-label">مرجع توافق خرید</label><input id="AgreementReference" name="AgreementReference" class="ak-input" maxlength="500" value="@form.AgreementReference" required /></div>
+                </div>
+            </section>
+            @if (identityNeeded)
+            {
+                <section class="ak-form-section">
+                    <p>نقش فروشندهٔ این مالک هنوز تأیید نشده است. مدیر باید نقش موجود همان شخص را با سند معتبر پیوند دهد؛ شخص تازه ساخته نمی‌شود.</p>
+                    @if (User.IsInRole("Admin"))
+                    {
+                        <div class="ak-form-grid">
+                            <div class="ak-field"><label for="SupplierId" class="ak-label">فروشندهٔ موجودِ همین مالک</label><select id="SupplierId" name="SupplierId" class="ak-input"><option value="">انتخاب فروشنده</option>@foreach (var s in Model.Suppliers) { <option value="@s.Id" selected="@(form.SupplierId == s.Id)">@s.Name</option> }</select></div>
+                            <div class="ak-field"><label for="IdentityEvidence" class="ak-label">مرجع تأیید هویت یکسان</label><input id="IdentityEvidence" name="IdentityEvidence" class="ak-input" maxlength="500" value="@form.IdentityEvidence" /></div>
+                        </div>
+                        <label><input type="checkbox" name="ConfirmIdentity" value="true" checked="@form.ConfirmIdentity" /> تأیید می‌کنم مالک و فروشندهٔ انتخاب‌شده، مطابق سند، یک شخص هستند.</label>
+                    }
+                </section>
+            }
+            <button type="submit" class="btn btn-primary ak-primary-action">ثبت خرید قطعی</button>
+        </form>
+        @if (Model.Conversions.Count > 0)
+        {
+            <section class="ak-form-section">
+                <h2 class="h6">خریدهای این بار</h2>
+                <div class="table-responsive"><table class="table"><thead><tr><th>سند خرید</th><th>مقدار</th><th>وضعیت</th><th>لغو امن</th></tr></thead><tbody>
+                @foreach (var c in Model.Conversions)
+                {
+                    <tr><td><a asp-controller="Contracts" asp-action="Details" asp-route-id="@c.ContractId">@c.Contract?.ContractNumber</a></td><td>@NumberDisplay.Quantity(c.QuantityMt, "MT")</td><td>@(c.Status == CustodyDocumentStatus.Posted ? "ثبت‌شده" : "لغو‌شده")</td><td>
+                        @if (c.Status == CustodyDocumentStatus.Posted)
+                        {
+                            <form asp-action="CancelConversion" asp-route-id="@c.Id" method="post">
+                                @Html.AntiForgeryToken()
+                                <input name="reason" class="ak-input" placeholder="دلیل لغو" aria-label="دلیل لغو" maxlength="500" required />
+                                <button type="submit" class="btn btn-sm btn-light">لغو خرید و برگشت مالکیت</button>
+                            </form>
+                        }
+                    </td></tr>
+                }
+                </tbody></table></div>
+            </section>
+        }
+    </div>
+</div>

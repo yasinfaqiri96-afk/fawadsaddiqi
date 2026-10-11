@@ -245,10 +245,14 @@ public sealed class SimplePurchaseWorkflowService : ISimplePurchaseWorkflowServi
             var contract = await _db.Contracts.SingleOrDefaultAsync(x => x.Id == contractId, ct)
                 ?? throw Rule("SIMPLE_PURCHASE_CONTRACT_NOT_FOUND", "قرارداد خرید پیدا نشد.");
             var loading = await _db.LoadingRegisters
+                // Linked custody purchases must reverse both ownership ledgers atomically.
                 .Include(x => x.Receipts)
                 .SingleOrDefaultAsync(x => x.ImportUniqueKey == BuildImportKey(contractId), ct)
                 ?? throw Rule("SIMPLE_PURCHASE_NOT_POSTED", "برای این قرارداد خرید مستقیم تأییدشده‌ای وجود ندارد.");
             var activeReceipt = loading.Receipts.SingleOrDefault(x => !x.IsCancelled);
+
+            if (await _db.CustodyConversions.AnyAsync(x => x.ContractId == contractId && x.Status == CustodyDocumentStatus.Posted, ct))
+                throw Rule("CUSTODY_CONVERSION_REVERSAL", "این خرید از تبدیل امانی ساخته شده؛ آن را از سند تبدیل لغو کنید.");
 
             if (contract.Status == ContractStatus.Cancelled && activeReceipt is null)
             {

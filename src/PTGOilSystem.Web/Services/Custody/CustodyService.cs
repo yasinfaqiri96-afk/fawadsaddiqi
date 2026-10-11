@@ -25,6 +25,8 @@ public interface ICustodyService
     Task ReverseOperationAsync(Guid operationKey, string reason, CancellationToken ct = default);
     Task<Guid> RecordSaleOutAsync(int lotId, CustodyLocation location, DateTime saleDate, decimal quantityMt, string? documentNumber, CancellationToken ct = default);
     Task ReverseSaleOutAsync(Guid operationKey, string reason, CancellationToken ct = default);
+    Task<Guid> RecordConversionOutAsync(int lotId, CustodyLocation location, DateTime date, decimal quantityMt, string reference, CancellationToken ct = default);
+    Task ReverseConversionOutAsync(Guid operationKey, DateTime date, string reason, CancellationToken ct = default);
 }
 
 public sealed record CustodyOwner(AccountingPartyType PartyType, int PartyId);
@@ -433,7 +435,30 @@ public sealed class CustodyService(
     public Task ReverseSaleOutAsync(Guid operationKey, string reason, CancellationToken ct = default)
         => ReverseCoreAsync(operationKey, reason, allowSaleReversal: true, ct);
 
-    private Task ReverseCoreAsync(Guid operationKey, string reason, bool allowSaleReversal, CancellationToken ct)
+    public Task<Guid> RecordConversionOutAsync(int lotId, CustodyLocation location, DateTime date,
+        decimal quantityMt, string reference, CancellationToken ct = default)
+        => InTransactionAsync(async () =>
+        {
+            RequirePositive(quantityMt, "مقدار خرید");
+            await LockLotsAsync([lotId], ct);
+            if (location.StorageTankId is not { } tankId)
+                throw Rule("CUSTODY_CONVERSION_TANK", "تبدیل به خرید نیازمند مخزن مشخص است.");
+            await LockTankAsync(tankId, ct);
+            var lot = await LoadActiveLotAsync(lotId, ct);
+            await EnsureOutboundAllowedAsync(lot, location, ToUtc(date), quantityMt, ct);
+            var key = Guid.NewGuid();
+            var movement = NewMovement(lot, CustodyMovementKind.ConvertedToCompany, CustodyDirection.Out,
+                location, date, quantityMt, key);
+            movement.DocumentNumber = Clean(reference);
+            await db.SaveChangesAsync(ct);
+            await LogMovementAsync(movement, lot, ct);
+            return key;
+        }, ct);
+
+    public Task ReverseConversionOutAsync(Guid operationKey, DateTime date, string reason, CancellationToken ct = default)
+        => ReverseCoreAsync(operationKey, reason, false, ct, true, ToUtc(date));
+
+    private Task ReverseCoreAsync(Guid operationKey, string reason, bool allowSaleReversal, CancellationToken ct, bool allowConversionReversal = false, DateTime? reversalDate = null)
         => InTransactionAsync(async () =>
         {
             if (string.IsNullOrWhiteSpace(reason))
@@ -462,6 +487,9 @@ public sealed class CustodyService(
             if (!allowSaleReversal && originals.Any(m => m.Kind == CustodyMovementKind.Sale))
                 throw Rule("CUSTODY_SALE_REVERSAL", "این خروج مربوط به فروش امانی است؛ آن را از صفحهٔ همان فروش لغو کنید.");
 
+            if (!allowConversionReversal && originals.Any(m => m.Kind == CustodyMovementKind.ConvertedToCompany))
+                throw Rule("CUSTODY_CONVERSION_REVERSAL", "این خروج مربوط به خرید قطعی است؛ تبدیل را از سند خودش لغو کنید.");
+
             var originalIds = originals.Select(o => o.Id).ToArray();
             // برگشت خروج، ورود فزیکی است. تنها افزایش خالص را می‌سنجیم تا انتقال مالکیت
             // (دو پای برابر در همان مخزن) ظرفیت را دوبار مصرف نکند.
@@ -483,7 +511,7 @@ public sealed class CustodyService(
                 var reversal = NewMovement(original.CustodyLot!, original.Kind,
                     original.Direction == CustodyDirection.In ? CustodyDirection.Out : CustodyDirection.In,
                     new CustodyLocation(original.TerminalId, original.StorageTankId),
-                    original.MovementDate, original.QuantityMt, reversalKey);
+                    reversalDate ?? original.MovementDate, original.QuantityMt, reversalKey);
                 reversal.ReversalOfCustodyMovement = original;
                 reversal.LossResponsibility = original.LossResponsibility;
                 reversal.DocumentNumber = original.DocumentNumber;

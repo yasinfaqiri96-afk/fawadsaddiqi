@@ -1965,6 +1965,72 @@ namespace PTGOilSystem.Web.Migrations
                     b.ToTable("Currencies");
                 });
 
+            modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CustodyConversion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AgreementReference")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("CancelledAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ContractId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("ConversionDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CustodyLotId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("QuantityMt")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("StockOperationKey")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("UpdatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContractId")
+                        .IsUnique();
+
+                    b.HasIndex("CustodyLotId");
+
+                    b.HasIndex("StockOperationKey")
+                        .IsUnique();
+
+                    b.ToTable("CustodyConversions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CustodyConversion_Quantity", "\"QuantityMt\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CustodyFinanceEntry", b =>
                 {
                     b.Property<int>("Id")
@@ -2420,6 +2486,56 @@ namespace PTGOilSystem.Web.Migrations
                             t.HasCheckConstraint("CK_CustodySales_Amounts", "\"AmountUsd\" > 0 AND \"CommissionUsd\" >= 0 AND \"CommissionUsd\" <= \"AmountUsd\" AND \"CommissionRecognizedAtSaleUsd\" >= 0 AND \"CommissionRecognizedAtSaleUsd\" <= \"CommissionUsd\"");
 
                             t.HasCheckConstraint("CK_CustodySales_Quantity", "\"QuantityMt\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CustodySupplierIdentityLink", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("CustomerId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Evidence")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("PartnerId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SupplierId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("UpdatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId")
+                        .IsUnique();
+
+                    b.HasIndex("PartnerId")
+                        .IsUnique();
+
+                    b.HasIndex("SupplierId");
+
+                    b.ToTable("CustodySupplierIdentityLinks", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CustodyIdentity_OneRole", "(\"CustomerId\" IS NOT NULL AND \"PartnerId\" IS NULL) OR (\"PartnerId\" IS NOT NULL AND \"CustomerId\" IS NULL)");
                         });
                 });
 
@@ -10919,6 +11035,25 @@ namespace PTGOilSystem.Web.Migrations
                     b.Navigation("Contract");
                 });
 
+            modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CustodyConversion", b =>
+                {
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.Contract", "Contract")
+                        .WithMany()
+                        .HasForeignKey("ContractId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.CustodyLot", "CustodyLot")
+                        .WithMany()
+                        .HasForeignKey("CustodyLotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Contract");
+
+                    b.Navigation("CustodyLot");
+                });
+
             modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CustodyFinanceEntry", b =>
                 {
                     b.HasOne("PTGOilSystem.Web.Models.Entities.CashAccount", "CashAccount")
@@ -11041,6 +11176,25 @@ namespace PTGOilSystem.Web.Migrations
                     b.Navigation("CustodyLot");
 
                     b.Navigation("Customer");
+                });
+
+            modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CustodySupplierIdentityLink", b =>
+                {
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.Partner", null)
+                        .WithMany()
+                        .HasForeignKey("PartnerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.Supplier", null)
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CustomerPaymentAllocation", b =>

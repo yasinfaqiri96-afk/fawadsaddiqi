@@ -182,6 +182,10 @@ public sealed class InventoryMovementWriter : IInventoryMovementWriter
             ? $"INVENTORY-MOVEMENT:{original.Id}"
             : original.ReferenceDocument;
         var reversalReference = sourceReference + CancelReferenceSuffix;
+        if (original.ContractId.HasValue && await _db.CustodyConversions.AnyAsync(x =>
+                x.ContractId == original.ContractId && x.Status == CustodyDocumentStatus.Posted, ct))
+            throw new BusinessRuleException("CUSTODY_CONVERSION_REVERSAL", "حرکت خرید امانی باید همراه سند تبدیل و برگشت مالکیت لغو شود.");
+
         var reversedDirection = InvertDirection(original.Direction);
 
         // کلید صریح، برگشتِ سهم‌های چندقراردادی با Reference مشترک را از هم جدا می‌کند.

@@ -569,6 +569,12 @@ public partial class ContractsController : Controller
             .AsSplitQuery()
             .FirstOrDefaultAsync(x => x.Id == id);
         if (existing == null) return NotFound();
+        var custodyConversion = await _db.CustodyConversions.AsNoTracking().FirstOrDefaultAsync(x => x.ContractId == id);
+        if (custodyConversion is not null)
+        {
+            TempData["err"] = "این قرارداد سند خریدِ تبدیل امانی است؛ اصلاح و لغو باید از سند تبدیل انجام شود.";
+            return RedirectToAction("ConvertPurchase", "Custody", new { id = custodyConversion.CustodyLotId });
+        }
         if (RedirectIfContractClosed(id, existing.Status) is { } closedRedirect) return closedRedirect;
 
         HydrateSummaryFields(model, existing);

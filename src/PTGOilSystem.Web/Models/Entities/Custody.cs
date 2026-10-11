@@ -37,7 +37,8 @@ public enum CustodyMovementKind
     [Display(Name = "کسر / ضایعات")] Loss = 6,
     [Display(Name = "اضافه موجودی")] Surplus = 7,
     /// <summary>خروجِ فروش امانی — فقط از مسیر <c>CustodySaleService</c> ساخته و لغو می‌شود.</summary>
-    [Display(Name = "فروش امانی")] Sale = 8
+    [Display(Name = "فروش امانی")] Sale = 8,
+    [Display(Name = "تبدیل به خرید قطعی")] ConvertedToCompany = 9
 }
 
 /// <summary>مسئولِ کسر طبق توافق. تا تعیین نشود «در حال بررسی» می‌ماند و هیچ اثر مالی ندارد.</summary>

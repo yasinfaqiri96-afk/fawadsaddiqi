@@ -96,6 +96,8 @@ public partial class ApplicationDbContext : DbContext
     public DbSet<CustodyHold> CustodyHolds => Set<CustodyHold>();
     public DbSet<CustodySale> CustodySales => Set<CustodySale>();
     public DbSet<CustodyFinanceEntry> CustodyFinanceEntries => Set<CustodyFinanceEntry>();
+    public DbSet<CustodyConversion> CustodyConversions => Set<CustodyConversion>();
+    public DbSet<CustodySupplierIdentityLink> CustodySupplierIdentityLinks => Set<CustodySupplierIdentityLink>();
 
     // --- Customs & Declarations ---
     public DbSet<CustomsDeclaration> CustomsDeclarations => Set<CustomsDeclaration>();
