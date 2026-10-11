@@ -26,6 +26,11 @@ public interface ICustodyAccountingAdapter
         CustodySale? sale,
         CancellationToken cancellationToken = default);
 
+    Task<CustodyAccountingResult> TryPostReturnAsync(
+        CustodySaleReturn saleReturn,
+        CustodySale sale,
+        CancellationToken cancellationToken = default);
+
     /// <summary>برگشتِ سندِ قبلی؛ اگر سند اصلی ثبت نشده بود (Skip) کاری نمی‌کند.</summary>
     Task<CustodyAccountingResult> TryReverseAsync(
         string createdEventId,
@@ -58,9 +63,12 @@ public sealed class CustodyAccountingAdapter(
 
     public static string SaleEventId(int saleId) => $"Custody:Sale:{saleId}:Created";
     public static string FinanceEventId(int entryId) => $"Custody:Finance:{entryId}:Created";
+    public static string ReturnEventId(int returnId) => $"Custody:Return:{returnId}:Created";
     public static string ReversalEventId(string createdEventId) => createdEventId.Replace(":Created", ":Reversed", StringComparison.Ordinal);
     public static string SaleJournalNumber(int companyId, int saleId) => $"CUS-{companyId:D6}-S{saleId:D9}";
     public static string FinanceJournalNumber(int companyId, int entryId) => $"CUS-{companyId:D6}-F{entryId:D9}";
+    public static string ReturnJournalNumber(int companyId, int returnId) => $"CUS-{companyId:D6}-R{returnId:D9}";
+    public const string ProviderPayableNotConfiguredReason = "CUSTODY_PROVIDER_PAYABLE_NOT_CONFIGURED";
 
     public async Task<CustodyAccountingResult> TryPostSaleAsync(CustodySale sale, CancellationToken cancellationToken = default)
     {
@@ -134,6 +142,26 @@ public sealed class CustodyAccountingAdapter(
                 lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, amount, 0m, owner.OwnerPartyType, owner.OwnerPartyId, productId, "Custody service fee charged to owner"));
                 lines.Add(Line(s.CustodyServiceRevenueAccountId!.Value, 0m, amount, null, null, productId, "Custody service revenue"));
                 break;
+            case CustodyFinanceKind.ProviderCharge:
+            case CustodyFinanceKind.ProviderPayment:
+            {
+                // The payable account comes from the expense type's explicit payable kind — the same
+                // mapping ordinary expenses use — and is never guessed.
+                var payableAccountId = await ResolveProviderPayableAccountAsync(entry, s, cancellationToken);
+                if (payableAccountId is null || entry.ServiceProviderId is null)
+                    return Skip("Finance", entry.Id, ProviderPayableNotConfiguredReason);
+                if (entry.Kind == CustodyFinanceKind.ProviderCharge)
+                {
+                    lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, amount, 0m, owner.OwnerPartyType, owner.OwnerPartyId, productId, "Unpaid provider charge on owner's behalf"));
+                    lines.Add(Line(payableAccountId.Value, 0m, amount, AccountingPartyType.ServiceProvider, entry.ServiceProviderId, productId, "Provider payable for custody owner"));
+                }
+                else
+                {
+                    lines.Add(Line(payableAccountId.Value, amount, 0m, AccountingPartyType.ServiceProvider, entry.ServiceProviderId, productId, "Provider payable settled (custody)"));
+                    lines.Add(CashLine(s, entry.CashAccountId, 0m, amount, "Provider payable settled (custody)"));
+                }
+                break;
+            }
             default:
                 return Skip("Finance", entry.Id, "UNSUPPORTED_KIND");
         }
@@ -148,6 +176,58 @@ public sealed class CustodyAccountingAdapter(
             $"Custody {entry.Kind} {label}",
             lines,
             cancellationToken);
+    }
+
+    public async Task<CustodyAccountingResult> TryPostReturnAsync(
+        CustodySaleReturn saleReturn,
+        CustodySale sale,
+        CancellationToken cancellationToken = default)
+    {
+        var context = await ResolveContextAsync(saleReturn.OwnerPartyType, cancellationToken);
+        if (context.SkipReason is not null)
+            return Skip("Return", saleReturn.Id, context.SkipReason);
+        if (!await db.JournalEntries.AsNoTracking().AnyAsync(j =>
+                j.CompanyId == context.CompanyId && j.SourceModule == SourceModule
+                && j.SourceEventId == SaleEventId(sale.Id) && j.Status == JournalEntryStatus.Posted, cancellationToken))
+            return Skip("Return", saleReturn.Id, "CUSTODY_RECONCILIATION_REQUIRED");
+
+        var s = context.Settings!;
+        var owner = (saleReturn.OwnerPartyType, saleReturn.OwnerPartyId);
+        var label = saleReturn.ReturnNumber;
+        // Mirror image of the sale journal for the returned part only.
+        var lines = new List<AccountingPostLine>
+        {
+            Line(s.CustodyPendingCollectionAccountId!.Value, saleReturn.AmountUsd, 0m, owner.OwnerPartyType, owner.OwnerPartyId, sale.ProductId, $"Custody sale return {label} pending collection released"),
+            Line(s.AccountsReceivableAccountId, 0m, saleReturn.AmountUsd, AccountingPartyType.Customer, saleReturn.CustomerId, sale.ProductId, $"Custody sale return {label} receivable reduced")
+        };
+        if (saleReturn.RecognizedCommissionReversedUsd > 0m)
+        {
+            lines.Add(Line(s.CustodyCommissionRevenueAccountId!.Value, saleReturn.RecognizedCommissionReversedUsd, 0m, null, null, sale.ProductId, $"Custody commission reversed {label}"));
+            lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, 0m, saleReturn.RecognizedCommissionReversedUsd, owner.OwnerPartyType, owner.OwnerPartyId, sale.ProductId, $"Commission returned to owner {label}"));
+        }
+
+        return await PostAsync(
+            context.CompanyId,
+            ReturnJournalNumber(context.CompanyId, saleReturn.Id),
+            saleReturn.ReturnDate,
+            ReturnEventId(saleReturn.Id),
+            "CustodySaleReturn",
+            saleReturn.Id,
+            $"Custody sale return {label} of {sale.SaleNumber}",
+            lines,
+            cancellationToken);
+    }
+
+    private async Task<int?> ResolveProviderPayableAccountAsync(CustodyFinanceEntry entry, AccountingSettings settings, CancellationToken ct)
+    {
+        var expenseTypeId = entry.ExpenseTypeId;
+        if (entry.Kind == CustodyFinanceKind.ProviderPayment && entry.SettlesFinanceEntryId is { } chargeId)
+            expenseTypeId = await db.CustodyFinanceEntries.AsNoTracking().Where(x => x.Id == chargeId)
+                .Select(x => x.ExpenseTypeId).SingleOrDefaultAsync(ct);
+        if (expenseTypeId is null) return null;
+        var kind = await db.ExpenseTypes.AsNoTracking().Where(x => x.Id == expenseTypeId)
+            .Select(x => x.PayableAccountKind).SingleOrDefaultAsync(ct);
+        return kind is null ? null : ExpenseAccountingAdapter.PayableAccountFor(kind.Value, settings);
     }
 
     public async Task<CustodyAccountingResult> TryReverseAsync(

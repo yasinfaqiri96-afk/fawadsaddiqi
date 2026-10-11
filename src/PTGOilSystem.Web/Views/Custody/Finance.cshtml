@@ -9,8 +9,10 @@
     ViewData["Title"] = title;
     var backUrl = Url.Action("Owner", new { key = form.OwnerKey });
     var collects = kind is CustodyFinanceKind.Collection or CustodyFinanceKind.DirectToOwner;
-    var usesCash = kind is CustodyFinanceKind.Collection or CustodyFinanceKind.OwnerPayout or CustodyFinanceKind.ReimbursableExpense;
-    var isCharge = kind is CustodyFinanceKind.ReimbursableExpense or CustodyFinanceKind.ServiceFee;
+    var usesCash = kind is CustodyFinanceKind.Collection or CustodyFinanceKind.OwnerPayout or CustodyFinanceKind.ReimbursableExpense
+        or CustodyFinanceKind.ProviderPayment;
+    var isCharge = kind is CustodyFinanceKind.ReimbursableExpense or CustodyFinanceKind.ServiceFee or CustodyFinanceKind.ProviderCharge;
+    var charge = Model.ProviderCharge;
     var balance = account.FundsBalanceUsd;
 }
 
@@ -27,6 +29,10 @@
             @Html.FormToken()
             <input type="hidden" name="Kind" value="@kind" />
             <input type="hidden" name="OwnerKey" value="@form.OwnerKey" />
+            @if (kind == CustodyFinanceKind.ProviderPayment)
+            {
+                <input type="hidden" name="ProviderChargeId" value="@form.ProviderChargeId" />
+            }
             <div asp-validation-summary="ModelOnly" class="alert alert-danger ak-form-alert"></div>
 
             <div class="alert alert-info ak-form-alert">
@@ -54,6 +60,16 @@
                                 }
                             </select>
                             <span class="ak-field-error">@Html.ValidationMessage("SaleId")</span>
+                        </div>
+                    }
+                    else if (kind == CustodyFinanceKind.ProviderPayment && charge is not null)
+                    {
+                        <div class="ak-field ak-col-full">
+                            <span class="ak-label">@UiText.T(Context, "مصرف نسیه", "Unpaid charge")</span>
+                            <div>
+                                AF-@charge.Id.ToString("D5") · @charge.ServiceProviderName · @charge.ExpenseTypeName ·
+                                @UiText.T(Context, "پرداخت‌نشده", "unpaid") @charge.ProviderUnpaidUsd.ToString("N2") USD
+                            </div>
                         </div>
                     }
                     else if (isCharge && Model.Account.Sales.Any(s => s.Status == CustodyDocumentStatus.Posted))
@@ -92,10 +108,24 @@
                             <span class="ak-field-error">@Html.ValidationMessage("CashAccountId")</span>
                         </div>
                     }
+                    @if (kind == CustodyFinanceKind.ProviderCharge)
+                    {
+                        <div class="ak-field">
+                            <label for="ServiceProviderId" class="ak-label">@UiText.T(Context, "خدمات‌دهندهٔ طلبکار", "Provider owed") <span class="ak-req">*</span></label>
+                            <select id="ServiceProviderId" name="ServiceProviderId" class="ak-input" data-ak-entity-combobox>
+                                <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                                @foreach (var p in Model.ServiceProviders)
+                                {
+                                    <option value="@p.Id" selected="@(p.Id == form.ServiceProviderId)">@p.Name</option>
+                                }
+                            </select>
+                            <span class="ak-field-error">@Html.ValidationMessage("ServiceProviderId")</span>
+                        </div>
+                    }
                     @if (isCharge)
                     {
                         <div class="ak-field">
-                            <label for="ExpenseTypeId" class="ak-label">@UiText.T(Context, "نوع", "Type")</label>
+                            <label for="ExpenseTypeId" class="ak-label">@UiText.T(Context, "نوع", "Type")@if (kind == CustodyFinanceKind.ProviderCharge) {<span class="ak-req"> *</span>}</label>
                             <select id="ExpenseTypeId" name="ExpenseTypeId" class="ak-input">
                                 <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
                                 @foreach (var t in Model.ExpenseTypes)
@@ -103,6 +133,7 @@
                                     <option value="@t.Id" selected="@(t.Id == form.ExpenseTypeId)">@t.Name</option>
                                 }
                             </select>
+                            <span class="ak-field-error">@Html.ValidationMessage("ExpenseTypeId")</span>
                         </div>
                     }
                     @if (kind == CustodyFinanceKind.ReimbursableExpense)

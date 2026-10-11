@@ -315,14 +315,17 @@ public sealed class PartyStatementReadService : IPartyStatementReadService
         var salesQuery = _db.CustodySales.AsNoTracking().Where(s => s.CustomerId == customerId);
         var financeQuery = _db.CustodyFinanceEntries.AsNoTracking().Where(e => e.CustomerId == customerId
             && (e.Kind == CustodyFinanceKind.Collection || e.Kind == CustodyFinanceKind.DirectToOwner));
+        var returnsQuery = _db.CustodySaleReturns.AsNoTracking().Where(r => r.CustomerId == customerId);
         if (filter.ToDate.HasValue)
         {
             var toExclusive = DateTime.SpecifyKind(filter.ToDate.Value.Date.AddDays(1), DateTimeKind.Utc);
             salesQuery = salesQuery.Where(s => s.SaleDate < toExclusive);
             financeQuery = financeQuery.Where(e => e.EntryDate < toExclusive);
+            returnsQuery = returnsQuery.Where(r => r.ReturnDate < toExclusive);
         }
         var sales = await salesQuery.OrderBy(s => s.Id).ToListAsync(ct);
         var finance = await financeQuery.OrderBy(e => e.Id).ToListAsync(ct);
+        var returns = await returnsQuery.OrderBy(r => r.Id).ToListAsync(ct);
         var keys = sales.Select(s => new PartyKey(s.OwnerPartyType == AccountingPartyType.Customer
             ? PartyStatementPartyType.Customer : PartyStatementPartyType.Supplier, s.OwnerPartyId)).Distinct().ToArray();
         var names = await _parties.GetNamesAsync(keys, ct);
@@ -330,7 +333,8 @@ public sealed class PartyStatementReadService : IPartyStatementReadService
         foreach (var sale in sales)
         {
             var ownerKey = new PartyKey(sale.OwnerPartyType == AccountingPartyType.Customer ? PartyStatementPartyType.Customer : PartyStatementPartyType.Supplier, sale.OwnerPartyId);
-            var paid = finance.Where(e => e.CustodySaleId == sale.Id && e.Status == CustodyDocumentStatus.Posted).Sum(e => e.AmountUsd);
+            var paid = finance.Where(e => e.CustodySaleId == sale.Id && e.Status == CustodyDocumentStatus.Posted).Sum(e => e.AmountUsd)
+                + returns.Where(r => r.CustodySaleId == sale.Id && r.Status == CustodyDocumentStatus.Posted).Sum(r => r.AmountUsd);
             rows.Add(new PartyStatementRow
             {
                 Date = sale.SaleDate, CreatedAtUtc = sale.CreatedAtUtc, SourceType = "CustodyCustomerSale", SourceId = sale.Id,
@@ -352,6 +356,19 @@ public sealed class PartyStatementReadService : IPartyStatementReadService
                 Reference = reference, OriginalCurrency = entry.Currency, Title = title,
                 Description = $"{title} · {reference} · {entry.AmountUsd:N2} دالر؛ مربوط به حساب امانی مالک.",
                 Detail = $"{entry.AmountUsd:N2} دالر · فروش {reference}", IsCancelled = entry.Status == CustodyDocumentStatus.Cancelled
+            });
+        }
+        foreach (var saleReturn in returns)
+        {
+            var reference = sales.FirstOrDefault(s => s.Id == saleReturn.CustodySaleId)?.SaleNumber ?? saleReturn.ReturnNumber;
+            var title = saleReturn.Status == CustodyDocumentStatus.Cancelled ? "برگشت فروش امانی — لغو شده" : "برگشت فروش امانی";
+            rows.Add(new PartyStatementRow
+            {
+                Date = saleReturn.ReturnDate, CreatedAtUtc = saleReturn.CreatedAtUtc, SourceType = "CustodyCustomerReturn", SourceId = saleReturn.Id,
+                Reference = saleReturn.ReturnNumber, OriginalCurrency = "USD", Title = title,
+                Description = $"{title} {saleReturn.ReturnNumber} · فروش {reference} · {saleReturn.QuantityMt:N4} تُن · {saleReturn.AmountUsd:N2} دالر از طلب کم شد؛ مربوط به حساب امانی مالک.",
+                Detail = $"{saleReturn.QuantityMt:N4} تُن · {saleReturn.AmountUsd:N2} دالر · فروش {reference}",
+                IsCancelled = saleReturn.Status == CustodyDocumentStatus.Cancelled
             });
         }
         if (!string.IsNullOrWhiteSpace(filter.SourceType))

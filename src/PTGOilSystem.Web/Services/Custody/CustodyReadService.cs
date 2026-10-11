@@ -133,10 +133,31 @@ public sealed record CustodySaleRow(
     decimal CommissionRecognizedUsd,
     CustodyCommissionRecognition CommissionRecognition,
     CustodyDocumentStatus Status,
-    string? CancellationReason)
+    string? CancellationReason,
+    decimal ReturnedQuantityMt = 0m,
+    decimal ReturnedAmountUsd = 0m,
+    decimal ReturnedCommissionUsd = 0m,
+    string? SourceLots = null)
 {
-    public decimal OutstandingUsd => Status == CustodyDocumentStatus.Posted ? AmountUsd - CollectedByCompanyUsd - CollectedByOwnerUsd : 0m;
+    public decimal NetQuantityMt => QuantityMt - ReturnedQuantityMt;
+    public decimal NetAmountUsd => AmountUsd - ReturnedAmountUsd;
+    public decimal NetCommissionUsd => CommissionUsd - ReturnedCommissionUsd;
+    public decimal OutstandingUsd => Status == CustodyDocumentStatus.Posted ? NetAmountUsd - CollectedByCompanyUsd - CollectedByOwnerUsd : 0m;
 }
+
+public sealed record CustodySaleReturnRow(
+    int Id,
+    string ReturnNumber,
+    int SaleId,
+    string SaleNumber,
+    DateTime ReturnDate,
+    decimal QuantityMt,
+    decimal AmountUsd,
+    decimal CommissionUsd,
+    decimal RecognizedCommissionReversedUsd,
+    string? DocumentNumber,
+    CustodyDocumentStatus Status,
+    string? CancellationReason);
 
 public sealed record CustodyFinanceRow(
     int Id,
@@ -152,7 +173,14 @@ public sealed record CustodyFinanceRow(
     string? DocumentNumber,
     string? Description,
     CustodyDocumentStatus Status,
-    string? CancellationReason);
+    string? CancellationReason,
+    string? ServiceProviderName = null,
+    int? SettlesFinanceEntryId = null,
+    decimal ProviderPaidUsd = 0m)
+{
+    public decimal ProviderUnpaidUsd => Kind == CustodyFinanceKind.ProviderCharge && Status == CustodyDocumentStatus.Posted
+        ? AmountUsd - ProviderPaidUsd : 0m;
+}
 
 /// <summary>
 /// حساب مالکِ امانی — از خودِ اسناد امانی ساخته می‌شود؛ همان تعریفی که سقفِ «پرداخت به مالک» را می‌سازد
@@ -164,18 +192,22 @@ public sealed record CustodyOwnerAccount(
     bool SupportsFinance,
     IReadOnlyList<CustodySaleRow> Sales,
     IReadOnlyList<CustodyFinanceRow> Entries,
-    decimal FundsBalanceUsd)
+    decimal FundsBalanceUsd,
+    IReadOnlyList<CustodySaleReturnRow>? Returns = null,
+    CustodyOwner? FinancialOwner = null)
 {
+    public IReadOnlyList<CustodySaleReturnRow> SaleReturns => Returns ?? [];
     private IEnumerable<CustodySaleRow> Posted => Sales.Where(s => s.Status == CustodyDocumentStatus.Posted);
     private decimal Sum(CustodyFinanceKind kind) => Entries.Where(e => e.Kind == kind && e.Status == CustodyDocumentStatus.Posted).Sum(e => e.AmountUsd);
 
-    public decimal SalesTotalUsd => Posted.Sum(s => s.AmountUsd);
+    public decimal SalesTotalUsd => Posted.Sum(s => s.NetAmountUsd);
     public decimal CollectedByCompanyUsd => Posted.Sum(s => s.CollectedByCompanyUsd);
     public decimal CollectedByOwnerUsd => Posted.Sum(s => s.CollectedByOwnerUsd);
     public decimal OutstandingUsd => Posted.Sum(s => s.OutstandingUsd);
     public decimal CommissionRecognizedUsd => Posted.Sum(s => s.CommissionRecognizedUsd);
-    public decimal CommissionPendingUsd => Posted.Sum(s => s.CommissionUsd - s.CommissionRecognizedUsd);
-    public decimal ExpensesUsd => Sum(CustodyFinanceKind.ReimbursableExpense);
+    public decimal CommissionPendingUsd => Posted.Sum(s => Math.Max(s.NetCommissionUsd - s.CommissionRecognizedUsd, 0m));
+    public decimal ExpensesUsd => Sum(CustodyFinanceKind.ReimbursableExpense) + Sum(CustodyFinanceKind.ProviderCharge);
+    public decimal ProviderUnpaidUsd => Entries.Sum(e => e.ProviderUnpaidUsd);
     public decimal ServiceFeesUsd => Sum(CustodyFinanceKind.ServiceFee);
     public decimal PayoutsUsd => Sum(CustodyFinanceKind.OwnerPayout);
 }
@@ -474,7 +506,17 @@ public sealed class CustodyReadService(
                 e.CustodySale != null ? e.CustodySale.SaleNumber : null, e.CustodySaleId,
                 e.CashAccount != null ? e.CashAccount.Name : null,
                 e.ExpenseType != null ? (e.ExpenseType.NamePersian ?? e.ExpenseType.Name) : null,
-                e.PayeeName, e.DocumentNumber, e.Description, e.Status, e.CancellationReason))
+                e.PayeeName, e.DocumentNumber, e.Description, e.Status, e.CancellationReason,
+                e.ServiceProvider != null ? e.ServiceProvider.Name : null,
+                e.SettlesFinanceEntryId,
+                db.CustodyFinanceEntries.Where(p => p.SettlesFinanceEntryId == e.Id && p.Kind == CustodyFinanceKind.ProviderPayment
+                    && p.Status == CustodyDocumentStatus.Posted).Sum(p => (decimal?)p.AmountUsd) ?? 0m))
+            .ToListAsync(ct);
+        var returns = await db.CustodySaleReturns.AsNoTracking()
+            .Where(r => r.OwnerPartyType == owner.PartyType && r.OwnerPartyId == owner.PartyId)
+            .OrderByDescending(r => r.ReturnDate).ThenByDescending(r => r.Id)
+            .Select(r => new CustodySaleReturnRow(r.Id, r.ReturnNumber, r.CustodySaleId, r.CustodySale!.SaleNumber, r.ReturnDate,
+                r.QuantityMt, r.AmountUsd, r.CommissionUsd, r.RecognizedCommissionReversedUsd, r.DocumentNumber, r.Status, r.CancellationReason))
             .ToListAsync(ct);
         return new CustodyOwnerAccount(
             owner,
@@ -482,7 +524,9 @@ public sealed class CustodyReadService(
             CustodySaleService.FinancialOwnerTypes.Contains(owner.PartyType),
             sales,
             entries,
-            await CustodySaleService.OwnerFundsBalanceAsync(db, owner, ct));
+            await CustodySaleService.OwnerFundsBalanceAsync(db, owner, ct),
+            returns,
+            await CustodySaleService.ResolveFinancialOwnerAsync(db, owner, ct));
     }
 
     public async Task<CustodySaleRow?> GetSaleAsync(int saleId, CancellationToken ct = default)
@@ -502,6 +546,21 @@ public sealed class CustodyReadService(
             })
             .ToListAsync(ct);
         var ids = rows.Select(r => r.Id).ToArray();
+        var returned = await db.CustodySaleReturns.AsNoTracking()
+            .Where(r => ids.Contains(r.CustodySaleId) && r.Status == CustodyDocumentStatus.Posted)
+            .GroupBy(r => r.CustodySaleId)
+            .Select(g => new { SaleId = g.Key, Qty = g.Sum(r => r.QuantityMt), Amount = g.Sum(r => r.AmountUsd),
+                Commission = g.Sum(r => r.CommissionUsd), Reversed = g.Sum(r => r.RecognizedCommissionReversedUsd) })
+            .ToListAsync(ct);
+        var operationKeys = await query.Select(s => new { s.Id, s.StockOperationKey }).ToListAsync(ct);
+        var keys = operationKeys.Select(x => x.StockOperationKey).ToArray();
+        var sourceLots = await db.CustodyMovements.AsNoTracking()
+            .Where(m => keys.Contains(m.OperationKey) && m.ReversalOfCustodyMovementId == null)
+            .Select(m => new { m.OperationKey, m.CustodyLot!.LotNumber })
+            .Distinct()
+            .ToListAsync(ct);
+        var lotsBySale = operationKeys.ToDictionary(x => x.Id, x => string.Join("، ",
+            sourceLots.Where(l => l.OperationKey == x.StockOperationKey).Select(l => l.LotNumber).OrderBy(n => n)));
         var collected = await db.CustodyFinanceEntries.AsNoTracking()
             .Where(e => e.CustodySaleId != null && ids.Contains(e.CustodySaleId.Value) && e.Status == CustodyDocumentStatus.Posted)
             .GroupBy(e => new { SaleId = e.CustodySaleId!.Value, e.Kind })
@@ -510,15 +569,18 @@ public sealed class CustodyReadService(
 
         return rows.Select(r =>
         {
-            var mine = collected.Where(c => c.SaleId == r.Id).ToList();
+            var mine = collected.Where(c => c.SaleId == r.Id && c.Kind is CustodyFinanceKind.Collection or CustodyFinanceKind.DirectToOwner).ToList();
+            var back = returned.SingleOrDefault(x => x.SaleId == r.Id);
             return new CustodySaleRow(
                 r.Id, r.SaleNumber, r.CustodyLotId, r.LotNumber, r.OwnerPartyType, r.OwnerPartyId, r.SaleDate,
                 r.CustomerId, r.CustomerName, r.ProductName ?? "-", r.QuantityMt, r.UnitPriceUsd, r.AmountUsd,
                 mine.Where(c => c.Kind == CustodyFinanceKind.Collection).Sum(c => c.Amount),
                 mine.Where(c => c.Kind == CustodyFinanceKind.DirectToOwner).Sum(c => c.Amount),
                 r.CommissionMethod, r.CommissionRate, r.CommissionUsd,
-                r.CommissionRecognizedAtSaleUsd + mine.Sum(c => c.Commission),
-                r.CommissionRecognition, r.Status, r.CancellationReason);
+                r.CommissionRecognizedAtSaleUsd - (back?.Reversed ?? 0m) + mine.Sum(c => c.Commission),
+                r.CommissionRecognition, r.Status, r.CancellationReason,
+                back?.Qty ?? 0m, back?.Amount ?? 0m, back?.Commission ?? 0m,
+                lotsBySale.GetValueOrDefault(r.Id));
         }).ToList();
     }
 

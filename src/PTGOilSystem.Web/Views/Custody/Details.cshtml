@@ -82,7 +82,8 @@
         CustodyMovementKind.Loss => UiText.T(Context, "کسر / ضایعات", "Loss"),
         CustodyMovementKind.Surplus => UiText.T(Context, "اضافه موجودی", "Surplus"),
         CustodyMovementKind.Sale => UiText.T(Context, "فروش امانی", "Custody sale"),
-        CustodyMovementKind.ConvertedToCompany => "تبدیل به خرید قطعی",
+        CustodyMovementKind.ConvertedToCompany => UiText.T(Context, "تبدیل به خرید قطعی", "Converted to purchase"),
+        CustodyMovementKind.SaleReturn => UiText.T(Context, "برگشت فروش امانی", "Custody sale return"),
         _ => kind.ToString()
     };
 
@@ -280,10 +281,14 @@
                                 }
                             </td>
                             <td>
-                                @if (m.Kind == CustodyMovementKind.Sale)
+                                @if (m.Kind is CustodyMovementKind.Sale or CustodyMovementKind.SaleReturn)
                                 {
-                                    @* خروجِ فروش اثر مالی دارد؛ لغوش فقط از حساب مالک، همراه با اسناد مالی. *@
+                                    @* فروش و برگشت آن اثر مالی دارند؛ لغوشان فقط از حساب مالک، همراه با اسناد مالی. *@
                                     <a class="btn btn-sm btn-light ak-secondary-action" asp-action="Owner" asp-route-key="@ownerKey">@UiText.T(Context, "حساب مالک", "Owner account")</a>
+                                }
+                                else if (m.Kind == CustodyMovementKind.ConvertedToCompany)
+                                {
+                                    <a class="btn btn-sm btn-light ak-secondary-action" asp-action="ConvertPurchase" asp-route-id="@s.LotId">@UiText.T(Context, "سند تبدیل", "Conversion")</a>
                                 }
                                 else if (canManage && !m.IsReversed && !m.IsReversal && reverseShown.Add(m.OperationKey))
                                 {

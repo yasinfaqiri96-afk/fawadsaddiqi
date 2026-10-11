@@ -115,10 +115,17 @@ public sealed partial class ProfitAndLossService
         if (filter.ProductId.HasValue)
             entries = entries.Where(e => e.CustodyLot != null && e.CustodyLot.ProductId == filter.ProductId.Value);
 
+        // برگشتِ فروش بخشی از کمیشنِ «هنگام فروش» را در تاریخِ خودِ برگشت معکوس می‌کند.
+        var returns = _db.CustodySaleReturns.AsNoTracking().Where(r => r.Status == CustodyDocumentStatus.Posted);
+        if (from.HasValue) returns = returns.Where(r => r.ReturnDate >= from.Value);
+        if (toExclusive.HasValue) returns = returns.Where(r => r.ReturnDate < toExclusive.Value);
+        if (filter.ProductId.HasValue) returns = returns.Where(r => r.CustodySale!.ProductId == filter.ProductId.Value);
+
         var commissionAtSale = await sales.SumAsync(s => s.CommissionRecognizedAtSaleUsd, ct);
+        var commissionReversedByReturns = await returns.SumAsync(r => r.RecognizedCommissionReversedUsd, ct);
         var commissionOnCollection = await entries.SumAsync(e => e.CommissionUsd, ct);
         var serviceFees = await entries.Where(e => e.Kind == CustodyFinanceKind.ServiceFee).SumAsync(e => e.AmountUsd, ct);
-        return commissionAtSale + commissionOnCollection + serviceFees;
+        return commissionAtSale - commissionReversedByReturns + commissionOnCollection + serviceFees;
     }
 
     /// <summary>فروش‌های لغونشدهٔ فیلتر؛ تنها تعریفِ «فروش دوره» در سطح شرکت.</summary>

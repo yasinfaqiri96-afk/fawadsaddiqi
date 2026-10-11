@@ -569,12 +569,7 @@ public partial class ContractsController : Controller
             .AsSplitQuery()
             .FirstOrDefaultAsync(x => x.Id == id);
         if (existing == null) return NotFound();
-        var custodyConversion = await _db.CustodyConversions.AsNoTracking().FirstOrDefaultAsync(x => x.ContractId == id);
-        if (custodyConversion is not null)
-        {
-            TempData["err"] = "این قرارداد سند خریدِ تبدیل امانی است؛ اصلاح و لغو باید از سند تبدیل انجام شود.";
-            return RedirectToAction("ConvertPurchase", "Custody", new { id = custodyConversion.CustodyLotId });
-        }
+        if (await RedirectIfCustodyConversionAsync(id) is { } conversionRedirect) return conversionRedirect;
         if (RedirectIfContractClosed(id, existing.Status) is { } closedRedirect) return closedRedirect;
 
         HydrateSummaryFields(model, existing);
@@ -873,6 +868,15 @@ public partial class ContractsController : Controller
         return RedirectToAction(nameof(Index));
     }
 
+    /// <summary>قرارداد خریدِ تبدیل امانی فقط از سند تبدیل اصلاح یا لغو می‌شود (مقدار، قیمت و مالکیت با هم).</summary>
+    private async Task<IActionResult?> RedirectIfCustodyConversionAsync(int contractId)
+    {
+        var custodyConversion = await _db.CustodyConversions.AsNoTracking().FirstOrDefaultAsync(x => x.ContractId == contractId);
+        if (custodyConversion is null) return null;
+        TempData["err"] = "این قرارداد سند خریدِ تبدیل امانی است؛ اصلاح و لغو باید از سند تبدیل انجام شود.";
+        return RedirectToAction("ConvertPurchase", "Custody", new { id = custodyConversion.CustodyLotId });
+    }
+
     private async Task<bool> HasContractDependenciesAsync(int id)
     {
         return await _db.ContractAmendments.AnyAsync(a => a.ContractId == id)
@@ -907,6 +911,7 @@ public partial class ContractsController : Controller
             .AsNoTracking()
             .FirstOrDefaultAsync(c => c.Id == id);
         if (contract is null) return NotFound();
+        if (await RedirectIfCustodyConversionAsync(id) is { } conversionRedirect) return conversionRedirect;
         if (RedirectIfContractClosed(id, contract.Status) is { } closedRedirect) return closedRedirect;
 
         var model = new EditPricingViewModel
@@ -945,6 +950,7 @@ public partial class ContractsController : Controller
             .Include(c => c.Product)
             .FirstOrDefaultAsync(c => c.Id == id);
         if (contract is null) return NotFound();
+        if (await RedirectIfCustodyConversionAsync(id) is { } conversionRedirect) return conversionRedirect;
 
         NormalizeEditPricingModel(model);
 

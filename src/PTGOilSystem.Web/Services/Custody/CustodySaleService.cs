@@ -24,6 +24,11 @@ public sealed class CustodySaleInput
 {
     public int LotId { get; init; }
     public required CustodyLocation Location { get; init; }
+    /// <summary>
+    /// سهم‌های اضافه از بارهای دیگرِ همان مالک و همان جنس. <see cref="QuantityMt"/> سهمِ بار و محلِ
+    /// اصلی است؛ مقدار کلِ فروش جمعِ همهٔ سهم‌هاست و کمیشن یک‌بار روی کل حساب می‌شود.
+    /// </summary>
+    public IReadOnlyList<CustodySaleSource> AdditionalSources { get; init; } = [];
     public int CustomerId { get; init; }
     public DateTime SaleDate { get; init; }
     public decimal QuantityMt { get; init; }
@@ -52,8 +57,23 @@ public sealed class CustodyFinanceInput
     public int? CashAccountId { get; init; }
     public int? ExpenseTypeId { get; init; }
     public string? PayeeName { get; init; }
+    /// <summary>خدمات‌دهندهٔ طلبکار؛ فقط برای «مصرف نسیه به حساب مالک».</summary>
+    public int? ServiceProviderId { get; init; }
+    /// <summary>مصرف نسیه‌ای که این پرداخت (کامل یا قسمی) آن را تسویه می‌کند.</summary>
+    public int? ProviderChargeId { get; init; }
     public string? DocumentNumber { get; init; }
     public string? Description { get; init; }
+    public string? FormToken { get; init; }
+}
+
+public sealed class CustodySaleReturnInput
+{
+    public int SaleId { get; init; }
+    public DateTime ReturnDate { get; init; }
+    /// <summary>مقدارِ برگشت از هر بار/محلِ همان فروش؛ تیل به همان بار و محل برمی‌گردد.</summary>
+    public required IReadOnlyList<CustodySaleSource> Lines { get; init; }
+    public string? DocumentNumber { get; init; }
+    public string? Notes { get; init; }
     public string? FormToken { get; init; }
 }
 
@@ -63,6 +83,8 @@ public interface ICustodySaleService
     Task<int> RecordFinanceAsync(CustodyFinanceInput input, CancellationToken ct = default);
     Task CancelSaleAsync(int saleId, string reason, CancellationToken ct = default);
     Task CancelFinanceAsync(int entryId, string reason, CancellationToken ct = default);
+    Task<int> RecordReturnAsync(CustodySaleReturnInput input, CancellationToken ct = default);
+    Task CancelReturnAsync(int returnId, string reason, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -90,10 +112,38 @@ public sealed class CustodySaleService(
     /// </summary>
     public static readonly AccountingPartyType[] FinancialOwnerTypes = [AccountingPartyType.Customer, AccountingPartyType.Supplier];
 
+    public const string ReturnSourceType = "CustodySaleReturn";
+
     private const string SaleEntity = "CustodySale";
     private const string OwnerSuffix = "-O";
     private const string CommissionSuffix = "-C";
+    private const string ProviderSuffix = "-P";
     private const string FinanceEntity = "CustodyFinanceEntry";
+    private const string ReturnEntity = "CustodySaleReturn";
+
+    /// <summary>
+    /// هویتِ مالیِ مالک: مشتری و فروشنده خودشان؛ شریکی که مدیر با سند معتبر نقش فروشندهٔ موجودِ همان
+    /// شخص را برایش تأیید کرده، حساب مالیِ امانی‌اش در همان نقش فروشنده است (شخص تازه ساخته نمی‌شود و
+    /// حساب «سهم شراکت» دست نمی‌خورد). سایر انواع مالک حساب مالی امانی ندارند (null).
+    /// </summary>
+    public static async Task<CustodyOwner?> ResolveFinancialOwnerAsync(ApplicationDbContext db, CustodyOwner owner, CancellationToken ct = default)
+    {
+        if (FinancialOwnerTypes.Contains(owner.PartyType))
+            return owner;
+        if (owner.PartyType != AccountingPartyType.Partner)
+            return null;
+        var supplierId = await db.CustodySupplierIdentityLinks.AsNoTracking()
+            .Where(x => x.PartnerId == owner.PartyId)
+            .Select(x => (int?)x.SupplierId)
+            .SingleOrDefaultAsync(ct);
+        return supplierId is null ? null : new CustodyOwner(AccountingPartyType.Supplier, supplierId.Value);
+    }
+
+    private async Task<CustodyOwner> RequireFinancialOwnerAsync(CustodyOwner owner, CancellationToken ct)
+        => await ResolveFinancialOwnerAsync(db, owner, ct)
+            ?? throw Rule("CUSTODY_OWNER_FINANCE_UNSUPPORTED", owner.PartyType == AccountingPartyType.Partner
+                ? "حساب مالی این شریک فقط پس از پیوند تأییدشده با نقش فروشندهٔ موجودِ همان شخص ممکن است."
+                : "فروش و حساب مالی امانی فقط برای مالکی است که مشتری یا فروشنده (یا شریکِ پیوندشده) باشد.");
 
     public Task<int> CreateSaleAsync(CustodySaleInput input, CancellationToken ct = default)
         => InTransactionAsync(async () =>
@@ -103,38 +153,50 @@ public sealed class CustodySaleService(
             RequirePositive(input.UnitPriceUsd, "قیمت فی تُن", 4);
             if (!Enum.IsDefined(input.Settlement) || !Enum.IsDefined(input.CommissionRecognition))
                 throw Rule("CUSTODY_SALE_TERMS", "شرایط فروش و زمان کمیشن معتبر نیست.");
+            var sources = new List<CustodySaleSource> { new(input.LotId, input.Location, input.QuantityMt) };
+            sources.AddRange(input.AdditionalSources ?? []);
+            foreach (var source in sources)
+                RequirePositive(source.QuantityMt, "مقدار فروش", 4);
+            var totalQuantity = sources.Sum(x => x.QuantityMt);
 
             var lot = await db.CustodyLots.AsNoTracking().FirstOrDefaultAsync(l => l.Id == input.LotId, ct)
                 ?? throw Rule("CUSTODY_LOT_NOT_FOUND", "بار امانی پیدا نشد.");
-            RequireFinancialOwner(lot.OwnerPartyType);
-            var owner = new CustodyOwner(lot.OwnerPartyType, lot.OwnerPartyId);
+            var lotIds = sources.Select(x => x.LotId).Distinct().ToArray();
+            var lots = await db.CustodyLots.AsNoTracking().Where(l => lotIds.Contains(l.Id)).ToListAsync(ct);
+            if (lots.Count != lotIds.Length)
+                throw Rule("CUSTODY_LOT_NOT_FOUND", "بار امانی پیدا نشد.");
+            if (lots.Any(l => l.OwnerPartyType != lot.OwnerPartyType || l.OwnerPartyId != lot.OwnerPartyId))
+                throw Rule("CUSTODY_SALE_MIXED_OWNERS", "یک فروش فقط از بارهای همان مالک تأمین می‌شود.");
+            if (lots.Any(l => l.ProductId != lot.ProductId))
+                throw Rule("CUSTODY_SALE_MIXED_PRODUCTS", "یک فروش فقط از بارهای همان جنس تأمین می‌شود.");
+            var owner = await RequireFinancialOwnerAsync(new CustodyOwner(lot.OwnerPartyType, lot.OwnerPartyId), ct);
             await LockOwnerAsync(owner, ct);
             await EnsureAccountingCompleteAsync(owner, ct);
             var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == input.CustomerId, ct)
                 ?? throw Rule("CUSTODY_CUSTOMER", "مشتری را انتخاب کنید.");
             if (!customer.IsActive)
                 throw Rule("CUSTODY_CUSTOMER_INACTIVE", "این مشتری غیرفعال است.");
-            if (lot.OwnerPartyType == AccountingPartyType.Customer && lot.OwnerPartyId == customer.Id)
+            if (owner.PartyType == AccountingPartyType.Customer && owner.PartyId == customer.Id)
                 throw Rule("CUSTODY_SELF_SALE", "مالک نمی‌تواند خریدارِ تیلِ خودش باشد؛ برای این کار «برگشت به مالک» را ثبت کنید.");
 
-            var amountUsd = Money(input.QuantityMt * input.UnitPriceUsd);
-            var commissionUsd = CalculateCommission(input.CommissionMethod, input.CommissionRate, input.QuantityMt, amountUsd);
+            var amountUsd = Money(totalQuantity * input.UnitPriceUsd);
+            var commissionUsd = CalculateCommission(input.CommissionMethod, input.CommissionRate, totalQuantity, amountUsd);
 
-            // خروج از موجودیِ همان مالک — با همان قفل، سقف موجودی، مسدودی و کنترل تاریخ.
-            var stockKey = await custody.RecordSaleOutAsync(lot.Id, input.Location, input.SaleDate, input.QuantityMt, input.DocumentNumber, ct);
+            // خروج از موجودیِ همان مالک — همهٔ بارها با یک قفلِ مرتب، سقف موجودی، مسدودی و کنترل تاریخ.
+            var stockKey = await custody.RecordSaleOutAsync(sources, input.SaleDate, input.DocumentNumber, ct);
 
             var sale = new CustodySale
             {
                 SaleNumber = "TMP-" + Guid.NewGuid().ToString("N"),
                 CustodyLotId = lot.Id,
-                OwnerPartyType = lot.OwnerPartyType,
-                OwnerPartyId = lot.OwnerPartyId,
+                OwnerPartyType = owner.PartyType,
+                OwnerPartyId = owner.PartyId,
                 CustomerId = customer.Id,
                 ProductId = lot.ProductId,
                 TerminalId = input.Location.TerminalId,
                 StorageTankId = input.Location.StorageTankId,
                 SaleDate = ToUtc(input.SaleDate),
-                QuantityMt = input.QuantityMt,
+                QuantityMt = totalQuantity,
                 UnitPriceUsd = input.UnitPriceUsd,
                 Currency = "USD",
                 AmountUsd = amountUsd,
@@ -168,7 +230,10 @@ public sealed class CustodySaleService(
             RequireJournal(await accounting.TryPostSaleAsync(sale, ct));
             await audit.LogAsync(SaleEntity, sale.Id, AuditAction.Insert, diff: Describe(new
             {
-                sale.SaleNumber, Lot = lot.LotNumber, sale.CustomerId, sale.QuantityMt, sale.UnitPriceUsd, sale.AmountUsd,
+                sale.SaleNumber, Lot = lot.LotNumber,
+                Sources = sources.Select(x => new { x.LotId, x.Location.TerminalId, x.Location.StorageTankId, x.QuantityMt }),
+                LotOwner = new { lot.OwnerPartyType, lot.OwnerPartyId }, FinancialOwner = owner,
+                sale.CustomerId, sale.QuantityMt, sale.UnitPriceUsd, sale.AmountUsd,
                 CommissionMethod = sale.CommissionMethod.ToString(), sale.CommissionRate, sale.CommissionUsd,
                 Recognition = sale.CommissionRecognition.ToString(), Settlement = input.Settlement.ToString()
             }), ct: ct);
@@ -202,6 +267,7 @@ public sealed class CustodySaleService(
             throw Rule("CUSTODY_FINANCE_KIND", "نوع سند مالی معتبر نیست.");
 
         CustodySale? sale = null;
+        CustodyFinanceEntry? charge = null;
         CustodyOwner owner;
         int? lotId = input.LotId;
         if (input.Kind is CustodyFinanceKind.Collection or CustodyFinanceKind.DirectToOwner)
@@ -212,6 +278,19 @@ public sealed class CustodySaleService(
                 ?? throw Rule("CUSTODY_SALE_NOT_FOUND", "فروش امانی پیدا نشد.");
             owner = new CustodyOwner(sale.OwnerPartyType, sale.OwnerPartyId);
             lotId = sale.CustodyLotId;
+        }
+        else if (input.Kind == CustodyFinanceKind.ProviderPayment)
+        {
+            if (!input.ProviderChargeId.HasValue)
+                throw Rule("CUSTODY_PROVIDER_CHARGE_REQUIRED", "مصرف نسیه‌ای را که پرداخت می‌شود انتخاب کنید.");
+            charge = await db.CustodyFinanceEntries.FirstOrDefaultAsync(e => e.Id == input.ProviderChargeId.Value, ct)
+                ?? throw Rule("CUSTODY_PROVIDER_CHARGE_REQUIRED", "مصرف نسیه پیدا نشد.");
+            if (charge.Kind != CustodyFinanceKind.ProviderCharge)
+                throw Rule("CUSTODY_PROVIDER_CHARGE_REQUIRED", "این سند مصرف نسیهٔ خدمات‌دهنده نیست.");
+            owner = new CustodyOwner(charge.OwnerPartyType, charge.OwnerPartyId);
+            lotId = charge.CustodyLotId;
+            if (charge.CustodySaleId.HasValue)
+                sale = await db.CustodySales.FirstOrDefaultAsync(s => s.Id == charge.CustodySaleId.Value, ct);
         }
         else
         {
@@ -233,9 +312,9 @@ public sealed class CustodySaleService(
                 owner = input.Owner ?? throw Rule("CUSTODY_OWNER_REQUIRED", "مالک را انتخاب کنید.");
             }
         }
-        RequireFinancialOwner(owner.PartyType);
+        owner = await RequireFinancialOwnerAsync(owner, ct);
 
-        // ترتیبِ قفل: اول حسابِ مالک، بعد فروش — همهٔ مسیرها همین ترتیب را دارند.
+        // ترتیبِ قفل: اول حسابِ مالک، بعد فروش، بعد مصرف نسیه — همهٔ مسیرها همین ترتیب را دارند.
         await LockOwnerAsync(owner, ct);
         if (sale is not null)
         {
@@ -244,28 +323,65 @@ public sealed class CustodySaleService(
             if (sale.Status != CustodyDocumentStatus.Posted)
                 throw Rule("CUSTODY_SALE_CANCELLED", "این فروش لغو شده است.");
         }
+        if (charge is not null)
+        {
+            await LockFinanceEntryAsync(charge.Id, ct);
+            await db.Entry(charge).ReloadAsync(ct);
+            if (charge.Status != CustodyDocumentStatus.Posted)
+                throw Rule("CUSTODY_PROVIDER_CHARGE_CANCELLED", "این مصرف نسیه لغو شده است.");
+        }
         await EnsureAccountingCompleteAsync(owner, ct);
 
         var amount = input.AmountUsd;
         var commission = 0m;
         if (input.Kind is CustodyFinanceKind.Collection or CustodyFinanceKind.DirectToOwner)
         {
-            var collected = await CollectedAsync(sale!.Id, excludeEntryId: null, ct);
-            var outstanding = sale.AmountUsd - collected;
+            var returned = await ReturnTotalsAsync(sale!.Id, ct);
+            var netAmount = sale.AmountUsd - returned.AmountUsd;
+            var netCommission = sale.CommissionUsd - returned.CommissionUsd;
+            var collected = await CollectedAsync(sale.Id, excludeEntryId: null, ct);
+            var outstanding = netAmount - collected;
             if (amount > outstanding)
                 throw Rule("CUSTODY_OVER_COLLECTION", $"باقی‌ماندهٔ این فروش {Usd(outstanding)} است.");
-            if (sale.CommissionRecognition == CustodyCommissionRecognition.OnCollection && sale.CommissionUsd > 0m)
+            if (sale.CommissionRecognition == CustodyCommissionRecognition.OnCollection && netCommission > 0m)
             {
                 var recognized = await CommissionOnCollectionsAsync(sale.Id, ct);
-                var remaining = sale.CommissionUsd - recognized;
+                var remaining = Math.Max(netCommission - recognized, 0m);
                 // آخرین وصول باقیماندهٔ کمیشن را می‌گیرد تا گردکردن، کمیشن را کم یا زیاد نکند.
                 commission = amount == outstanding
                     ? remaining
-                    : Math.Min(remaining, Money(sale.CommissionUsd * amount / sale.AmountUsd));
+                    : Math.Min(remaining, Money(netCommission * amount / netAmount));
             }
         }
 
-        if (input.Kind is CustodyFinanceKind.Collection or CustodyFinanceKind.OwnerPayout or CustodyFinanceKind.ReimbursableExpense)
+        int? serviceProviderId = null;
+        if (input.Kind == CustodyFinanceKind.ProviderCharge)
+        {
+            if (!input.ServiceProviderId.HasValue)
+                throw Rule("CUSTODY_PROVIDER_REQUIRED", "خدمات‌دهندهٔ طلبکار را انتخاب کنید.");
+            if (!await db.ServiceProviders.AnyAsync(x => x.Id == input.ServiceProviderId.Value && x.IsActive, ct))
+                throw Rule("CUSTODY_PROVIDER_REQUIRED", "خدمات‌دهنده پیدا نشد یا غیرفعال است.");
+            if (!input.ExpenseTypeId.HasValue)
+                throw Rule("CUSTODY_PROVIDER_EXPENSE_TYPE", "نوع مصرف را انتخاب کنید.");
+            var payableKind = await db.ExpenseTypes.AsNoTracking().Where(x => x.Id == input.ExpenseTypeId.Value)
+                .Select(x => new { x.PayableAccountKind }).SingleOrDefaultAsync(ct)
+                ?? throw Rule("CUSTODY_PROVIDER_EXPENSE_TYPE", "نوع مصرف پیدا نشد.");
+            if (accounting.IsEnabled && payableKind.PayableAccountKind is null)
+                throw Rule("CUSTODY_PROVIDER_PAYABLE", "برای این نوع مصرف «حساب پرداختنی» تعیین نشده است؛ بدهی خدمات‌دهنده بدون حساب معتبر ثبت نمی‌شود.");
+            serviceProviderId = input.ServiceProviderId;
+        }
+        else if (input.Kind == CustodyFinanceKind.ProviderPayment)
+        {
+            var paid = await ProviderPaidAsync(charge!.Id, ct);
+            var unpaid = charge.AmountUsd - paid;
+            if (amount > unpaid)
+                throw Rule("CUSTODY_PROVIDER_OVERPAID", $"ماندهٔ پرداخت‌نشدهٔ این مصرف {Usd(unpaid)} است.");
+            serviceProviderId = charge.ServiceProviderId;
+        }
+
+        var paysCash = input.Kind is CustodyFinanceKind.Collection or CustodyFinanceKind.OwnerPayout
+            or CustodyFinanceKind.ReimbursableExpense or CustodyFinanceKind.ProviderPayment;
+        if (paysCash)
         {
             if (!input.CashAccountId.HasValue)
                 throw Rule("CUSTODY_CASH_ACCOUNT", "صندوق یا بانک را انتخاب کنید.");
@@ -298,10 +414,12 @@ public sealed class CustodySaleService(
             AmountUsd = amount,
             Currency = "USD",
             CommissionUsd = commission,
-            CashAccountId = input.Kind is CustodyFinanceKind.Collection or CustodyFinanceKind.OwnerPayout or CustodyFinanceKind.ReimbursableExpense
-                ? input.CashAccountId
-                : null,
-            ExpenseTypeId = input.Kind is CustodyFinanceKind.ReimbursableExpense or CustodyFinanceKind.ServiceFee ? input.ExpenseTypeId : null,
+            CashAccountId = paysCash ? input.CashAccountId : null,
+            ExpenseTypeId = input.Kind is CustodyFinanceKind.ReimbursableExpense or CustodyFinanceKind.ServiceFee or CustodyFinanceKind.ProviderCharge
+                ? input.ExpenseTypeId
+                : input.Kind == CustodyFinanceKind.ProviderPayment ? charge!.ExpenseTypeId : null,
+            ServiceProviderId = serviceProviderId,
+            SettlesFinanceEntryId = charge?.Id,
             PayeeName = Clean(input.PayeeName),
             DocumentNumber = Clean(input.DocumentNumber),
             Description = Clean(input.Description),
@@ -329,7 +447,8 @@ public sealed class CustodySaleService(
         await audit.LogAsync(FinanceEntity, entry.Id, AuditAction.Insert, diff: Describe(new
         {
             Kind = entry.Kind.ToString(), Sale = sale?.SaleNumber, entry.OwnerPartyType, entry.OwnerPartyId,
-            entry.AmountUsd, entry.CommissionUsd, entry.CashAccountId, entry.PaymentTransactionId
+            entry.AmountUsd, entry.CommissionUsd, entry.CashAccountId, entry.PaymentTransactionId,
+            entry.ServiceProviderId, entry.SettlesFinanceEntryId, entry.ExpenseTypeId
         }), ct: ct);
         await db.SaveChangesAsync(ct);
         return entry.Id;
@@ -348,6 +467,8 @@ public sealed class CustodySaleService(
                 throw Rule("CUSTODY_SALE_CANCELLED", "این فروش قبلاً لغو شده است.");
             if (await db.CustodyFinanceEntries.AnyAsync(e => e.CustodySaleId == sale.Id && e.Status == CustodyDocumentStatus.Posted, ct))
                 throw Rule("CUSTODY_SALE_HAS_RECEIPTS", "برای این فروش دریافت یا سند ثبت شده است؛ اول آن‌ها را لغو کنید.");
+            if (await db.CustodySaleReturns.AnyAsync(r => r.CustodySaleId == sale.Id && r.Status == CustodyDocumentStatus.Posted, ct))
+                throw Rule("CUSTODY_SALE_HAS_RETURNS", "برای این فروش برگشت ثبت شده است؛ اول برگشت‌ها را لغو کنید.");
             await custody.ReverseSaleOutAsync(sale.StockOperationKey, $"لغو فروش {sale.SaleNumber}: {reason.Trim()}", ct);
             await ReverseLedgerRowsAsync(SaleSourceType, sale.Id, $"لغو فروش امانی {sale.SaleNumber}", sale.SaleNumber, ct);
             var companyId = await systemCompany.GetOwnerCompanyIdAsync(ct);
@@ -380,6 +501,12 @@ public sealed class CustodySaleService(
             await db.Entry(entry).ReloadAsync(ct);
             if (entry.Status == CustodyDocumentStatus.Cancelled)
                 throw Rule("CUSTODY_FINANCE_CANCELLED", "این سند قبلاً لغو شده است.");
+            if (entry.Kind == CustodyFinanceKind.ProviderCharge)
+            {
+                await LockFinanceEntryAsync(entry.Id, ct);
+                if (await ProviderPaidAsync(entry.Id, ct) > 0m)
+                    throw Rule("CUSTODY_PROVIDER_CHARGE_PAID", "بخشی از این مصرف به خدمات‌دهنده پرداخت شده است؛ اول پرداخت‌ها را لغو کنید.");
+            }
 
             // لغوِ وصولِ نقدی پولِ مالک نزد شرکت را کم می‌کند؛ اگر قبلاً همان پول به مالک پرداخت
             // شده باشد، مانده منفی می‌شود — اول باید پرداخت به مالک اصلاح شود. ماندهٔ منفی بدونِ
@@ -422,11 +549,218 @@ public sealed class CustodySaleService(
             return 0;
         }, ct);
 
+    // ---------------------------------------------------------------- برگشتِ قسمیِ فروش
+
+    public Task<int> RecordReturnAsync(CustodySaleReturnInput input, CancellationToken ct = default)
+        => InTransactionAsync(async () =>
+        {
+            if (input.Lines is null || input.Lines.Count == 0)
+                throw Rule("CUSTODY_RETURN_LINES", "مقدار برگشت را وارد کنید.");
+            foreach (var line in input.Lines)
+                RequirePositive(line.QuantityMt, "مقدار برگشت", 4);
+            var sale = await db.CustodySales.FirstOrDefaultAsync(s => s.Id == input.SaleId, ct)
+                ?? throw Rule("CUSTODY_SALE_NOT_FOUND", "فروش امانی پیدا نشد.");
+            var owner = new CustodyOwner(sale.OwnerPartyType, sale.OwnerPartyId);
+            await LockOwnerAsync(owner, ct);
+            await LockSaleAsync(sale.Id, ct);
+            await db.Entry(sale).ReloadAsync(ct);
+            if (sale.Status != CustodyDocumentStatus.Posted)
+                throw Rule("CUSTODY_SALE_CANCELLED", "این فروش لغو شده است.");
+            await EnsureAccountingCompleteAsync(owner, ct);
+            var returnDate = ToUtc(input.ReturnDate);
+            if (returnDate.Date < sale.SaleDate.Date)
+                throw Rule("CUSTODY_RETURN_DATE", "تاریخ برگشت پیش از تاریخ فروش نمی‌شود.");
+
+            // هر سطر باید به همان بار و همان محلی برگردد که این فروش از آن خارج کرده بود.
+            var returnable = await ReturnableBySourceAsync(sale, ct);
+            var requested = input.Lines
+                .GroupBy(l => (l.LotId, l.Location.TerminalId, l.Location.StorageTankId))
+                .Select(g => (Key: g.Key, Quantity: g.Sum(x => x.QuantityMt)))
+                .ToList();
+            foreach (var (key, lineQuantity) in requested)
+            {
+                if (!returnable.TryGetValue(key, out var available))
+                    throw Rule("CUSTODY_RETURN_SOURCE", "برگشت فقط به بار و محلی ممکن است که همین فروش از آن خارج شده است.");
+                if (lineQuantity > available)
+                    throw Rule("CUSTODY_RETURN_EXCEEDS", $"از این بار/محل حداکثر {Qty(available)} تُن قابل برگشت است.");
+            }
+
+            var totals = await ReturnTotalsAsync(sale.Id, ct);
+            var quantity = requested.Sum(r => r.Quantity);
+            var netQuantityBefore = sale.QuantityMt - totals.QuantityMt;
+            var netAmountBefore = sale.AmountUsd - totals.AmountUsd;
+            var netCommissionBefore = sale.CommissionUsd - totals.CommissionUsd;
+            var netQuantityAfter = netQuantityBefore - quantity;
+            // آخرین برگشتِ کامل، باقیماندهٔ دقیق مبلغ را می‌گیرد تا گردکردن مبلغ را کم یا زیاد نکند.
+            var amount = netQuantityAfter == 0m ? netAmountBefore : Money(quantity * sale.UnitPriceUsd);
+            var netAmountAfter = netAmountBefore - amount;
+            if (amount <= 0m || netAmountAfter < 0m)
+                throw Rule("CUSTODY_RETURN_AMOUNT", "مبلغ برگشت معتبر نیست.");
+
+            var collected = await CollectedAsync(sale.Id, excludeEntryId: null, ct);
+            var outstanding = netAmountBefore - collected;
+            if (amount > outstanding)
+                throw Rule("CUSTODY_RETURN_COLLECTED",
+                    $"مبلغ این برگشت ({Usd(amount)}) از ماندهٔ وصول‌نشدهٔ فروش ({Usd(outstanding)}) بیشتر است؛ پولِ وصول‌شده با برگشت خودکار مسترد نمی‌شود.");
+
+            // کمیشن با همان روشِ فروش روی مقدار/مبلغِ باقی دوباره سنجیده می‌شود. کمیشنِ ثابت مربوط
+            // به خودِ معامله است و تا برگشتِ کامل باقی می‌ماند.
+            var netCommissionAfter = netQuantityAfter == 0m
+                ? 0m
+                : sale.CommissionMethod switch
+                {
+                    CustodyCommissionMethod.None => 0m,
+                    CustodyCommissionMethod.FixedPerSale => netCommissionBefore,
+                    _ => CalculateCommission(sale.CommissionMethod, sale.CommissionRate, netQuantityAfter, netAmountAfter)
+                };
+            if (netCommissionAfter > netAmountAfter)
+                throw Rule("CUSTODY_RETURN_COMMISSION", "کمیشنِ ثابت از مبلغِ باقی‌ماندهٔ فروش بیشتر می‌شود؛ برگشتِ کامل یا لغو فروش را ثبت کنید.");
+            var commissionReduction = Math.Max(netCommissionBefore - netCommissionAfter, 0m);
+            var recognizedReversal = 0m;
+            if (sale.CommissionRecognition == CustodyCommissionRecognition.OnSale)
+            {
+                recognizedReversal = commissionReduction;
+            }
+            else
+            {
+                // کمیشنی که از پولِ قبلاً وصول‌شده درآمد شده، با برگشتِ بخشِ وصول‌نشده برنمی‌گردد.
+                var recognizedOnCollections = await CommissionOnCollectionsAsync(sale.Id, ct);
+                commissionReduction = Math.Min(commissionReduction, Math.Max(netCommissionBefore - recognizedOnCollections, 0m));
+            }
+
+            var stockKey = await custody.RecordSaleReturnInAsync(
+                requested.Select(r => new CustodySaleSource(r.Key.LotId, new CustodyLocation(r.Key.TerminalId, r.Key.StorageTankId), r.Quantity)).ToList(),
+                returnDate, input.DocumentNumber, ct);
+
+            var saleReturn = new CustodySaleReturn
+            {
+                ReturnNumber = "TMP-" + Guid.NewGuid().ToString("N"),
+                CustodySaleId = sale.Id,
+                OwnerPartyType = sale.OwnerPartyType,
+                OwnerPartyId = sale.OwnerPartyId,
+                CustomerId = sale.CustomerId,
+                ReturnDate = returnDate,
+                QuantityMt = quantity,
+                AmountUsd = amount,
+                CommissionUsd = commissionReduction,
+                RecognizedCommissionReversedUsd = recognizedReversal,
+                StockOperationKey = stockKey,
+                DocumentNumber = Clean(input.DocumentNumber),
+                Notes = Clean(input.Notes),
+                CreatedByUserId = currentUser?.UserId
+            };
+            db.CustodySaleReturns.Add(saleReturn);
+            formTokens.Stamp(input.FormToken, "Custody.Return", ReturnEntity);
+            await db.SaveChangesAsync(ct);
+            saleReturn.ReturnNumber = $"AR-{saleReturn.Id:D5}";
+
+            if (recognizedReversal > 0m)
+            {
+                ledger.Post(PartyRow(ReturnSourceType, saleReturn.Id, saleReturn.ReturnDate, recognizedReversal,
+                    saleReturn.ReturnNumber + CommissionSuffix, sale.OwnerPartyType, sale.OwnerPartyId, CompanyFlowEffect.Receipt,
+                    $"برگشت کمیشن فروش امانی {sale.SaleNumber} ({saleReturn.ReturnNumber})"));
+            }
+            await db.SaveChangesAsync(ct);
+            RequireJournal(await accounting.TryPostReturnAsync(saleReturn, sale, ct));
+            await audit.LogAsync(ReturnEntity, saleReturn.Id, AuditAction.Insert, diff: Describe(new
+            {
+                saleReturn.ReturnNumber, sale.SaleNumber,
+                Lines = requested.Select(r => new { r.Key.LotId, r.Key.TerminalId, r.Key.StorageTankId, r.Quantity }),
+                saleReturn.QuantityMt, saleReturn.AmountUsd, saleReturn.CommissionUsd, saleReturn.RecognizedCommissionReversedUsd
+            }), ct: ct);
+            await db.SaveChangesAsync(ct);
+            return saleReturn.Id;
+        }, ct);
+
+    public Task CancelReturnAsync(int returnId, string reason, CancellationToken ct = default)
+        => InTransactionAsync(async () =>
+        {
+            RequireReason(reason);
+            var saleReturn = await db.CustodySaleReturns.FirstOrDefaultAsync(r => r.Id == returnId, ct)
+                ?? throw Rule("CUSTODY_RETURN_NOT_FOUND", "برگشت فروش پیدا نشد.");
+            await LockOwnerAsync(new CustodyOwner(saleReturn.OwnerPartyType, saleReturn.OwnerPartyId), ct);
+            await LockSaleAsync(saleReturn.CustodySaleId, ct);
+            await db.Entry(saleReturn).ReloadAsync(ct);
+            if (saleReturn.Status == CustodyDocumentStatus.Cancelled)
+                throw Rule("CUSTODY_RETURN_CANCELLED", "این برگشت قبلاً لغو شده است.");
+            // کمیشنِ هر برگشت بر پایهٔ برگشت‌های پیش از آن سنجیده شده؛ لغو از آخر به اول.
+            if (await db.CustodySaleReturns.AnyAsync(r => r.CustodySaleId == saleReturn.CustodySaleId
+                    && r.Status == CustodyDocumentStatus.Posted && r.Id > saleReturn.Id, ct))
+                throw Rule("CUSTODY_RETURN_NOT_LATEST", "برگشت‌های بعدیِ همین فروش را اول لغو کنید.");
+            var sale = await db.CustodySales.AsNoTracking().SingleAsync(s => s.Id == saleReturn.CustodySaleId, ct);
+
+            await custody.ReverseSaleReturnInAsync(saleReturn.StockOperationKey, $"لغو برگشت {saleReturn.ReturnNumber}: {reason.Trim()}", ct);
+            await ReverseLedgerRowsAsync(ReturnSourceType, saleReturn.Id, $"لغو برگشت فروش امانی {saleReturn.ReturnNumber}", saleReturn.ReturnNumber, ct);
+            var companyId = await systemCompany.GetOwnerCompanyIdAsync(ct);
+            await accounting.TryReverseAsync(
+                CustodyAccountingAdapter.ReturnEventId(saleReturn.Id),
+                CustodyAccountingAdapter.ReturnJournalNumber(companyId, saleReturn.Id),
+                DateTime.UtcNow,
+                $"Cancel custody sale return {saleReturn.ReturnNumber} of {sale.SaleNumber}",
+                ct);
+
+            saleReturn.Status = CustodyDocumentStatus.Cancelled;
+            saleReturn.CancelledAtUtc = DateTime.UtcNow;
+            saleReturn.CancelledByUserId = currentUser?.UserId;
+            saleReturn.CancellationReason = reason.Trim();
+            await audit.LogAsync(ReturnEntity, saleReturn.Id, AuditAction.Reverse,
+                diff: Describe(new { saleReturn.ReturnNumber, Reason = reason.Trim() }), ct: ct);
+            await db.SaveChangesAsync(ct);
+            return 0;
+        }, ct);
+
+    public sealed record ReturnTotals(decimal QuantityMt, decimal AmountUsd, decimal CommissionUsd, decimal RecognizedCommissionReversedUsd);
+
+    public static async Task<ReturnTotals> ReturnTotalsAsync(ApplicationDbContext db, int saleId, CancellationToken ct)
+    {
+        var rows = await db.CustodySaleReturns.AsNoTracking()
+            .Where(r => r.CustodySaleId == saleId && r.Status == CustodyDocumentStatus.Posted)
+            .Select(r => new { r.QuantityMt, r.AmountUsd, r.CommissionUsd, r.RecognizedCommissionReversedUsd })
+            .ToListAsync(ct);
+        return new ReturnTotals(rows.Sum(r => r.QuantityMt), rows.Sum(r => r.AmountUsd), rows.Sum(r => r.CommissionUsd),
+            rows.Sum(r => r.RecognizedCommissionReversedUsd));
+    }
+
+    private Task<ReturnTotals> ReturnTotalsAsync(int saleId, CancellationToken ct) => ReturnTotalsAsync(db, saleId, ct);
+
+    /// <summary>سهمِ هر بار/محل در خروجِ این فروش منهای برگشت‌های فعالِ قبلی — از خودِ دفتر امانی.</summary>
+    public static async Task<Dictionary<(int LotId, int TerminalId, int? StorageTankId), decimal>> ReturnableBySourceAsync(
+        ApplicationDbContext db, CustodySale sale, CancellationToken ct)
+    {
+        var sold = await db.CustodyMovements.AsNoTracking()
+            .Where(m => m.OperationKey == sale.StockOperationKey && m.ReversalOfCustodyMovementId == null && !m.IsReversed)
+            .Select(m => new { m.CustodyLotId, m.TerminalId, m.StorageTankId, m.QuantityMt })
+            .ToListAsync(ct);
+        var returnKeys = await db.CustodySaleReturns.AsNoTracking()
+            .Where(r => r.CustodySaleId == sale.Id && r.Status == CustodyDocumentStatus.Posted)
+            .Select(r => r.StockOperationKey).ToListAsync(ct);
+        var returned = await db.CustodyMovements.AsNoTracking()
+            .Where(m => returnKeys.Contains(m.OperationKey) && m.ReversalOfCustodyMovementId == null && !m.IsReversed)
+            .Select(m => new { m.CustodyLotId, m.TerminalId, m.StorageTankId, m.QuantityMt })
+            .ToListAsync(ct);
+        return sold.GroupBy(m => (m.CustodyLotId, m.TerminalId, m.StorageTankId))
+            .ToDictionary(g => g.Key, g => g.Sum(x => x.QuantityMt)
+                - returned.Where(r => (r.CustodyLotId, r.TerminalId, r.StorageTankId) == g.Key).Sum(r => r.QuantityMt));
+    }
+
+    private Task<Dictionary<(int LotId, int TerminalId, int? StorageTankId), decimal>> ReturnableBySourceAsync(CustodySale sale, CancellationToken ct)
+        => ReturnableBySourceAsync(db, sale, ct);
+
+    public static Task<decimal> ProviderPaidAsync(ApplicationDbContext db, int chargeId, CancellationToken ct)
+        => db.CustodyFinanceEntries.AsNoTracking()
+            .Where(e => e.SettlesFinanceEntryId == chargeId && e.Kind == CustodyFinanceKind.ProviderPayment
+                && e.Status == CustodyDocumentStatus.Posted)
+            .SumAsync(e => e.AmountUsd, ct);
+
+    private Task<decimal> ProviderPaidAsync(int chargeId, CancellationToken ct) => ProviderPaidAsync(db, chargeId, ct);
+
+
     // ---------------------------------------------------------------- balances (همان تعریفِ صفحهٔ حساب مالک)
 
     /// <summary>
-    /// پولِ مالک نزد شرکت = وصولِ نقدی − همهٔ کمیشن‌های درآمدشده − مصارف به حساب مالک − حق خدمات − پرداخت‌ها.
-    /// منفی یعنی مالک به شرکت بدهکار است.
+    /// پولِ مالک نزد شرکت = وصولِ نقدی − همهٔ کمیشن‌های درآمدشده (+ کمیشنِ برگشت‌خورده با برگشت فروش)
+    /// − مصارف به حساب مالک (نقد یا نسیهٔ خدمات‌دهنده) − حق خدمات − پرداخت‌ها. منفی یعنی مالک به شرکت بدهکار است.
+    /// پرداخت به خدمات‌دهنده حساب مالک را تغییر نمی‌دهد؛ مالک هنگام ثبتِ مصرف نسیه بدهکار شده بود.
     /// </summary>
     public static async Task<decimal> OwnerFundsBalanceAsync(ApplicationDbContext db, CustodyOwner owner, CancellationToken ct)
     {
@@ -438,12 +772,17 @@ public sealed class CustodySaleService(
         var saleCommission = await db.CustodySales.AsNoTracking()
             .Where(s => s.OwnerPartyType == owner.PartyType && s.OwnerPartyId == owner.PartyId && s.Status == CustodyDocumentStatus.Posted)
             .SumAsync(s => s.CommissionRecognizedAtSaleUsd, ct);
+        var returnedCommission = await db.CustodySaleReturns.AsNoTracking()
+            .Where(r => r.OwnerPartyType == owner.PartyType && r.OwnerPartyId == owner.PartyId && r.Status == CustodyDocumentStatus.Posted)
+            .SumAsync(r => r.RecognizedCommissionReversedUsd, ct);
 
         decimal Amount(CustodyFinanceKind kind) => entries.Where(e => e.Kind == kind).Sum(e => e.Amount);
         return Amount(CustodyFinanceKind.Collection)
             - entries.Sum(e => e.Commission)
             - saleCommission
+            + returnedCommission
             - Amount(CustodyFinanceKind.ReimbursableExpense)
+            - Amount(CustodyFinanceKind.ProviderCharge)
             - Amount(CustodyFinanceKind.ServiceFee)
             - Amount(CustodyFinanceKind.OwnerPayout);
     }
@@ -530,6 +869,18 @@ public sealed class CustodySaleService(
                 yield return PartyRow(sourceType, entry.Id, entry.EntryDate, entry.AmountUsd, reference,
                     entry.OwnerPartyType, entry.OwnerPartyId, CompanyFlowEffect.Outflow, "حق خدمات شرکت (امانی)");
                 break;
+            case CustodyFinanceKind.ProviderCharge:
+                yield return PartyRow(sourceType, entry.Id, entry.EntryDate, entry.AmountUsd, reference,
+                    entry.OwnerPartyType, entry.OwnerPartyId, CompanyFlowEffect.Outflow,
+                    $"مصرف نسیه به حساب مالک{(entry.PayeeName is null ? "" : " — " + entry.PayeeName)}");
+                // بدهیِ واقعیِ شرکت به خدمات‌دهنده — همان سمتِ مصرفِ پرداخت‌نشدهٔ عادی (بستانکار).
+                yield return ProviderRow(sourceType, entry, reference + ProviderSuffix, LedgerSide.Credit,
+                    $"مصرف نسیه برای مالک امانی {reference}");
+                break;
+            case CustodyFinanceKind.ProviderPayment:
+                yield return ProviderRow(sourceType, entry, reference + ProviderSuffix, LedgerSide.Debit,
+                    $"پرداخت مصرف نسیهٔ امانی AF-{entry.SettlesFinanceEntryId:D5}");
+                break;
         }
 
         if (entry.CommissionUsd > 0m)
@@ -539,6 +890,24 @@ public sealed class CustodySaleService(
                 $"کمیشن فروش امانی {reference}");
         }
     }
+
+    private static LedgerPostingRequest ProviderRow(string sourceType, CustodyFinanceEntry entry, string reference, LedgerSide side, string description)
+        => new()
+        {
+            SourceType = sourceType,
+            SourceId = entry.Id,
+            EntryDate = entry.EntryDate.Date,
+            Side = side,
+            AmountUsd = entry.AmountUsd,
+            SourceAmount = entry.AmountUsd,
+            SourceCurrencyCode = "USD",
+            AppliedFxRateToUsd = 1m,
+            AppliedCurrencyPerUsdRate = 1m,
+            AppliedFxRateDate = entry.EntryDate.Date,
+            Description = description,
+            Reference = reference,
+            ServiceProviderId = entry.ServiceProviderId
+        };
 
     /// <summary>
     /// هر سطرِ یک سند مرجعِ یکتای خودش را دارد (مشتری، «-O» مالک، «-C» کمیشن)، چون گاردِ «دو بار
@@ -574,6 +943,7 @@ public sealed class CustodySaleService(
         {
             CustodyFinanceKind.Collection => "دریافت پول فروش امانی",
             CustodyFinanceKind.OwnerPayout => "پرداخت به مالک امانی",
+            CustodyFinanceKind.ProviderPayment => "پرداخت مصرف نسیهٔ امانی به خدمات‌دهنده",
             _ => "مصرف به حساب مالک امانی"
         };
         var payment = new PaymentTransaction
@@ -630,6 +1000,13 @@ public sealed class CustodySaleService(
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({key1}, {key2})", ct);
     }
 
+    private async Task LockFinanceEntryAsync(int entryId, CancellationToken ct)
+    {
+        if (!IsPostgres) return;
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $@"SELECT ""Id"" FROM ""CustodyFinanceEntries"" WHERE ""Id"" = {entryId} FOR UPDATE", ct);
+    }
+
     private async Task LockSaleAsync(int saleId, CancellationToken ct)
     {
         if (!IsPostgres) return;
@@ -669,15 +1046,9 @@ public sealed class CustodySaleService(
         {
             "PILOT_DISABLED" => "ثبت دفتر کلِ امانی فعال نیست (Accounting:Pilots:Custody)؛ سند ثبت نشد.",
             "CUSTODY_ACCOUNTS_NOT_CONFIGURED" => "حساب‌های امانی در «نقشه حساب‌ها» تعیین نشده‌اند؛ سند ثبت نشد.",
+            CustodyAccountingAdapter.ProviderPayableNotConfiguredReason => "حساب پرداختنیِ نوعِ این مصرف تعیین نشده است؛ سند ثبت نشد.",
             _ => $"دفتر کلِ امانی آماده نیست ({result.Reason})؛ سند ثبت نشد."
         });
-    }
-
-    private static void RequireFinancialOwner(AccountingPartyType ownerType)
-    {
-        if (!FinancialOwnerTypes.Contains(ownerType))
-            throw Rule("CUSTODY_OWNER_FINANCE_UNSUPPORTED",
-                "فروش و حساب مالی امانی فعلاً فقط برای مالکی است که مشتری یا فروشنده ثبت شده است.");
     }
 
     private static void RequireUsd(string? currency)

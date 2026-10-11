@@ -2111,6 +2111,12 @@ namespace PTGOilSystem.Web.Migrations
                     b.Property<int?>("ReversalPaymentTransactionId")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("ServiceProviderId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("SettlesFinanceEntryId")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
@@ -2135,6 +2141,10 @@ namespace PTGOilSystem.Web.Migrations
 
                     b.HasIndex("ReversalPaymentTransactionId")
                         .IsUnique();
+
+                    b.HasIndex("ServiceProviderId");
+
+                    b.HasIndex("SettlesFinanceEntryId");
 
                     b.HasIndex("OwnerPartyType", "OwnerPartyId");
 
@@ -2504,6 +2514,104 @@ namespace PTGOilSystem.Web.Migrations
                             t.HasCheckConstraint("CK_CustodySales_Amounts", "\"AmountUsd\" > 0 AND \"CommissionUsd\" >= 0 AND \"CommissionUsd\" <= \"AmountUsd\" AND \"CommissionRecognizedAtSaleUsd\" >= 0 AND \"CommissionRecognizedAtSaleUsd\" <= \"CommissionUsd\"");
 
                             t.HasCheckConstraint("CK_CustodySales_Quantity", "\"QuantityMt\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CustodySaleReturn", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("AmountUsd")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("CancelledAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CancelledByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("CommissionUsd")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CustodySaleId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CustomerId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("DocumentNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("OwnerPartyId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("OwnerPartyType")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("QuantityMt")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal>("RecognizedCommissionReversedUsd")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<DateTime>("ReturnDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReturnNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("StockOperationKey")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("UpdatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustodySaleId");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("ReturnNumber")
+                        .IsUnique();
+
+                    b.HasIndex("StockOperationKey")
+                        .IsUnique();
+
+                    b.HasIndex("OwnerPartyType", "OwnerPartyId");
+
+                    b.ToTable("CustodySaleReturns", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CustodySaleReturns_Amounts", "\"AmountUsd\" > 0 AND \"CommissionUsd\" >= 0 AND \"RecognizedCommissionReversedUsd\" >= 0 AND \"RecognizedCommissionReversedUsd\" <= \"CommissionUsd\"");
+
+                            t.HasCheckConstraint("CK_CustodySaleReturns_Quantity", "\"QuantityMt\" > 0");
                         });
                 });
 
@@ -11104,6 +11212,16 @@ namespace PTGOilSystem.Web.Migrations
                         .HasForeignKey("ReversalPaymentTransactionId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.ServiceProvider", "ServiceProvider")
+                        .WithMany()
+                        .HasForeignKey("ServiceProviderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.CustodyFinanceEntry", "SettlesFinanceEntry")
+                        .WithMany()
+                        .HasForeignKey("SettlesFinanceEntryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("CashAccount");
 
                     b.Navigation("CustodyLot");
@@ -11113,6 +11231,10 @@ namespace PTGOilSystem.Web.Migrations
                     b.Navigation("ExpenseType");
 
                     b.Navigation("PaymentTransaction");
+
+                    b.Navigation("ServiceProvider");
+
+                    b.Navigation("SettlesFinanceEntry");
                 });
 
             modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CustodyHold", b =>
@@ -11194,6 +11316,23 @@ namespace PTGOilSystem.Web.Migrations
                     b.Navigation("CustodyLot");
 
                     b.Navigation("Customer");
+                });
+
+            modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CustodySaleReturn", b =>
+                {
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.CustodySale", "CustodySale")
+                        .WithMany()
+                        .HasForeignKey("CustodySaleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CustodySale");
                 });
 
             modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CustodySupplierIdentityLink", b =>

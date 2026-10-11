@@ -202,13 +202,40 @@ public sealed class CustodySaleForm
     public int? CashAccountId { get; set; }
     [MaxLength(100)] public string? DocumentNumber { get; set; }
     [MaxLength(1000)] public string? Notes { get; set; }
+    /// <summary>سهم‌های اختیاری از بارهای دیگرِ همین مالک و جنس (کلید «بار:ترمینال:مخزن»).</summary>
+    public List<CustodySourceQuantity> Extra { get; set; } = [];
 }
+
+/// <summary>مقدار برای یک بار و محلِ مشخص؛ کلید با <see cref="CustodySourceKey"/> ساخته می‌شود.</summary>
+public sealed class CustodySourceQuantity
+{
+    public string? Key { get; set; }
+    public decimal? QuantityMt { get; set; }
+}
+
+public static class CustodySourceKey
+{
+    public static string Key(int lotId, int terminalId, int? tankId) => $"{lotId}:{terminalId}:{tankId?.ToString() ?? "-"}";
+
+    public static CustodySaleSource? Parse(string? key, decimal quantity)
+    {
+        var parts = key?.Split(':');
+        if (parts is not { Length: 3 } || !int.TryParse(parts[0], out var lotId) || !int.TryParse(parts[1], out var terminalId))
+            return null;
+        int? tankId = parts[2] == "-" ? null : int.TryParse(parts[2], out var tank) ? tank : -1;
+        return tankId == -1 ? null : new CustodySaleSource(lotId, new CustodyLocation(terminalId, tankId), quantity);
+    }
+}
+
+public sealed record CustodySourceOption(string Key, string LotNumber, string Location, decimal AvailableMt);
 
 public sealed class CustodySaleViewModel
 {
     public required CustodySaleForm Form { get; init; }
     public required CustodyLotSummary Lot { get; init; }
     public IReadOnlyList<CustodyLocationOption> SourceLocations { get; init; } = [];
+    /// <summary>بارهای دیگرِ همان مالک و جنس که می‌توانند بخشی از همین فروش را تأمین کنند.</summary>
+    public IReadOnlyList<CustodySourceOption> OtherSources { get; init; } = [];
     public IReadOnlyList<(int Id, string Name)> Customers { get; init; } = [];
     public IReadOnlyList<(int Id, string Name)> CashAccounts { get; init; } = [];
 }
@@ -226,6 +253,8 @@ public sealed class CustodyFinanceForm
     public int? CashAccountId { get; set; }
     public int? ExpenseTypeId { get; set; }
     [MaxLength(200)] public string? PayeeName { get; set; }
+    public int? ServiceProviderId { get; set; }
+    public int? ProviderChargeId { get; set; }
     [MaxLength(100)] public string? DocumentNumber { get; set; }
     [MaxLength(1000)] public string? Description { get; set; }
 
@@ -236,6 +265,8 @@ public sealed class CustodyFinanceForm
         CustodyFinanceKind.OwnerPayout => "پرداخت به مالک",
         CustodyFinanceKind.ReimbursableExpense => "مصرف به حساب مالک",
         CustodyFinanceKind.ServiceFee => "حق خدمات شرکت",
+        CustodyFinanceKind.ProviderCharge => "مصرف نسیه به حساب مالک",
+        CustodyFinanceKind.ProviderPayment => "پرداخت به خدمات‌دهنده",
         _ => "سند امانی"
     };
 
@@ -246,6 +277,8 @@ public sealed class CustodyFinanceForm
         CustodyFinanceKind.OwnerPayout => "پرداخت پولِ مالک از صندوق یا بانک شرکت. بیشتر از ماندهٔ قابل پرداخت ممکن نیست.",
         CustodyFinanceKind.ReimbursableExpense => "مصرفی که شرکت از صندوق خود به حساب مالک پرداخت کرده و از پولِ مالک کسر می‌شود. مصرف شرکت نیست. اگر مالک خودش پرداخته، اینجا ثبت نکنید. مصرفی که بر عهدهٔ شرکت است از بخش «مصارف» ثبت شود.",
         CustodyFinanceKind.ServiceFee => "حق مخزن، بارگیری یا خدمتِ دیگرِ شرکت که از پولِ مالک کسر می‌شود و درآمد شرکت است.",
+        CustodyFinanceKind.ProviderCharge => "خدمتی که برای تیلِ مالک گرفته شده و پولش هنوز پرداخت نشده است. مالک بدهکار می‌شود و شرکت به خدمات‌دهنده بدهکار؛ صندوق تغییر نمی‌کند. پرداخت بعداً (کامل یا قسمی) از همین حساب ثبت می‌شود.",
+        CustodyFinanceKind.ProviderPayment => "پرداختِ کامل یا قسمیِ مصرف نسیه به خدمات‌دهنده از صندوق یا بانک شرکت. حساب مالک دوباره کم نمی‌شود.",
         _ => ""
     };
 }
@@ -257,6 +290,25 @@ public sealed class CustodyFinanceViewModel
     public IReadOnlyList<CustodySaleRow> OpenSales { get; init; } = [];
     public IReadOnlyList<(int Id, string Name)> CashAccounts { get; init; } = [];
     public IReadOnlyList<(int Id, string Name)> ExpenseTypes { get; init; } = [];
+    public IReadOnlyList<(int Id, string Name)> ServiceProviders { get; init; } = [];
+    public CustodyFinanceRow? ProviderCharge { get; init; }
+}
+
+public sealed class CustodySaleReturnForm
+{
+    public int SaleId { get; set; }
+    public string? OwnerKey { get; set; }
+    [DataType(DataType.Date)] public DateTime Date { get; set; }
+    public List<CustodySourceQuantity> Lines { get; set; } = [];
+    [MaxLength(100)] public string? DocumentNumber { get; set; }
+    [MaxLength(1000)] public string? Notes { get; set; }
+}
+
+public sealed class CustodySaleReturnViewModel
+{
+    public required CustodySaleReturnForm Form { get; init; }
+    public required CustodySaleRow Sale { get; init; }
+    public IReadOnlyList<CustodySourceOption> Sources { get; init; } = [];
 }
 
 public sealed class CustodyConversionForm

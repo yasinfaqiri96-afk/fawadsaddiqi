@@ -39,6 +39,7 @@ public static partial class OperationalPeriodScope
         CustodySale x => x.SaleDate,
         CustodyFinanceEntry x => x.EntryDate,
         CustodyConversion x => x.ConversionDate,
+        CustodySaleReturn x => x.ReturnDate,
         LedgerEntry x => x.EntryDate,
         _ => null,
     };
@@ -63,6 +64,7 @@ public static partial class OperationalPeriodScope
         CustodySale => "فروش امانی",
         CustodyFinanceEntry => "سند مالی امانی",
         CustodyConversion => "تبدیل امانی به خرید",
+        CustodySaleReturn => "برگشت فروش امانی",
         LedgerEntry => "ردیف دفتر کل",
         _ => "سند",
     };

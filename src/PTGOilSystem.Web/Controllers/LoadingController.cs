@@ -2660,6 +2660,13 @@ public partial class LoadingController : Controller
         model.Notes = NormalizeNullable(model.Notes);
         model.LoadingPriceUsd = NormalizePositiveDecimal(model.LoadingPriceUsd);
 
+        // خرید ساخته‌شده از تبدیل امانی: مقدار و قیمت جزء سند تبدیل‌اند و فقط با لغو همان سند اصلاح می‌شوند.
+        if (await Services.Custody.CustodyConversionService.IsActiveConversionContractAsync(_db, loading.ContractId)
+            && (model.LoadedQuantityMt != loading.LoadedQuantityMt || model.LoadingPriceUsd != loading.LoadingPriceUsd))
+        {
+            ModelState.AddModelError(nameof(model.LoadedQuantityMt), Services.Custody.CustodyConversionService.EditBlockedMessage);
+        }
+
         // اصلاح وزن: نباید کمتر از مقدار رسیدشده باشد و نباید مجموع بارگیری قرارداد را از مقدار کل بیشتر کند.
         var totalReceivedMt = await _db.LoadingReceipts
             .AsNoTracking()
@@ -2973,6 +2980,12 @@ public partial class LoadingController : Controller
         if (loading is null)
         {
             return NotFound();
+        }
+
+        if (await Services.Custody.CustodyConversionService.IsActiveConversionContractAsync(_db, loading.ContractId))
+        {
+            TempData["err"] = Services.Custody.CustodyConversionService.EditBlockedMessage;
+            return RedirectToAction(nameof(Details), new { id = loading.Id });
         }
 
         ApplyLoadingPriceEditContext(model, loading);

@@ -1,0 +1,69 @@
+@model PTGOilSystem.Web.Models.Custody.CustodySaleReturnViewModel
+@using PTGOilSystem.Web.Models.Custody
+@{
+    var form = Model.Form;
+    var sale = Model.Sale;
+    var title = UiText.T(Context, "برگشت فروش امانی", "Custody sale return") + " — " + sale.SaleNumber;
+    ViewData["Title"] = title;
+    var backUrl = Url.Action("Owner", new { key = form.OwnerKey });
+}
+
+<div class="ak-form-page">
+    <div class="ak-form-page-content">
+        <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+                 model="@((title, true,
+                           (string?)null, (string?)null, (string?)null, (string?)null,
+                           UiText.T(Context, "بازگشت", "Back"), "bi-arrow-right",
+                           (string?)backUrl))" />
+
+        <form asp-action="SaleReturn" method="post" class="ak-form">
+            @Html.AntiForgeryToken()
+            @Html.FormToken()
+            <input type="hidden" name="SaleId" value="@form.SaleId" />
+            <input type="hidden" name="OwnerKey" value="@form.OwnerKey" />
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger ak-form-alert"></div>
+
+            <div class="alert alert-info ak-form-alert">
+                <i class="bi bi-info-circle" aria-hidden="true"></i>
+                @UiText.T(Context,
+                    "تیلِ برگشتی به همان بار و مخزنی برمی‌گردد که از آن فروخته شده بود. طلب مشتری به اندازهٔ مبلغ برگشت کم می‌شود و کمیشن با همان روشِ فروش اصلاح می‌شود. برگشت فقط تا مبلغِ وصول‌نشده ممکن است.",
+                    "Returned stock goes back to the lot and tank it was sold from. The customer's receivable and the commission are adjusted. Allowed only up to the uncollected amount.")
+            </div>
+
+            <section class="ak-form-section">
+                <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                         model="@((sale.CustomerName + " · " + sale.ProductName,
+                                   (string?)(UiText.T(Context, "وصول‌نشده", "Outstanding") + ": " + sale.OutstandingUsd.ToString("N2") + " USD · "
+                                             + UiText.T(Context, "قیمت فی تُن", "Price/MT") + ": " + sale.UnitPriceUsd.ToString("N4"))))" />
+                <div class="ak-form-grid">
+                    @for (var i = 0; i < Model.Sources.Count; i++)
+                    {
+                        var option = Model.Sources[i];
+                        var value = form.Lines.FirstOrDefault(x => x.Key == option.Key)?.QuantityMt;
+                        <div class="ak-field">
+                            <input type="hidden" name="Lines[@i].Key" value="@option.Key" />
+                            <label for="Lines_@(i)_QuantityMt" class="ak-label">@option.LotNumber · @option.Location <small class="text-muted">(@UiText.T(Context, "قابل برگشت", "returnable") @NumberDisplay.Quantity(option.AvailableMt, "MT"))</small></label>
+                            <input id="Lines_@(i)_QuantityMt" name="Lines[@i].QuantityMt" type="number" step="0.0001" min="0" class="ak-input" value="@value" />
+                        </div>
+                    }
+                    <div class="ak-field">
+                        <label for="Date" class="ak-label">@UiText.T(Context, "تاریخ برگشت", "Return date") <span class="ak-req">*</span></label>
+                        <input id="Date" name="Date" type="date" class="ak-input" value="@form.Date.ToString("yyyy-MM-dd")" />
+                    </div>
+                    <div class="ak-field">
+                        <label for="DocumentNumber" class="ak-label">@UiText.T(Context, "شماره سند", "Document no.")</label>
+                        <input id="DocumentNumber" name="DocumentNumber" class="ak-input" value="@form.DocumentNumber" maxlength="100" />
+                    </div>
+                    <div class="ak-field ak-col-full">
+                        <label for="Notes" class="ak-label">@UiText.T(Context, "توضیحات (اختیاری)", "Notes (optional)")</label>
+                        <textarea id="Notes" name="Notes" class="ak-input" rows="2" maxlength="1000">@form.Notes</textarea>
+                    </div>
+                </div>
+                <span class="ak-field-error">@Html.ValidationMessage("Lines")</span>
+            </section>
+
+            <partial name="~/Views/Shared/Components/Ak/_AkFooterActions.cshtml"
+                     model="@((UiText.T(Context, "ثبت برگشت", "Record return"), backUrl ?? "/", UiText.T(Context, "انصراف", "Cancel")))" />
+        </form>
+    </div>
+</div>

@@ -308,4 +308,83 @@ public sealed class CustodyConversionPostgresTests(AccountingPostgreSqlFixture f
         Assert.False(await verify.JournalEntries.AnyAsync(x => x.CompanyId == s.Company.Id));
     }
 
+    [Fact]
+    public async Task Cancellation_Is_Allowed_Once_The_Dependent_Outbound_Movement_Is_Reversed()
+    {
+        var (s, lot) = await SeedAsync();
+        int id;
+        InventoryMovement consumed;
+        await using (var db = fixture.CreateDbContext())
+        {
+            id = await Service(db).ConvertAsync(Input(lot, s.Tank.Id));
+            await using var tx = await db.Database.BeginTransactionAsync();
+            consumed = await new InventoryMovementWriter(db, new StockService(db)).PostOutboundAsync(new()
+            { ProductId = s.Product.Id, TerminalId = s.Terminal.Id, StorageTankId = s.Tank.Id,
+                QuantityMt = 10m, MovementDate = Day.AddDays(1), ReferenceDocument = "Consumed-then-reversed" });
+            await tx.CommitAsync();
+        }
+        await using (var db = fixture.CreateDbContext())
+        {
+            var ex = await Assert.ThrowsAsync<BusinessRuleException>(() => Service(db).CancelAsync(id, "blocked first"));
+            Assert.Equal("STOCK_INSUFFICIENT", ex.Code);
+        }
+        await using (var db = fixture.CreateDbContext())
+        {
+            await using var tx = await db.Database.BeginTransactionAsync();
+            var original = await db.InventoryMovements.SingleAsync(x => x.Id == consumed.Id);
+            Assert.NotNull(await new InventoryMovementWriter(db, new StockService(db)).PostReversalAsync(original, Day.AddDays(2), "undo dependent"));
+            await tx.CommitAsync();
+        }
+        await using (var db = fixture.CreateDbContext())
+            await Service(db).CancelAsync(id, "now independent");
+        await using var verify = fixture.CreateDbContext();
+        Assert.Equal(CustodyDocumentStatus.Cancelled, (await verify.CustodyConversions.SingleAsync(x => x.Id == id)).Status);
+        Assert.Equal(100m, await CustodyBalance(verify, lot));
+        Assert.Equal(0m, await new StockService(verify).GetFreeQuantityMtAsync(s.Product.Id, terminalId: s.Terminal.Id, storageTankId: s.Tank.Id));
+        Assert.False(await CustodyConversionService.IsActiveConversionContractAsync(verify,
+            (await verify.CustodyConversions.SingleAsync(x => x.Id == id)).ContractId));
+    }
+
+    [Fact]
+    public async Task Cancellation_Is_Allowed_After_The_Dependent_Balance_Transfer_Is_No_Longer_Active()
+    {
+        var (scope, lot) = await SeedAsync();
+        await using var db = fixture.CreateDbContext();
+        var id = await Service(db).ConvertAsync(Input(lot, scope.Tank.Id));
+        var conversion = await db.CustodyConversions.SingleAsync(x => x.Id == id);
+        Assert.True(await CustodyConversionService.IsActiveConversionContractAsync(db, conversion.ContractId));
+        var transfer = new SupplierBalanceTransfer
+        {
+            BatchId = Guid.NewGuid(), SupplierId = scope.Supplier.Id, CompanyId = scope.Company.Id,
+            ContractId = conversion.ContractId, TransferDate = Day, TransferOriginalAmount = 100m,
+            HistoricalAmountUsd = 100m, TransferValueUsd = 100m, TransferContractCurrencyAmount = 100m,
+            Status = SupplierBalanceTransferStatus.Active
+        };
+        db.SupplierBalanceTransfers.Add(transfer);
+        await db.SaveChangesAsync();
+        await Assert.ThrowsAsync<BusinessRuleException>(() => Service(db).CancelAsync(id, "dependent"));
+        db.ChangeTracker.Clear();
+        await db.SupplierBalanceTransfers.Where(x => x.Id == transfer.Id)
+            .ExecuteUpdateAsync(x => x.SetProperty(t => t.Status, SupplierBalanceTransferStatus.Reversed));
+        await Service(db).CancelAsync(id, "dependent reversed");
+        db.ChangeTracker.Clear();
+        Assert.Equal(CustodyDocumentStatus.Cancelled, (await db.CustodyConversions.SingleAsync(x => x.Id == id)).Status);
+        Assert.Equal(100m, await CustodyBalance(db, lot));
+    }
+
+    [Fact]
+    public async Task A_Supplier_Identity_Cannot_Be_Claimed_By_A_Second_Customer()
+    {
+        var (s, _) = await SeedAsync(AccountingPartyType.Customer);
+        await using var db = fixture.CreateDbContext();
+        var second = new Customer { Name = "Another person " + Guid.NewGuid() };
+        db.Customers.Add(second);
+        await db.SaveChangesAsync();
+        await Service(db).LinkSupplierIdentityAsync(new(AccountingPartyType.Customer, s.Customer.Id), s.Supplier.Id, "passport A", true);
+        var ex = await Assert.ThrowsAsync<BusinessRuleException>(() =>
+            Service(db).LinkSupplierIdentityAsync(new(AccountingPartyType.Customer, second.Id), s.Supplier.Id, "passport B", true));
+        Assert.Equal("CUSTODY_IDENTITY_CONFLICT", ex.Code);
+        db.ChangeTracker.Clear();
+        Assert.Equal(1, await db.CustodySupplierIdentityLinks.CountAsync(x => x.SupplierId == s.Supplier.Id && x.CustomerId != null));
+    }
 }

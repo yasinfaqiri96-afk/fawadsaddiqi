@@ -34,8 +34,12 @@ public sealed class CustodyAccountingReconciliationService(ApplicationDbContext 
         var financeIds = await db.CustodyFinanceEntries.AsNoTracking()
             .Where(s => s.OwnerPartyType == owner.PartyType && s.OwnerPartyId == owner.PartyId && s.Status == CustodyDocumentStatus.Posted)
             .Select(s => s.Id).ToListAsync(ct);
+        var returnIds = await db.CustodySaleReturns.AsNoTracking()
+            .Where(s => s.OwnerPartyType == owner.PartyType && s.OwnerPartyId == owner.PartyId && s.Status == CustodyDocumentStatus.Posted)
+            .Select(s => s.Id).ToListAsync(ct);
         var events = saleIds.Select(CustodyAccountingAdapter.SaleEventId)
-            .Concat(financeIds.Select(CustodyAccountingAdapter.FinanceEventId)).ToArray();
+            .Concat(financeIds.Select(CustodyAccountingAdapter.FinanceEventId))
+            .Concat(returnIds.Select(CustodyAccountingAdapter.ReturnEventId)).ToArray();
         if (events.Length == 0) return false;
         var posted = await db.JournalEntries.AsNoTracking().CountAsync(j => j.SourceModule == CustodyAccountingAdapter.SourceModule
             && events.Contains(j.SourceEventId!) && j.Status == JournalEntryStatus.Posted, ct);
@@ -51,8 +55,12 @@ public sealed class CustodyAccountingReconciliationService(ApplicationDbContext 
         var finance = await db.CustodyFinanceEntries.AsNoTracking()
             .Where(e => e.OwnerPartyType == owner.PartyType && e.OwnerPartyId == owner.PartyId && e.Status == CustodyDocumentStatus.Posted)
             .OrderBy(e => e.Id).ToListAsync(ct);
+        var returns = await db.CustodySaleReturns.AsNoTracking()
+            .Where(r => r.OwnerPartyType == owner.PartyType && r.OwnerPartyId == owner.PartyId && r.Status == CustodyDocumentStatus.Posted)
+            .OrderBy(r => r.Id).ToListAsync(ct);
         var events = sales.Select(s => CustodyAccountingAdapter.SaleEventId(s.Id))
-            .Concat(finance.Select(e => CustodyAccountingAdapter.FinanceEventId(e.Id))).ToArray();
+            .Concat(finance.Select(e => CustodyAccountingAdapter.FinanceEventId(e.Id)))
+            .Concat(returns.Select(r => CustodyAccountingAdapter.ReturnEventId(r.Id))).ToArray();
         var journals = await db.JournalEntries.AsNoTracking()
             .Where(j => j.CompanyId == companyId && j.SourceModule == CustodyAccountingAdapter.SourceModule && events.Contains(j.SourceEventId!))
             .OrderBy(j => j.Id).Select(j => new { j.Id, j.SourceEventId, j.Status }).ToListAsync(ct);
@@ -85,8 +93,15 @@ public sealed class CustodyAccountingReconciliationService(ApplicationDbContext 
             if (entry.CustodySaleId.HasValue && sales.All(s => s.Id != entry.CustodySaleId.Value))
                 blocker = "سند مالی به فروش فعالِ همین مالک وصل نیست؛ بررسی لازم است.";
         }
+        foreach (var saleReturn in returns)
+        {
+            await Add(CustodyAccountingAdapter.ReturnEventId(saleReturn.Id), $"{saleReturn.ReturnNumber} · برگشت فروش", saleReturn.ReturnDate,
+                saleReturn.AmountUsd, saleReturn.RecognizedCommissionReversedUsd);
+            if (sales.All(s => s.Id != saleReturn.CustodySaleId))
+                blocker = "برگشت فروش به فروش فعالِ همین مالک وصل نیست؛ بررسی لازم است.";
+        }
         // مالی، منبع، نقشه حساب‌ها و وضعیت دوره/ژورنال در Preview مقید می‌شوند.
-        var snapshot = JsonSerializer.Serialize(new { owner, companyId, sales, finance, journals, settings, rows, blocker });
+        var snapshot = JsonSerializer.Serialize(new { owner, companyId, sales, finance, returns, journals, settings, rows, blocker });
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(snapshot)));
         return new(owner, fingerprint, rows, blocker);
     }
@@ -124,6 +139,15 @@ public sealed class CustodyAccountingReconciliationService(ApplicationDbContext 
         foreach (var entry in finance.Where(e => financeIds.Contains(CustodyAccountingAdapter.FinanceEventId(e.Id))))
         {
             RequirePosted(await accounting.TryPostFinanceAsync(entry, sales.SingleOrDefault(s => s.Id == entry.CustodySaleId), ct));
+            count++;
+        }
+        var returnEvents = preview.Rows.Where(r => !r.AlreadyPosted && r.EventId.Contains(":Return:")).Select(r => r.EventId).ToHashSet();
+        var returns = await db.CustodySaleReturns.AsNoTracking()
+            .Where(r => r.OwnerPartyType == owner.PartyType && r.OwnerPartyId == owner.PartyId && r.Status == CustodyDocumentStatus.Posted)
+            .OrderBy(r => r.Id).ToListAsync(ct);
+        foreach (var saleReturn in returns.Where(r => returnEvents.Contains(CustodyAccountingAdapter.ReturnEventId(r.Id))))
+        {
+            RequirePosted(await accounting.TryPostReturnAsync(saleReturn, sales.Single(s => s.Id == saleReturn.CustodySaleId), ct));
             count++;
         }
         await audit.LogAsync("CustodyReconciliation", owner.PartyId, AuditAction.Insert,

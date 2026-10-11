@@ -59,7 +59,9 @@ public sealed class CustodyGlReadService(ApplicationDbContext db, ISystemCompany
             .Select(g => new { g.Key.PartyType, g.Key.PartyId,
                 Funds = g.Sum(x => x.AccountId == fundsId ? x.Credit - x.Debit : 0m),
                 Pending = g.Sum(x => x.AccountId == pendingId ? x.Credit - x.Debit : 0m) }).ToListAsync(ct);
-        var legacy = await db.LedgerEntries.AsNoTracking().Where(x => x.SourceType.StartsWith("Custody") && x.EntryDate < cutoff)
+        // Provider rows of unpaid custody charges are the company's payable to that provider, not owner funds.
+        var legacy = await db.LedgerEntries.AsNoTracking().Where(x => x.SourceType.StartsWith("Custody") && x.EntryDate < cutoff
+                && x.ServiceProviderId == null)
             .GroupBy(x => new { x.CustomerId, x.SupplierId })
             .Select(g => new { g.Key.CustomerId, g.Key.SupplierId,
                 Balance = g.Sum(x => x.CustomerId.HasValue
@@ -93,6 +95,9 @@ public sealed class CustodyGlReadService(ApplicationDbContext db, ISystemCompany
         missing += await db.CustodyFinanceEntries.AsNoTracking().CountAsync(e => e.Status == CustodyDocumentStatus.Posted && e.EntryDate < cutoff
             && !db.JournalEntries.Any(j => j.CompanyId == companyId && j.SourceModule == "Custody" && j.SourceEntityType == nameof(CustodyFinanceEntry)
                 && j.SourceEntityId == e.Id && j.Status == JournalEntryStatus.Posted), ct);
+        missing += await db.CustodySaleReturns.AsNoTracking().CountAsync(r => r.Status == CustodyDocumentStatus.Posted && r.ReturnDate < cutoff
+            && !db.JournalEntries.Any(j => j.CompanyId == companyId && j.SourceModule == "Custody" && j.SourceEntityType == nameof(CustodySaleReturn)
+                && j.SourceEntityId == r.Id && j.Status == JournalEntryStatus.Posted), ct);
         var agencyAr = await lines.Where(x => x.AccountId == settings.AccountsReceivableAccountId && x.JournalEntry!.SourceModule == "Custody")
             .SumAsync(x => x.Debit - x.Credit, ct);
         return new(date, rows, unassigned.Sum(x => x.Funds), unassigned.Sum(x => x.Pending), agencyAr, missing, blockers.Distinct().ToList());

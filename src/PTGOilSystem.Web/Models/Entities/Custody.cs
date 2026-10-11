@@ -38,7 +38,9 @@ public enum CustodyMovementKind
     [Display(Name = "اضافه موجودی")] Surplus = 7,
     /// <summary>خروجِ فروش امانی — فقط از مسیر <c>CustodySaleService</c> ساخته و لغو می‌شود.</summary>
     [Display(Name = "فروش امانی")] Sale = 8,
-    [Display(Name = "تبدیل به خرید قطعی")] ConvertedToCompany = 9
+    [Display(Name = "تبدیل به خرید قطعی")] ConvertedToCompany = 9,
+    /// <summary>ورودِ برگشتِ قسمیِ فروش امانی — فقط از مسیر <c>CustodySaleService</c> ساخته و لغو می‌شود.</summary>
+    [Display(Name = "برگشت فروش امانی")] SaleReturn = 10
 }
 
 /// <summary>مسئولِ کسر طبق توافق. تا تعیین نشود «در حال بررسی» می‌ماند و هیچ اثر مالی ندارد.</summary>
@@ -218,7 +220,14 @@ public enum CustodyFinanceKind
     [Display(Name = "پرداخت مستقیم مشتری به مالک")] DirectToOwner = 2,
     [Display(Name = "پرداخت به مالک")] OwnerPayout = 3,
     [Display(Name = "مصرف به حساب مالک")] ReimbursableExpense = 4,
-    [Display(Name = "حق خدمات شرکت")] ServiceFee = 5
+    [Display(Name = "حق خدمات شرکت")] ServiceFee = 5,
+    /// <summary>
+    /// مصرفِ پرداخت‌نشدهٔ خدمات‌دهنده به حساب مالک: مالک بدهکار، شرکت به خدمات‌دهنده بدهکار؛ صندوق
+    /// تغییر نمی‌کند. حساب پرداختنی از «نوع مصرف» می‌آید، حدس زده نمی‌شود.
+    /// </summary>
+    [Display(Name = "مصرف نسیه به حساب مالک")] ProviderCharge = 6,
+    /// <summary>پرداختِ (کامل یا قسمیِ) همان مصرف نسیه به خدمات‌دهنده؛ حساب مالک تغییر نمی‌کند.</summary>
+    [Display(Name = "پرداخت به خدمات‌دهنده")] ProviderPayment = 7
 }
 
 /// <summary>
@@ -256,8 +265,50 @@ public class CustodyFinanceEntry : BaseEntity
     /// <summary>گیرندهٔ پولِ مصرف (مثلاً حمل‌کننده) — فقط برای اطلاع؛ حسابِ او اینجا تغییر نمی‌کند.</summary>
     [MaxLength(200)] public string? PayeeName { get; set; }
 
+    /// <summary>خدمات‌دهندهٔ طلبکار — فقط برای مصرف نسیه و پرداختِ آن.</summary>
+    public int? ServiceProviderId { get; set; }
+    public ServiceProvider? ServiceProvider { get; set; }
+    /// <summary>پرداخت به خدمات‌دهنده به کدام مصرف نسیه تعلق دارد.</summary>
+    public int? SettlesFinanceEntryId { get; set; }
+    public CustodyFinanceEntry? SettlesFinanceEntry { get; set; }
+
     [MaxLength(100)] public string? DocumentNumber { get; set; }
     [MaxLength(1000)] public string? Description { get; set; }
+
+    public CustodyDocumentStatus Status { get; set; } = CustodyDocumentStatus.Posted;
+    public DateTime? CancelledAtUtc { get; set; }
+    public int? CancelledByUserId { get; set; }
+    [MaxLength(500)] public string? CancellationReason { get; set; }
+}
+
+/// <summary>
+/// برگشتِ قسمی (یا کاملِ) مقدار از مشتری برای یک فروش امانی. تیل به همان بار و همان محلِ فروش
+/// برمی‌گردد؛ طلبِ مشتری و «در انتظار وصول» مالک به اندازهٔ مبلغ برگشت کم می‌شود و کمیشن با
+/// همان روشِ فروش روی مقدارِ باقی دوباره سنجیده می‌شود. فقط تا مبلغِ وصول‌نشده مجاز است.
+/// </summary>
+public class CustodySaleReturn : BaseEntity
+{
+    [Required, MaxLength(50)] public string ReturnNumber { get; set; } = "";
+
+    public int CustodySaleId { get; set; }
+    public CustodySale? CustodySale { get; set; }
+    public AccountingPartyType OwnerPartyType { get; set; }
+    public int OwnerPartyId { get; set; }
+    public int CustomerId { get; set; }
+
+    public DateTime ReturnDate { get; set; }
+    public decimal QuantityMt { get; set; }
+    public decimal AmountUsd { get; set; }
+    /// <summary>کاهشِ کلِ کمیشنِ فروش به‌خاطر این برگشت.</summary>
+    public decimal CommissionUsd { get; set; }
+    /// <summary>بخشی از کاهش که قبلاً درآمد شده بود (کمیشن «هنگام فروش») و اکنون معکوس شد.</summary>
+    public decimal RecognizedCommissionReversedUsd { get; set; }
+
+    /// <summary>OperationKeyِ ورودِ برگشت در دفتر امانی.</summary>
+    public Guid StockOperationKey { get; set; }
+
+    [MaxLength(100)] public string? DocumentNumber { get; set; }
+    [MaxLength(1000)] public string? Notes { get; set; }
 
     public CustodyDocumentStatus Status { get; set; } = CustodyDocumentStatus.Posted;
     public DateTime? CancelledAtUtc { get; set; }

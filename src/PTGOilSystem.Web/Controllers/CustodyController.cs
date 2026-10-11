@@ -418,9 +418,11 @@ public class CustodyController(
             TempData["err"] = "این بار هنوز رسید نشده یا لغو شده است.";
             return RedirectToAction(nameof(Details), new { id });
         }
-        if (!CustodySaleService.FinancialOwnerTypes.Contains(lot.OwnerPartyType))
+        if (await CustodySaleService.ResolveFinancialOwnerAsync(db, new CustodyOwner(lot.OwnerPartyType, lot.OwnerPartyId)) is null)
         {
-            TempData["err"] = "فروش امانی فعلاً فقط برای مالکی است که مشتری یا فروشنده ثبت شده است.";
+            TempData["err"] = lot.OwnerPartyType == AccountingPartyType.Partner
+                ? "فروش امانیِ تیلِ شریک فقط پس از پیوند تأییدشده با نقش فروشندهٔ همان شخص ممکن است (صفحهٔ «خرید قطعی» همین بار)."
+                : "فروش امانی فقط برای مالکی است که مشتری یا فروشنده ثبت شده است.";
             return RedirectToAction(nameof(Details), new { id });
         }
 
@@ -449,6 +451,12 @@ public class CustodyController(
             ModelState.AddModelError(nameof(form.CommissionRate), "مقدار کمیشن را وارد کنید.");
         if (form.Settlement == CustodySaleSettlement.CashToCompany && !form.CashAccountId.HasValue)
             ModelState.AddModelError(nameof(form.CashAccountId), "صندوق یا بانک را انتخاب کنید.");
+        var extra = new List<CustodySaleSource>();
+        foreach (var line in form.Extra.Where(x => x.QuantityMt is > 0m))
+        {
+            if (CustodySourceKey.Parse(line.Key, line.QuantityMt!.Value) is { } source) extra.Add(source);
+            else ModelState.AddModelError(nameof(form.Extra), "بار یا محلِ انتخاب‌شده معتبر نیست.");
+        }
         if (!ModelState.IsValid)
             return View(await BuildSaleViewModelAsync(form, lot));
 
@@ -458,6 +466,7 @@ public class CustodyController(
             {
                 LotId = form.LotId,
                 Location = location!,
+                AdditionalSources = extra,
                 CustomerId = form.CustomerId!.Value,
                 SaleDate = form.Date,
                 QuantityMt = form.QuantityMt!.Value,
@@ -472,7 +481,9 @@ public class CustodyController(
                 FormToken = formToken
             });
             TempData["ok"] = "فروش امانی ثبت شد. مبلغ فروش از آنِ مالک است؛ فقط کمیشن درآمد شرکت است.";
-            return RedirectToAction(nameof(Owner), new { key = CustodyParty.Key(lot.OwnerPartyType, lot.OwnerPartyId), saleId });
+            var financialOwner = await CustodySaleService.ResolveFinancialOwnerAsync(db, new CustodyOwner(lot.OwnerPartyType, lot.OwnerPartyId))
+                ?? new CustodyOwner(lot.OwnerPartyType, lot.OwnerPartyId);
+            return RedirectToAction(nameof(Owner), new { key = CustodyParty.Key(financialOwner.PartyType, financialOwner.PartyId), saleId });
         }
         catch (Exception ex) when (ex is BusinessRuleException or PTGOilSystem.Web.Services.Accounting.AccountingValidationException)
         {
@@ -523,7 +534,7 @@ public class CustodyController(
     }
 
     [Authorize(Policy = AuthPolicies.ManageData)]
-    public async Task<IActionResult> Finance(string key, CustodyFinanceKind kind, int? saleId = null)
+    public async Task<IActionResult> Finance(string key, CustodyFinanceKind kind, int? saleId = null, int? chargeId = null)
     {
         if (!CustodyParty.TryParse(key, out var type, out var partyId) || !Enum.IsDefined(kind)) return NotFound();
         var account = await reader.GetOwnerAccountAsync(new CustodyOwner(type, partyId));
@@ -533,11 +544,21 @@ public class CustodyController(
             return RedirectToAction(nameof(Owner), new { key });
         }
 
-        var form = new CustodyFinanceForm { Kind = kind, OwnerKey = key, SaleId = saleId, Date = businessClock.Today };
+        var form = new CustodyFinanceForm { Kind = kind, OwnerKey = key, SaleId = saleId, ProviderChargeId = chargeId, Date = businessClock.Today };
         if (saleId.HasValue && account.Sales.FirstOrDefault(s => s.Id == saleId) is { } sale
             && kind is CustodyFinanceKind.Collection or CustodyFinanceKind.DirectToOwner)
         {
             form.AmountUsd = sale.OutstandingUsd;
+        }
+        else if (kind == CustodyFinanceKind.ProviderPayment)
+        {
+            var charge = account.Entries.FirstOrDefault(e => e.Id == chargeId && e.ProviderUnpaidUsd > 0m);
+            if (charge is null)
+            {
+                TempData["err"] = "مصرف نسیهٔ پرداخت‌نشده‌ای برای پرداخت انتخاب نشده است.";
+                return RedirectToAction(nameof(Owner), new { key });
+            }
+            form.AmountUsd = charge.ProviderUnpaidUsd;
         }
         else if (kind == CustodyFinanceKind.OwnerPayout && account.FundsBalanceUsd > 0m)
         {
@@ -558,8 +579,14 @@ public class CustodyController(
         if (collects && !form.SaleId.HasValue) ModelState.AddModelError(nameof(form.SaleId), "فروش را انتخاب کنید.");
         if (form.AmountUsd is not > 0m) ModelState.AddModelError(nameof(form.AmountUsd), "مبلغ را وارد کنید.");
         if (form.Kind is CustodyFinanceKind.Collection or CustodyFinanceKind.OwnerPayout or CustodyFinanceKind.ReimbursableExpense
+                or CustodyFinanceKind.ProviderPayment
             && !form.CashAccountId.HasValue)
             ModelState.AddModelError(nameof(form.CashAccountId), "صندوق یا بانک را انتخاب کنید.");
+        if (form.Kind == CustodyFinanceKind.ProviderCharge)
+        {
+            if (!form.ServiceProviderId.HasValue) ModelState.AddModelError(nameof(form.ServiceProviderId), "خدمات‌دهنده را انتخاب کنید.");
+            if (!form.ExpenseTypeId.HasValue) ModelState.AddModelError(nameof(form.ExpenseTypeId), "نوع مصرف را انتخاب کنید.");
+        }
 
         if (ModelState.IsValid)
         {
@@ -575,6 +602,8 @@ public class CustodyController(
                     CashAccountId = form.CashAccountId,
                     ExpenseTypeId = form.ExpenseTypeId,
                     PayeeName = form.PayeeName,
+                    ServiceProviderId = form.ServiceProviderId,
+                    ProviderChargeId = form.ProviderChargeId,
                     DocumentNumber = form.DocumentNumber,
                     Description = form.Description,
                     FormToken = formToken
@@ -628,13 +657,136 @@ public class CustodyController(
         return RedirectToAction(nameof(Owner), new { key });
     }
 
+    [Authorize(Policy = AuthPolicies.ManageData)]
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> CancelReturn(int id, string key, string? reason)
+    {
+        try
+        {
+            await sales.CancelReturnAsync(id, reason ?? "");
+            TempData["ok"] = "برگشت فروش لغو شد؛ تیل دوباره خارج و طلب مشتری و کمیشن به حالت قبل برگشت.";
+        }
+        catch (Exception ex) when (ex is BusinessRuleException or PTGOilSystem.Web.Services.Accounting.AccountingValidationException)
+        {
+            TempData["err"] = ex.Message;
+        }
+        return RedirectToAction(nameof(Owner), new { key });
+    }
+
+    [Authorize(Policy = AuthPolicies.ManageData)]
+    public async Task<IActionResult> SaleReturn(int id, string key)
+    {
+        var sale = await reader.GetSaleAsync(id);
+        if (sale is null) return NotFound();
+        if (sale.Status != CustodyDocumentStatus.Posted || sale.NetQuantityMt <= 0m)
+        {
+            TempData["err"] = "این فروش برای برگشت فعال نیست.";
+            return RedirectToAction(nameof(Owner), new { key });
+        }
+        var form = new CustodySaleReturnForm { SaleId = id, OwnerKey = key, Date = businessClock.Today };
+        return View(await BuildReturnViewModelAsync(form, sale));
+    }
+
+    [Authorize(Policy = AuthPolicies.ManageData)]
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaleReturn(
+        CustodySaleReturnForm form,
+        [FromForm(Name = FormTokenHtmlHelper.FieldName)] string? formToken = null)
+    {
+        var sale = await reader.GetSaleAsync(form.SaleId);
+        if (sale is null) return NotFound();
+        var lines = new List<CustodySaleSource>();
+        foreach (var line in form.Lines.Where(x => x.QuantityMt is > 0m))
+        {
+            if (CustodySourceKey.Parse(line.Key, line.QuantityMt!.Value) is { } source) lines.Add(source);
+            else ModelState.AddModelError(nameof(form.Lines), "بار یا محلِ انتخاب‌شده معتبر نیست.");
+        }
+        if (lines.Count == 0 && ModelState.IsValid)
+            ModelState.AddModelError(nameof(form.Lines), "مقدار برگشت را دست‌کم برای یک بار وارد کنید.");
+        if (ModelState.IsValid)
+        {
+            try
+            {
+                await sales.RecordReturnAsync(new CustodySaleReturnInput
+                {
+                    SaleId = form.SaleId,
+                    ReturnDate = form.Date,
+                    Lines = lines,
+                    DocumentNumber = form.DocumentNumber,
+                    Notes = form.Notes,
+                    FormToken = formToken
+                });
+                TempData["ok"] = "برگشت فروش ثبت شد؛ تیل به بار مالک برگشت و طلب مشتری و کمیشن اصلاح شد.";
+                return RedirectToAction(nameof(Owner), new { key = form.OwnerKey });
+            }
+            catch (Exception ex) when (ex is BusinessRuleException or PTGOilSystem.Web.Services.Accounting.AccountingValidationException)
+            {
+                ModelState.AddModelError(string.Empty, ex.Message);
+            }
+            catch (DbUpdateException ex) when (formTokens.IsDuplicate(ex))
+            {
+                TempData["err"] = "این برگشت قبلاً ثبت شده است و دوباره ثبت نشد.";
+                return RedirectToAction(nameof(Owner), new { key = form.OwnerKey });
+            }
+        }
+        return View(await BuildReturnViewModelAsync(form, sale));
+    }
+
+    private async Task<CustodySaleReturnViewModel> BuildReturnViewModelAsync(CustodySaleReturnForm form, CustodySaleRow sale)
+    {
+        var entity = await db.CustodySales.AsNoTracking().SingleAsync(x => x.Id == sale.Id);
+        var returnable = await CustodySaleService.ReturnableBySourceAsync(db, entity, HttpContext.RequestAborted);
+        var lotIds = returnable.Keys.Select(k => k.LotId).Distinct().ToArray();
+        var lotNumbers = await db.CustodyLots.AsNoTracking().Where(l => lotIds.Contains(l.Id))
+            .ToDictionaryAsync(l => l.Id, l => l.LotNumber);
+        var terminals = await db.Terminals.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Name);
+        var tankIds = returnable.Keys.Where(k => k.StorageTankId.HasValue).Select(k => k.StorageTankId!.Value).ToArray();
+        var tanks = await db.StorageTanks.AsNoTracking().Where(t => tankIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.DisplayName ?? t.TankCode);
+        var sources = returnable.Where(x => x.Value > 0m)
+            .Select(x => new CustodySourceOption(
+                CustodySourceKey.Key(x.Key.LotId, x.Key.TerminalId, x.Key.StorageTankId),
+                lotNumbers.GetValueOrDefault(x.Key.LotId, "-"),
+                terminals.GetValueOrDefault(x.Key.TerminalId, "-") + (x.Key.StorageTankId is { } tank ? " / " + tanks.GetValueOrDefault(tank, "-") : ""),
+                x.Value))
+            .OrderBy(x => x.LotNumber).ToList();
+        if (form.Lines.Count == 0)
+            form.Lines = sources.Select(x => new CustodySourceQuantity { Key = x.Key }).ToList();
+        return new CustodySaleReturnViewModel { Form = form, Sale = sale, Sources = sources };
+    }
+
+    private async Task<IReadOnlyList<CustodySourceOption>> OtherSaleSourcesAsync(CustodyLotSummary lot)
+    {
+        var others = (await reader.GetLotSummariesAsync(new CustodyLotFilter(lot.OwnerPartyType, lot.OwnerPartyId, lot.ProductId)))
+            .Where(l => l.LotId != lot.LotId && l.Status == CustodyLotStatus.Active && l.FreeMt > 0m)
+            .OrderBy(l => l.LotNumber)
+            .ToList();
+        var result = new List<CustodySourceOption>();
+        foreach (var other in others)
+        {
+            foreach (var p in await reader.GetPositionsAsync(other.LotId))
+            {
+                if (p.QuantityMt <= 0m) continue;
+                result.Add(new CustodySourceOption(
+                    CustodySourceKey.Key(other.LotId, p.TerminalId, p.StorageTankId),
+                    other.LotNumber,
+                    p.TankCode is null ? p.TerminalName : $"{p.TerminalName} / {p.TankCode}",
+                    Math.Min(p.QuantityMt, other.FreeMt)));
+            }
+        }
+        return result;
+    }
+
     private async Task<CustodySaleViewModel> BuildSaleViewModelAsync(CustodySaleForm form, CustodyLotSummary lot)
     {
         var positions = await reader.GetPositionsAsync(lot.LotId);
+        var otherSources = await OtherSaleSourcesAsync(lot);
+        if (form.Extra.Count == 0)
+            form.Extra = otherSources.Select(x => new CustodySourceQuantity { Key = x.Key }).ToList();
         return new CustodySaleViewModel
         {
             Form = form,
             Lot = lot,
+            OtherSources = otherSources,
             SourceLocations = positions
                 .Select(p => new CustodyLocationOption(
                     CustodyLocationKey.Key(p.TerminalId, p.StorageTankId),
@@ -662,7 +814,16 @@ public class CustodyController(
                     .OrderBy(t => t.Name)
                     .Select(t => new { t.Id, Name = t.NamePersian ?? t.Name })
                     .ToListAsync())
-                .Select(t => (t.Id, t.Name)).ToList()
+                .Select(t => (t.Id, t.Name)).ToList(),
+            ServiceProviders = form.Kind == CustodyFinanceKind.ProviderCharge
+                ? (await db.ServiceProviders.AsNoTracking()
+                        .Where(x => x.IsActive)
+                        .OrderBy(x => x.Name)
+                        .Select(x => new { x.Id, x.Name })
+                        .ToListAsync())
+                    .Select(x => (x.Id, x.Name)).ToList()
+                : [],
+            ProviderCharge = form.ProviderChargeId is { } chargeId ? account.Entries.FirstOrDefault(e => e.Id == chargeId) : null
         };
 
     /// <summary>سند امانی فعلاً دالری است؛ فقط صندوق/بانکِ دالری یا مختلط.</summary>

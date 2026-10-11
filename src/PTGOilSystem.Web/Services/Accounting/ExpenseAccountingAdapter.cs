@@ -246,7 +246,15 @@ public sealed class ExpenseAccountingAdapter(
         if (settings is null)
             return null;
 
-        return payableKind.Value switch
+        return PayableAccountFor(payableKind.Value, settings);
+    }
+
+    /// <summary>
+    /// The one mapping from an expense type's explicit payable kind to the configured liability
+    /// account; shared with custody provider charges so both credit the same account.
+    /// </summary>
+    public static int? PayableAccountFor(ExpensePayableKind payableKind, AccountingSettings settings)
+        => payableKind switch
         {
             ExpensePayableKind.AccountsPayable => settings.AccountsPayableAccountId,
             ExpensePayableKind.FreightPayable => settings.FreightPayableAccountId,
@@ -254,7 +262,6 @@ public sealed class ExpenseAccountingAdapter(
             ExpensePayableKind.AccruedExpense => settings.AccruedExpenseAccountId,
             _ => null
         };
-    }
 
     public static string BuildCreatedSourceEventId(int expenseId)
         => $"Expense:{expenseId}:Created";

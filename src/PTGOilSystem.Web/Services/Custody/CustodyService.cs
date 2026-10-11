@@ -24,6 +24,9 @@ public interface ICustodyService
     Task SetTransitLossResponsibilityAsync(int lotId, CustodyLossResponsibility responsibility, CancellationToken ct = default);
     Task ReverseOperationAsync(Guid operationKey, string reason, CancellationToken ct = default);
     Task<Guid> RecordSaleOutAsync(int lotId, CustodyLocation location, DateTime saleDate, decimal quantityMt, string? documentNumber, CancellationToken ct = default);
+    Task<Guid> RecordSaleOutAsync(IReadOnlyList<CustodySaleSource> sources, DateTime saleDate, string? documentNumber, CancellationToken ct = default);
+    Task<Guid> RecordSaleReturnInAsync(IReadOnlyList<CustodySaleSource> lines, DateTime returnDate, string? documentNumber, CancellationToken ct = default);
+    Task ReverseSaleReturnInAsync(Guid operationKey, string reason, CancellationToken ct = default);
     Task ReverseSaleOutAsync(Guid operationKey, string reason, CancellationToken ct = default);
     Task<Guid> RecordConversionOutAsync(int lotId, CustodyLocation location, DateTime date, decimal quantityMt, string reference, CancellationToken ct = default);
     Task ReverseConversionOutAsync(Guid operationKey, DateTime date, string reason, CancellationToken ct = default);
@@ -32,6 +35,9 @@ public interface ICustodyService
 public sealed record CustodyOwner(AccountingPartyType PartyType, int PartyId);
 
 public sealed record CustodyLocation(int TerminalId, int? StorageTankId);
+
+/// <summary>سهمِ یک بار و یک محل در یک فروش (یا برگشتِ فروش) امانی.</summary>
+public sealed record CustodySaleSource(int LotId, CustodyLocation Location, decimal QuantityMt);
 
 public sealed class CustodyInTransitInput
 {
@@ -428,24 +434,132 @@ public sealed class CustodyService(
         decimal quantityMt,
         string? documentNumber,
         CancellationToken ct = default)
+        => RecordSaleOutAsync([new CustodySaleSource(lotId, location, quantityMt)], saleDate, documentNumber, ct);
+
+    /// <summary>
+    /// خروجِ یک فروش از یک یا چند بارِ همان مالک و همان جنس. همهٔ بارها به ترتیب شناسه قفل
+    /// می‌شوند، سقفِ آزادِ هر بار (بعد از مسدودی) با مجموعِ سهم‌هایش سنجیده می‌شود و همهٔ ردیف‌ها
+    /// یک OperationKey دارند تا لغو، کلِ فروش را یک‌جا برگرداند.
+    /// </summary>
+    public Task<Guid> RecordSaleOutAsync(
+        IReadOnlyList<CustodySaleSource> sources,
+        DateTime saleDate,
+        string? documentNumber,
+        CancellationToken ct = default)
         => InTransactionAsync(async () =>
         {
-            RequirePositive(quantityMt, "مقدار فروش");
-            await LockLotsAsync([lotId], ct);
-            var lot = await LoadActiveLotAsync(lotId, ct);
+            var lines = MergeSources(sources, "مقدار فروش");
+            await LockLotsAsync(lines.Select(l => l.LotId).ToArray(), ct);
+            var lots = new Dictionary<int, CustodyLot>();
+            foreach (var lotId in lines.Select(l => l.LotId).Distinct().OrderBy(id => id))
+                lots[lotId] = await LoadActiveLotAsync(lotId, ct);
+            RequireSameOwnerAndProduct(lots.Values);
+
+            var dateUtc = ToUtc(saleDate);
+            foreach (var group in lines.GroupBy(l => l.LotId))
+            {
+                var lot = lots[group.Key];
+                // همان ترتیبِ کنترلِ خروجِ تکی: اول موجودیِ محل و تاریخ، بعد سقفِ آزادِ کلِ بار.
+                foreach (var line in group)
+                    await EnsureOutboundAllowedAsync(lot, line.Location, dateUtc, line.QuantityMt, ct, ignoreHolds: true);
+                var free = await LotBalanceAsync(lot.Id, ct) - await HeldQuantityAsync(lot.Id, ct);
+                var requested = group.Sum(l => l.QuantityMt);
+                if (requested > free)
+                    throw Rule("CUSTODY_HELD", $"مقدار آزادِ بار {lot.LotNumber} {Format(Math.Max(free, 0m))} تُن است؛ باقی مسدود است.");
+            }
+
             var operationKey = Guid.NewGuid();
-            var movement = NewMovement(lot, CustodyMovementKind.Sale, CustodyDirection.Out, location,
-                saleDate, quantityMt, operationKey);
-            movement.DocumentNumber = Clean(documentNumber);
-            await EnsureOutboundAllowedAsync(lot, location, movement.MovementDate, quantityMt, ct);
+            var movements = new List<(CustodyMovement Movement, CustodyLot Lot)>();
+            foreach (var line in lines)
+            {
+                var lot = lots[line.LotId];
+                var movement = NewMovement(lot, CustodyMovementKind.Sale, CustodyDirection.Out, line.Location,
+                    saleDate, line.QuantityMt, operationKey);
+                movement.DocumentNumber = Clean(documentNumber);
+                movements.Add((movement, lot));
+            }
             await db.SaveChangesAsync(ct);
-            await LogMovementAsync(movement, lot, ct);
+            foreach (var (movement, lot) in movements)
+                await LogMovementAsync(movement, lot, ct);
             return operationKey;
         }, ct);
 
     /// <summary>برگشتِ خروجِ فروش؛ فقط از مسیرِ لغوِ سند فروش امانی.</summary>
     public Task ReverseSaleOutAsync(Guid operationKey, string reason, CancellationToken ct = default)
         => ReverseCoreAsync(operationKey, reason, allowSaleReversal: true, ct);
+
+    /// <summary>
+    /// ورودِ برگشتِ قسمیِ فروش به همان بار و همان محلی که از آن فروخته شده بود. ظرفیت، اختلاط و
+    /// قفلِ مخزن مثل هر ورود دیگر کنترل می‌شود. فقط از <see cref="CustodySaleService"/> صدا زده می‌شود.
+    /// </summary>
+    public Task<Guid> RecordSaleReturnInAsync(
+        IReadOnlyList<CustodySaleSource> lines,
+        DateTime returnDate,
+        string? documentNumber,
+        CancellationToken ct = default)
+        => InTransactionAsync(async () =>
+        {
+            var merged = MergeSources(lines, "مقدار برگشت");
+            await LockLotsAsync(merged.Select(l => l.LotId).ToArray(), ct);
+            var lots = new Dictionary<int, CustodyLot>();
+            foreach (var lotId in merged.Select(l => l.LotId).Distinct().OrderBy(id => id))
+            {
+                var lot = await LoadLotAsync(lotId, ct);
+                if (lot.Status == CustodyLotStatus.Cancelled)
+                    throw Rule("CUSTODY_LOT_NOT_ACTIVE", "این بار لغو شده است.");
+                lots[lotId] = lot;
+            }
+            RequireSameOwnerAndProduct(lots.Values);
+
+            foreach (var group in merged.GroupBy(l => new { l.Location.TerminalId, l.Location.StorageTankId })
+                         .OrderBy(g => g.Key.StorageTankId))
+            {
+                await EnsureInboundLocationAsync(new CustodyLocation(group.Key.TerminalId, group.Key.StorageTankId),
+                    lots[group.First().LotId].ProductId, group.Sum(l => l.QuantityMt), ct);
+            }
+
+            var operationKey = Guid.NewGuid();
+            var movements = new List<(CustodyMovement Movement, CustodyLot Lot)>();
+            foreach (var line in merged)
+            {
+                var lot = lots[line.LotId];
+                var movement = NewMovement(lot, CustodyMovementKind.SaleReturn, CustodyDirection.In, line.Location,
+                    returnDate, line.QuantityMt, operationKey);
+                movement.DocumentNumber = Clean(documentNumber);
+                movements.Add((movement, lot));
+            }
+            await db.SaveChangesAsync(ct);
+            foreach (var (movement, lot) in movements)
+                await LogMovementAsync(movement, lot, ct);
+            return operationKey;
+        }, ct);
+
+    /// <summary>لغوِ ورودِ برگشتِ فروش؛ فقط از مسیرِ لغوِ سند برگشت.</summary>
+    public Task ReverseSaleReturnInAsync(Guid operationKey, string reason, CancellationToken ct = default)
+        => ReverseCoreAsync(operationKey, reason, allowSaleReversal: true, ct);
+
+    private static List<CustodySaleSource> MergeSources(IReadOnlyList<CustodySaleSource> sources, string label)
+    {
+        if (sources is null || sources.Count == 0)
+            throw Rule("CUSTODY_QUANTITY", $"{label} را وارد کنید.");
+        foreach (var source in sources)
+            RequirePositive(source.QuantityMt, label);
+        return sources
+            .GroupBy(s => new { s.LotId, s.Location.TerminalId, s.Location.StorageTankId })
+            .Select(g => new CustodySaleSource(g.Key.LotId, new CustodyLocation(g.Key.TerminalId, g.Key.StorageTankId), g.Sum(s => s.QuantityMt)))
+            .OrderBy(s => s.LotId).ThenBy(s => s.Location.TerminalId).ThenBy(s => s.Location.StorageTankId)
+            .ToList();
+    }
+
+    private static void RequireSameOwnerAndProduct(IEnumerable<CustodyLot> lots)
+    {
+        var list = lots.ToList();
+        var first = list[0];
+        if (list.Any(l => l.OwnerPartyType != first.OwnerPartyType || l.OwnerPartyId != first.OwnerPartyId))
+            throw Rule("CUSTODY_SALE_MIXED_OWNERS", "یک فروش فقط از بارهای همان مالک تأمین می‌شود.");
+        if (list.Any(l => l.ProductId != first.ProductId))
+            throw Rule("CUSTODY_SALE_MIXED_PRODUCTS", "یک فروش فقط از بارهای همان جنس تأمین می‌شود.");
+    }
 
     public Task<Guid> RecordConversionOutAsync(int lotId, CustodyLocation location, DateTime date,
         decimal quantityMt, string reference, CancellationToken ct = default)
@@ -495,8 +609,8 @@ public sealed class CustodyService(
             foreach (var tankId in originals.Where(m => m.StorageTankId.HasValue)
                          .Select(m => m.StorageTankId!.Value).Distinct().OrderBy(id => id))
                 await LockTankAsync(tankId, ct);
-            // خروجِ فروش اثر مالی دارد؛ لغوِ تنهای موجودی، سند فروش و حساب مالک را ناهماهنگ می‌کند.
-            if (!allowSaleReversal && originals.Any(m => m.Kind == CustodyMovementKind.Sale))
+            // خروجِ فروش و ورودِ برگشتِ فروش اثر مالی دارند؛ لغوِ تنهای موجودی، سند و حساب مالک را ناهماهنگ می‌کند.
+            if (!allowSaleReversal && originals.Any(m => m.Kind is CustodyMovementKind.Sale or CustodyMovementKind.SaleReturn))
                 throw Rule("CUSTODY_SALE_REVERSAL", "این خروج مربوط به فروش امانی است؛ آن را از صفحهٔ همان فروش لغو کنید.");
 
             if (!allowConversionReversal && originals.Any(m => m.Kind == CustodyMovementKind.ConvertedToCompany))

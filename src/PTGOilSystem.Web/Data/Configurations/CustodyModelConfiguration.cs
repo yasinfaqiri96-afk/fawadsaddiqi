@@ -118,5 +118,29 @@ public static class CustodyModelConfiguration
         finance.HasOne(x => x.PaymentTransaction).WithMany().HasForeignKey(x => x.PaymentTransactionId).OnDelete(DeleteBehavior.Restrict);
         finance.HasOne<PaymentTransaction>().WithMany().HasForeignKey(x => x.ReversalPaymentTransactionId).OnDelete(DeleteBehavior.Restrict);
         finance.HasOne(x => x.ExpenseType).WithMany().HasForeignKey(x => x.ExpenseTypeId).OnDelete(DeleteBehavior.Restrict);
+        finance.HasIndex(x => x.ServiceProviderId);
+        finance.HasIndex(x => x.SettlesFinanceEntryId);
+        finance.HasOne(x => x.ServiceProvider).WithMany().HasForeignKey(x => x.ServiceProviderId).OnDelete(DeleteBehavior.Restrict);
+        finance.HasOne(x => x.SettlesFinanceEntry).WithMany().HasForeignKey(x => x.SettlesFinanceEntryId).OnDelete(DeleteBehavior.Restrict);
+
+        var saleReturn = modelBuilder.Entity<CustodySaleReturn>();
+        saleReturn.ToTable("CustodySaleReturns", table =>
+        {
+            table.HasCheckConstraint("CK_CustodySaleReturns_Quantity", "\"QuantityMt\" > 0");
+            table.HasCheckConstraint("CK_CustodySaleReturns_Amounts",
+                "\"AmountUsd\" > 0 AND \"CommissionUsd\" >= 0 AND \"RecognizedCommissionReversedUsd\" >= 0"
+                + " AND \"RecognizedCommissionReversedUsd\" <= \"CommissionUsd\"");
+        });
+        saleReturn.Property(x => x.QuantityMt).HasColumnType("numeric(18,4)");
+        saleReturn.Property(x => x.AmountUsd).HasColumnType("numeric(18,4)");
+        saleReturn.Property(x => x.CommissionUsd).HasColumnType("numeric(18,4)");
+        saleReturn.Property(x => x.RecognizedCommissionReversedUsd).HasColumnType("numeric(18,4)");
+        saleReturn.HasIndex(x => x.ReturnNumber).IsUnique();
+        saleReturn.HasIndex(x => x.StockOperationKey).IsUnique();
+        saleReturn.HasIndex(x => x.CustodySaleId);
+        saleReturn.HasIndex(x => new { x.OwnerPartyType, x.OwnerPartyId });
+        saleReturn.HasIndex(x => x.CustomerId);
+        saleReturn.HasOne(x => x.CustodySale).WithMany().HasForeignKey(x => x.CustodySaleId).OnDelete(DeleteBehavior.Restrict);
+        saleReturn.HasOne<Customer>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
     }
 }

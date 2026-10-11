@@ -30,6 +30,9 @@ public sealed class CustodyConversionService(ApplicationDbContext db, ICustodySe
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Customers\" WHERE \"Id\" = {owner.PartyId} FOR UPDATE", ct);
         else
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Partners\" WHERE \"Id\" = {owner.PartyId} FOR UPDATE", ct);
+        // The supplier side is serialized too: two different customer (or partner) records must
+        // never both claim the same supplier person.
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Suppliers\" WHERE \"Id\" = {supplierId} FOR UPDATE", ct);
         var exists = owner.PartyType == AccountingPartyType.Customer
             ? await db.Customers.AnyAsync(x => x.Id == owner.PartyId && x.IsActive, ct)
             : await db.Partners.AnyAsync(x => x.Id == owner.PartyId && x.IsActive, ct);
@@ -44,6 +47,9 @@ public sealed class CustodyConversionService(ApplicationDbContext db, ICustodySe
             if (tx is not null) await tx.CommitAsync(ct);
             return;
         }
+        if (await db.CustodySupplierIdentityLinks.AnyAsync(x => x.SupplierId == supplierId
+                && (owner.PartyType == AccountingPartyType.Customer ? x.CustomerId != null : x.PartnerId != null), ct))
+            throw Rule("CUSTODY_IDENTITY_CONFLICT", "این فروشنده قبلاً با شخص دیگری در همین نقش پیوند خورده است؛ دو شخص را یکی نکنید.");
         var link = new CustodySupplierIdentityLink
         {
             CustomerId = owner.PartyType == AccountingPartyType.Customer ? owner.PartyId : null,
@@ -57,6 +63,14 @@ public sealed class CustodyConversionService(ApplicationDbContext db, ICustodySe
         await db.SaveChangesAsync(ct);
         if (tx is not null) await tx.CommitAsync(ct);
     }
+
+    public const string EditBlockedMessage = "این خرید از تبدیل امانی ساخته شده؛ مقدار و قیمت آن فقط با لغو و ثبت دوبارهٔ سند تبدیل اصلاح می‌شود.";
+
+    /// <summary>Contract created by a posted custody conversion; quantity/price edits must go through the conversion.</summary>
+    public static Task<bool> IsActiveConversionContractAsync(ApplicationDbContext db, int? contractId, CancellationToken ct = default)
+        => contractId is null
+            ? Task.FromResult(false)
+            : db.CustodyConversions.AnyAsync(x => x.ContractId == contractId && x.Status == CustodyDocumentStatus.Posted, ct);
 
     public async Task<int?> ResolveSupplierAsync(CustodyOwner owner, CancellationToken ct = default)
         => owner.PartyType switch
