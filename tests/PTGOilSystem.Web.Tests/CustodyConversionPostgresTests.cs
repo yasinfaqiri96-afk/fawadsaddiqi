@@ -51,7 +51,7 @@ public sealed class CustodyConversionPostgresTests(AccountingPostgreSqlFixture f
         if (type == AccountingPartyType.Customer) owner = scope.Customer.Id;
         else if (type == AccountingPartyType.Partner)
         {
-            var partner = new Partner { Name = "Actual person " + Guid.NewGuid() };
+            var partner = new Partner { Code = "CP-" + Guid.NewGuid().ToString("N"), Name = "Actual person " + Guid.NewGuid() };
             db.Partners.Add(partner);
             await db.SaveChangesAsync();
             owner = partner.Id;
@@ -72,6 +72,51 @@ public sealed class CustodyConversionPostgresTests(AccountingPostgreSqlFixture f
             .SumAsync(x => x.Direction == CustodyDirection.In ? x.QuantityMt : -x.QuantityMt);
 
     [Theory]
+    [InlineData(AccountingPartyType.Customer)]
+    [InlineData(AccountingPartyType.Partner)]
+    public async Task Concurrent_Identity_Confirmations_Are_Idempotent_And_Audited_Once(AccountingPartyType type)
+    {
+        var (scope, lot) = await SeedAsync(type);
+        await using var db = fixture.CreateDbContext();
+        var owner = new CustodyOwner(type, (await db.CustodyLots.SingleAsync(x => x.Id == lot)).OwnerPartyId);
+        async Task Confirm()
+        {
+            await using var separate = fixture.CreateDbContext();
+            await Service(separate).LinkSupplierIdentityAsync(owner, scope.Supplier.Id, "verified existing identity", true);
+        }
+        await Task.WhenAll(Confirm(), Confirm());
+        var links = await db.CustodySupplierIdentityLinks.Where(x => type == AccountingPartyType.Customer
+            ? x.CustomerId == owner.PartyId : x.PartnerId == owner.PartyId).ToListAsync();
+        Assert.Single(links);
+        Assert.Equal(scope.Supplier.Id, links[0].SupplierId);
+        Assert.Equal(1, await db.AuditLogs.CountAsync(x => x.EntityName == nameof(CustodySupplierIdentityLink) && x.EntityId == links[0].Id));
+    }
+
+    [Fact]
+    public async Task Active_Supplier_Balance_Transfer_Blocks_Conversion_Cancellation_Without_Partial_Reversal()
+    {
+        var (scope, lot) = await SeedAsync();
+        await using var db = fixture.CreateDbContext();
+        var id = await Service(db).ConvertAsync(Input(lot, scope.Tank.Id));
+        var conversion = await db.CustodyConversions.SingleAsync(x => x.Id == id);
+        db.SupplierBalanceTransfers.Add(new SupplierBalanceTransfer
+        {
+            BatchId = Guid.NewGuid(), SupplierId = scope.Supplier.Id, CompanyId = scope.Company.Id,
+            ContractId = conversion.ContractId, TransferDate = Day, TransferOriginalAmount = 100m,
+            HistoricalAmountUsd = 100m, TransferValueUsd = 100m, TransferContractCurrencyAmount = 100m,
+            Status = SupplierBalanceTransferStatus.Active
+        });
+        await db.SaveChangesAsync();
+        var movements = await db.CustodyMovements.CountAsync(x => x.CustodyLotId == lot);
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(() => Service(db).CancelAsync(id, "unsafe transfer"));
+        Assert.Equal("CUSTODY_CONVERSION_PAYMENT_DEPENDENCY", error.Code);
+        db.ChangeTracker.Clear();
+        Assert.Equal(CustodyDocumentStatus.Posted, (await db.CustodyConversions.SingleAsync(x => x.Id == id)).Status);
+        Assert.Equal(60m, await CustodyBalance(db, lot));
+        Assert.Equal(movements, await db.CustodyMovements.CountAsync(x => x.CustodyLotId == lot));
+    }
+
+    [Theory]
     [InlineData(40)]
     [InlineData(100)]
     public async Task Partial_And_Full_Conversion_Keep_Physical_Stock_And_Post_Canonical_Cost_And_Debt(int qty)
@@ -80,6 +125,8 @@ public sealed class CustodyConversionPostgresTests(AccountingPostgreSqlFixture f
         await using var db = fixture.CreateDbContext();
         var id = await Service(db).ConvertAsync(Input(lot, s.Tank.Id, qty));
         var c = await db.CustodyConversions.Include(x => x.Contract).SingleAsync(x => x.Id == id);
+        await using var auditDb = fixture.CreateDbContext();
+        Assert.Equal(1, await auditDb.AuditLogs.CountAsync(x => x.EntityName == nameof(CustodyConversion) && x.EntityId == id));
         Assert.Equal(ContractStatus.Active, c.Contract!.Status);
         Assert.Equal(s.Supplier.Id, c.Contract.SupplierId);
         Assert.Equal(qty, c.Contract.QuantityMt);

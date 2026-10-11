@@ -24,6 +24,12 @@ public sealed class CustodyConversionService(ApplicationDbContext db, ICustodySe
             throw Rule("CUSTODY_IDENTITY_EVIDENCE", "تأیید صریح هویت یکسان و مرجع معتبر آن الزامی است.");
         if (owner.PartyType is not (AccountingPartyType.Customer or AccountingPartyType.Partner))
             throw Rule("CUSTODY_IDENTITY_ROLE", "این پیوند فقط برای مشتری یا شریک موجود است.");
+        await using var tx = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(ct) : null;
+        // Serialize confirmation on the existing identity, including before the first link exists.
+        if (owner.PartyType == AccountingPartyType.Customer)
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Customers\" WHERE \"Id\" = {owner.PartyId} FOR UPDATE", ct);
+        else
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Partners\" WHERE \"Id\" = {owner.PartyId} FOR UPDATE", ct);
         var exists = owner.PartyType == AccountingPartyType.Customer
             ? await db.Customers.AnyAsync(x => x.Id == owner.PartyId && x.IsActive, ct)
             : await db.Partners.AnyAsync(x => x.Id == owner.PartyId && x.IsActive, ct);
@@ -35,6 +41,7 @@ public sealed class CustodyConversionService(ApplicationDbContext db, ICustodySe
         {
             if (existing.SupplierId != supplierId)
                 throw Rule("CUSTODY_IDENTITY_CONFLICT", "این مالک قبلاً با فروشنده دیگری پیوند معتبر دارد؛ تغییر هویت خودکار مجاز نیست.");
+            if (tx is not null) await tx.CommitAsync(ct);
             return;
         }
         var link = new CustodySupplierIdentityLink
@@ -47,6 +54,8 @@ public sealed class CustodyConversionService(ApplicationDbContext db, ICustodySe
         await db.SaveChangesAsync(ct);
         await audit.LogAsync(nameof(CustodySupplierIdentityLink), link.Id, AuditAction.Insert,
             diff: System.Text.Json.JsonSerializer.Serialize(new { owner, supplierId, link.Evidence }), ct: ct);
+        await db.SaveChangesAsync(ct);
+        if (tx is not null) await tx.CommitAsync(ct);
     }
 
     public async Task<int?> ResolveSupplierAsync(CustodyOwner owner, CancellationToken ct = default)
@@ -118,6 +127,7 @@ public sealed class CustodyConversionService(ApplicationDbContext db, ICustodySe
         await audit.LogAsync(nameof(CustodyConversion), conversion.Id, AuditAction.Insert,
             diff: System.Text.Json.JsonSerializer.Serialize(new { lot.LotNumber, conversion.ContractId,
                 conversion.QuantityMt, input.UnitPriceUsd, conversion.AgreementReference, key }), ct: ct);
+        await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return conversion.Id;
     }
@@ -144,7 +154,10 @@ public sealed class CustodyConversionService(ApplicationDbContext db, ICustodySe
         if (await db.SupplierPaymentAllocations.AnyAsync(x => x.ContractId == conversion.ContractId && x.Status == SupplierPaymentAllocationStatus.Active, ct)
             || await db.PaymentTransactions.AnyAsync(x => x.ContractId == conversion.ContractId, ct)
             || await db.ContractBalanceTransfers.AnyAsync(x => !x.IsCancelled
-                && (x.FromContractId == conversion.ContractId || x.ToContractId == conversion.ContractId), ct))
+                && (x.FromContractId == conversion.ContractId || x.ToContractId == conversion.ContractId), ct)
+            || await db.SupplierBalanceTransfers.AnyAsync(x => x.Status == SupplierBalanceTransferStatus.Active
+                && (x.ContractId == conversion.ContractId || x.Sources.Any(s => db.LedgerEntries.Any(l =>
+                    l.Id == s.LedgerEntryId && l.ContractId == conversion.ContractId))), ct))
             throw Rule("CUSTODY_CONVERSION_PAYMENT_DEPENDENCY", "این خرید پرداخت وابسته دارد؛ نخست پرداخت و تخصیص آن را بررسی و برگشت کنید.");
         var inbound = await db.InventoryMovements.AsNoTracking().SingleAsync(x =>
             x.ContractId == conversion.ContractId && x.Direction == MovementDirection.In && x.ReversalOfInventoryMovementId == null, ct);
