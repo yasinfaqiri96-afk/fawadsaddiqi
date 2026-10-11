@@ -244,6 +244,9 @@ public sealed class CustodyService(
             await LockLotsAsync([input.LotId], ct);
             var lot = await LoadActiveLotAsync(input.LotId, ct);
             var date = ToUtc(input.MovementDate);
+            foreach (var tankId in new[] { input.From.StorageTankId, input.To.StorageTankId }
+                         .Where(id => id.HasValue).Select(id => id!.Value).Distinct().OrderBy(id => id))
+                await LockTankAsync(tankId, ct);
             await EnsureOutboundAllowedAsync(lot, input.From, date, input.QuantityMt, ct);
             await EnsureInboundLocationAsync(input.To, lot.ProductId, input.QuantityMt, ct);
 
@@ -369,6 +372,7 @@ public sealed class CustodyService(
             var hold = await db.CustodyHolds.FirstOrDefaultAsync(h => h.Id == holdId, ct)
                 ?? throw Rule("CUSTODY_HOLD_NOT_FOUND", "مسدودیت پیدا نشد.");
             await LockLotsAsync([hold.CustodyLotId], ct);
+            await db.Entry(hold).ReloadAsync(ct);
             if (hold.ReleasedAtUtc.HasValue)
                 throw Rule("CUSTODY_HOLD_RELEASED", "این مسدودیت قبلاً رفع شده است.");
             hold.ReleasedAtUtc = DateTime.UtcNow;
@@ -451,11 +455,24 @@ public sealed class CustodyService(
                 throw Rule("CUSTODY_ALREADY_REVERSED", "این عملیات قبلاً لغو شده است.");
             if (originals.Any(m => m.IsReversed))
                 throw Rule("CUSTODY_PARTIALLY_REVERSED", "این عملیات ناقص لغو شده است؛ با مدیر سیستم بررسی کنید.");
+            foreach (var tankId in originals.Where(m => m.StorageTankId.HasValue)
+                         .Select(m => m.StorageTankId!.Value).Distinct().OrderBy(id => id))
+                await LockTankAsync(tankId, ct);
             // خروجِ فروش اثر مالی دارد؛ لغوِ تنهای موجودی، سند فروش و حساب مالک را ناهماهنگ می‌کند.
             if (!allowSaleReversal && originals.Any(m => m.Kind == CustodyMovementKind.Sale))
                 throw Rule("CUSTODY_SALE_REVERSAL", "این خروج مربوط به فروش امانی است؛ آن را از صفحهٔ همان فروش لغو کنید.");
 
             var originalIds = originals.Select(o => o.Id).ToArray();
+            // برگشت خروج، ورود فزیکی است. تنها افزایش خالص را می‌سنجیم تا انتقال مالکیت
+            // (دو پای برابر در همان مخزن) ظرفیت را دوبار مصرف نکند.
+            foreach (var group in originals.GroupBy(m => new { m.TerminalId, m.StorageTankId, m.CustodyLot!.ProductId })
+                         .OrderBy(g => g.Key.StorageTankId))
+            {
+                var incoming = group.Sum(m => m.Direction == CustodyDirection.Out ? m.QuantityMt : -m.QuantityMt);
+                if (incoming > 0m)
+                    await EnsureInboundLocationAsync(new CustodyLocation(group.Key.TerminalId, group.Key.StorageTankId),
+                        group.Key.ProductId, incoming, ct);
+            }
             var reversalKey = Guid.NewGuid();
             var reversals = new List<CustodyMovement>();
             foreach (var original in originals)

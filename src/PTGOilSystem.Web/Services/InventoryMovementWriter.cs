@@ -245,6 +245,10 @@ public sealed class InventoryMovementWriter : IInventoryMovementWriter
                 await _stock.EnsureMovementDoesNotCauseFutureNegativeStockAsync(reversal, ct);
             }
         }
+        else if (reversedDirection is MovementDirection.In or MovementDirection.Adjustment)
+        {
+            await EnsureTankCapacityAsync([reversal], ct);
+        }
 
         _db.InventoryMovements.Add(reversal);
         await _db.SaveChangesAsync(ct);
@@ -431,6 +435,28 @@ public sealed class InventoryMovementWriter : IInventoryMovementWriter
                      .OrderBy(g => g.Key))
         {
             var tankId = group.Key;
+            // قفل پیش از خواندن ظرفیت و هر دو دفتر؛ ورود ملکی و امانی یک ظرفیت فزیکی دارند.
+            var sample = group.First();
+            await _stock.AcquireStockMutationLockAsync(
+                new InventoryMovement { ProductId = sample.ProductId, StorageTankId = tankId }, ct);
+            var tankProductId = await _db.StorageTanks.AsNoTracking()
+                .Where(t => t.Id == tankId).Select(t => t.ProductId).FirstOrDefaultAsync(ct);
+            foreach (var productId in group.Select(m => m.ProductId).Distinct())
+            {
+                var otherCompanyProduct = await _db.InventoryMovements.AsNoTracking()
+                    .Where(m => m.StorageTankId == tankId && m.ProductId != productId)
+                    .GroupBy(m => m.ProductId)
+                    .AnyAsync(g => g.Sum(m => m.Direction == MovementDirection.In || m.Direction == MovementDirection.Adjustment
+                        ? m.QuantityMt : m.Direction == MovementDirection.Out || m.Direction == MovementDirection.Transfer
+                            ? -m.QuantityMt : 0m) > 0m, ct);
+                var otherCustodyProduct = await _db.CustodyMovements.AsNoTracking()
+                    .Where(m => m.StorageTankId == tankId && m.CustodyLot!.ProductId != productId)
+                    .GroupBy(m => m.CustodyLot!.ProductId)
+                    .AnyAsync(g => g.Sum(m => m.Direction == CustodyDirection.In ? m.QuantityMt : -m.QuantityMt) > 0m, ct);
+                if ((tankProductId.HasValue && tankProductId != productId) || otherCompanyProduct || otherCustodyProduct
+                    || group.Any(m => m.ProductId != productId))
+                    throw new BusinessRuleException("STOCK_TANK_MIXED_PRODUCT", "در این مخزن جنسِ دیگری موجود یا تعریف شده است؛ اختلاط جنس‌ها مجاز نیست.");
+            }
             var capacityMt = await _db.StorageTanks
                 .AsNoTracking()
                 .Where(t => t.Id == tankId)
@@ -440,12 +466,6 @@ public sealed class InventoryMovementWriter : IInventoryMovementWriter
             {
                 continue;
             }
-
-            // قفل ردیف مخزن پیش از خواندن موجودی، تا دو ورودی هم‌زمان هر دو از چک عبور نکنند.
-            var sample = group.First();
-            await _stock.AcquireStockMutationLockAsync(
-                new InventoryMovement { ProductId = sample.ProductId, StorageTankId = tankId },
-                ct);
 
             var currentMt = await _db.InventoryMovements
                 .AsNoTracking()
@@ -457,6 +477,9 @@ public sealed class InventoryMovementWriter : IInventoryMovementWriter
                             ? -m.QuantityMt
                             : 0m))
                 .SumAsync(ct) ?? 0m;
+            currentMt += await _db.CustodyMovements.AsNoTracking()
+                .Where(m => m.StorageTankId == tankId)
+                .SumAsync(m => m.Direction == CustodyDirection.In ? m.QuantityMt : -m.QuantityMt, ct);
             var incomingMt = group.Sum(m => m.QuantityMt);
 
             if (currentMt + incomingMt > capacityMt.Value)

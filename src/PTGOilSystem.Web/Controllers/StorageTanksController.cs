@@ -106,6 +106,12 @@ public class StorageTanksController : Controller
                     .Count()
             });
 
+        var tankIds = tanks.Select(t => t.Id).ToArray();
+        var custodyByTank = await _db.CustodyMovements.AsNoTracking()
+            .Where(m => m.StorageTankId.HasValue && tankIds.Contains(m.StorageTankId.Value))
+            .GroupBy(m => m.StorageTankId!.Value)
+            .Select(g => new { Id = g.Key, Qty = g.Sum(m => m.Direction == CustodyDirection.In ? m.QuantityMt : -m.QuantityMt) })
+            .ToDictionaryAsync(g => g.Id, g => g.Qty);
         var items = tanks.Select(t =>
         {
             stockByTank.TryGetValue(t.Id, out var stock);
@@ -120,7 +126,7 @@ public class StorageTanksController : Controller
                 UnitOfMeasure = ResolveProductUnitText(t.UnitNamePersian, t.UnitSymbol, t.UnitCode, t.UnitName, t.ProductUnitOfMeasure),
                 CapacityMt = t.CapacityMt,
                 CurrentQuantityMt = currentQuantityMt,
-                FillPercent = t.CapacityMt > 0m ? Math.Round(currentQuantityMt / t.CapacityMt * 100m, 2) : 0m,
+                FillPercent = t.CapacityMt > 0m ? Math.Round((currentQuantityMt + custodyByTank.GetValueOrDefault(t.Id)) / t.CapacityMt * 100m, 2) : 0m,
                 IsActive = t.IsActive,
                 ContractCount = stock?.ContractCount ?? 0
             };
@@ -268,8 +274,11 @@ public class StorageTanksController : Controller
         var currentQuantityMt = movementRows.Sum(m => m.SignedQuantityMt);
         var totalInQuantityMt = movementRows.Where(m => m.SignedQuantityMt > 0m).Sum(m => m.SignedQuantityMt);
         var totalOutQuantityMt = Math.Abs(movementRows.Where(m => m.SignedQuantityMt < 0m).Sum(m => m.SignedQuantityMt));
-        var fillPercent = item.CapacityMt > 0m ? Math.Round(currentQuantityMt / item.CapacityMt * 100m, 2) : 0m;
-        var emptyQuantityMt = Math.Max(item.CapacityMt - currentQuantityMt, 0m);
+        var custodyQuantityMt = await _db.CustodyMovements.AsNoTracking().Where(m => m.StorageTankId == id)
+            .SumAsync(m => m.Direction == CustodyDirection.In ? m.QuantityMt : -m.QuantityMt);
+        var physicalQuantityMt = currentQuantityMt + custodyQuantityMt;
+        var fillPercent = item.CapacityMt > 0m ? Math.Round(physicalQuantityMt / item.CapacityMt * 100m, 2) : 0m;
+        var emptyQuantityMt = Math.Max(item.CapacityMt - physicalQuantityMt, 0m);
         var lastMovementDate = movementRows.Count > 0 ? movementRows.Max(m => m.MovementDate) : (DateTime?)null;
         var recentMovements = movementRows
             .OrderByDescending(m => m.MovementDate)

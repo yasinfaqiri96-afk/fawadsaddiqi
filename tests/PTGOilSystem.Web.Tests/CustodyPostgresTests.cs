@@ -107,6 +107,155 @@ public sealed class CustodyPostgresTests(ConcurrencyVersionPostgresFixture fixtu
         return (await Reader(db).GetLotDetailAsync(lotId))!.Summary;
     }
 
+    private async Task<InventoryMovement> CompanyInAsync(World w, decimal qty, int tankId, int? productId = null, bool adjustment = false)
+    {
+        await using var db = fixture.CreateDbContext();
+        await using var tx = await db.Database.BeginTransactionAsync();
+        var writer = new InventoryMovementWriter(db, new StockService(db));
+        var request = new InventoryMovementRequest
+        {
+            ProductId = productId ?? w.ProductId, TerminalId = w.TerminalId, StorageTankId = tankId,
+            QuantityMt = qty, MovementDate = Day2, ReferenceDocument = "CAPACITY-" + Guid.NewGuid()
+        };
+        var row = adjustment ? await writer.PostAdjustmentAsync(request) : await writer.PostInboundAsync(request);
+        await tx.CommitAsync();
+        return row;
+    }
+
+    [Fact]
+    public async Task Physical_Capacity_Reports_Count_Custody_And_Exclude_Our_Stock_At_Other_Parties_From_Our_Tank_Capacity()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        await ReceiveAsync(w, 100m, w.SmallTankId);
+        await CompanyInAsync(w, 20m, w.SmallTankId);
+        await using var db = fixture.CreateDbContext();
+        (await db.StorageTanks.SingleAsync(t => t.Id == w.SmallTankId)).DisplayName = "000-Capacity";
+        var otherTank = new StorageTank { TerminalId = w.ThirdPartyTerminalId, TankCode = "EXTERNAL-" + Guid.NewGuid(), CapacityMt = 99_999m };
+        db.StorageTanks.Add(otherTank);
+        await db.SaveChangesAsync();
+        await using (var tx = await db.Database.BeginTransactionAsync())
+        {
+            await new InventoryMovementWriter(db, new StockService(db)).PostInboundAsync(new InventoryMovementRequest
+            {
+                ProductId = w.ProductId, TerminalId = w.ThirdPartyTerminalId, StorageTankId = otherTank.Id,
+                QuantityMt = 900m, MovementDate = Day1, ReferenceDocument = "EXTERNAL-CAPACITY-" + Guid.NewGuid()
+            });
+            await tx.CommitAsync();
+        }
+        var dashboard = await new DashboardService(db, new Microsoft.AspNetCore.Http.HttpContextAccessor()).BuildDashboardAsync();
+        Assert.DoesNotContain(dashboard.TankCapacities, t => t.TankId == otherTank.Id);
+        var tank = Assert.Single(dashboard.TankCapacities.Where(t => t.TankId == w.SmallTankId));
+        Assert.Equal(120m, tank.StockMt);
+        Assert.Equal(100m, tank.FillPercent);
+        var controller = new PTGOilSystem.Web.Controllers.StorageTanksController(db, new AuditService(db),
+            new PTGOilSystem.Web.Services.DeleteSafety.MasterDataDeleteSafetyService(db), new StockService(db), null!);
+        var details = Assert.IsType<Microsoft.AspNetCore.Mvc.ViewResult>(await controller.Details(w.SmallTankId));
+        var model = Assert.IsType<PTGOilSystem.Web.Models.StorageTanks.StorageTankDetailsViewModel>(details.Model);
+        Assert.Equal(20m, model.CurrentQuantityMt);
+        Assert.Equal(100m, model.FillPercent);
+        Assert.Equal(0m, model.EmptyQuantityMt);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Company_Inbound_And_Adjustment_Count_Custody_Physical_Stock(bool adjustment)
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        await ReceiveAsync(w, 100m, w.SmallTankId);
+        await CompanyInAsync(w, 20m, w.SmallTankId, adjustment: adjustment);
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(() => CompanyInAsync(w, 0.0001m, w.SmallTankId, adjustment: adjustment));
+        Assert.Equal("STOCK_TANK_CAPACITY_EXCEEDED", error.Code);
+        await using var db = fixture.CreateDbContext();
+        Assert.Equal(20m, await new StockService(db).GetFreeQuantityMtAsync(w.ProductId, storageTankId: w.SmallTankId));
+        var position = Assert.Single((await Reader(db).GetPhysicalPositionsAsync()).Where(p => p.StorageTankId == w.SmallTankId));
+        Assert.Equal(120m, position.TotalMt);
+        Assert.Equal(100m, position.CustodyMt);
+    }
+
+    [Fact]
+    public async Task Company_Inbound_Cannot_Mix_With_Custody_Product_Even_In_Unassigned_Tank()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        await ReceiveAsync(w, 10m);
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(() => CompanyInAsync(w, 10m, w.TankId, w.OtherProductId));
+        Assert.Equal("STOCK_TANK_MIXED_PRODUCT", error.Code);
+    }
+
+    [Fact]
+    public async Task Reversing_Custody_Delivery_Cannot_Overflow_A_Tank_Refilled_With_Company_Stock()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        var lotId = await ReceiveAsync(w, 100m, w.SmallTankId);
+        var key = await ReleaseAsync(w, lotId, 50m, tankId: w.SmallTankId);
+        await CompanyInAsync(w, 70m, w.SmallTankId);
+        await using var db = fixture.CreateDbContext();
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(() => Writer(db).ReverseOperationAsync(key, "اشتباه"));
+        Assert.Equal("CUSTODY_TANK_CAPACITY", error.Code);
+        Assert.Equal(50m, (await LotAsync(lotId)).BalanceMt);
+    }
+
+    [Fact]
+    public async Task Reversing_Company_Outbound_Cannot_Overflow_With_Custody_Stock()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        await CompanyInAsync(w, 80m, w.SmallTankId);
+        InventoryMovement outgoing;
+        await using (var db = fixture.CreateDbContext())
+        {
+            await using var tx = await db.Database.BeginTransactionAsync();
+            outgoing = await new InventoryMovementWriter(db, new StockService(db)).PostOutboundAsync(new InventoryMovementRequest
+            {
+                ProductId = w.ProductId, TerminalId = w.TerminalId, StorageTankId = w.SmallTankId,
+                QuantityMt = 60m, MovementDate = Day3, ReferenceDocument = "CAPACITY-OUT-" + Guid.NewGuid()
+            });
+            await tx.CommitAsync();
+        }
+        await ReceiveAsync(w, 100m, w.SmallTankId);
+        await using var verify = fixture.CreateDbContext();
+        await using var reversalTx = await verify.Database.BeginTransactionAsync();
+        var error = await Assert.ThrowsAsync<BusinessRuleException>(() => new InventoryMovementWriter(verify, new StockService(verify))
+            .PostReversalAsync(outgoing, Day3));
+        Assert.Equal("STOCK_TANK_CAPACITY_EXCEEDED", error.Code);
+        Assert.False(await verify.InventoryMovements.AnyAsync(m => m.ReversalOfInventoryMovementId == outgoing.Id));
+    }
+
+    [Fact]
+    public async Task Company_And_Custody_Concurrent_Inbound_Share_The_Same_Capacity_Lock()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        var results = await Task.WhenAll(
+            Task.Run(async () => { try { await CompanyInAsync(w, 80m, w.SmallTankId); return true; } catch (BusinessRuleException) { return false; } }),
+            Task.Run(async () => { try { await ReceiveAsync(w, 80m, w.SmallTankId); return true; } catch (BusinessRuleException) { return false; } }));
+        Assert.Single(results.Where(ok => ok));
+        await using var db = fixture.CreateDbContext();
+        Assert.Equal(80m, Assert.Single((await Reader(db).GetPhysicalPositionsAsync()).Where(p => p.StorageTankId == w.SmallTankId)).TotalMt);
+    }
+
+    [Fact]
+    public async Task Ownership_Transfer_And_Its_Reversal_Do_Not_Consume_Extra_Physical_Capacity()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        var lotId = await ReceiveAsync(w, 120m, w.SmallTankId);
+        await using var db = fixture.CreateDbContext();
+        var newLotId = await Writer(db).TransferOwnershipAsync(new CustodyOwnershipTransferInput
+        {
+            LotId = lotId, NewOwner = new CustodyOwner(AccountingPartyType.Customer, w.Customer2Id),
+            Location = new CustodyLocation(w.TerminalId, w.SmallTankId), MovementDate = Day2, QuantityMt = 70m
+        });
+        var key = await db.CustodyMovements.Where(m => m.CustodyLotId == newLotId).Select(m => m.OperationKey).SingleAsync();
+        await Writer(db).ReverseOperationAsync(key, "برگشت توافق");
+        Assert.Equal(120m, (await LotAsync(lotId)).BalanceMt);
+        Assert.Equal(120m, Assert.Single((await Reader(db).GetPhysicalPositionsAsync()).Where(p => p.StorageTankId == w.SmallTankId)).TotalMt);
+    }
+
     private async Task<(int Movements, int Ledger, int Journal, int Sales, int Contracts)> FinancialFootprintAsync()
     {
         await using var db = fixture.CreateDbContext();

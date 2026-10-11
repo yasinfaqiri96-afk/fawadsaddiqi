@@ -107,13 +107,15 @@ public class DashboardService : IDashboardService
         CancellationToken ct)
     {
         var tanks = await _db.StorageTanks.AsNoTracking()
-            .Where(t => t.IsActive && t.CapacityMt > 0m)
+            .Where(t => t.IsActive && t.CapacityMt > 0m && t.Terminal!.CustodianPartyType == null)
             .Select(t => new
             {
                 t.Id,
                 t.TankCode,
                 t.DisplayName,
                 t.CapacityMt,
+                CustodyMt = _db.CustodyMovements.Where(m => m.StorageTankId == t.Id)
+                    .Sum(m => (decimal?)(m.Direction == CustodyDirection.In ? m.QuantityMt : -m.QuantityMt)) ?? 0m,
                 ProductName = t.Product == null ? "" : t.Product.Name
             })
             .ToListAsync(ct);
@@ -121,7 +123,7 @@ public class DashboardService : IDashboardService
         var tankRows = tanks
             .Select(t =>
             {
-                var stock = stockByTankId.TryGetValue(t.Id, out var value) ? value : 0m;
+                var stock = (stockByTankId.TryGetValue(t.Id, out var value) ? value : 0m) + t.CustodyMt;
                 var percent = Math.Clamp(stock / t.CapacityMt * 100m, 0m, 100m);
 
                 return new DashboardTankCapacityViewModel
