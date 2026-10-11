@@ -724,6 +724,140 @@ public sealed class CustodyContinuationPostgresTests(ConcurrencyVersionPostgresF
             Assert.Equal(8_000m, row.PendingNetCreditUsd);
         }
         Assert.Equal(8_000m, await GlAsync(w.CompanyId, "1200", AccountingPartyType.Customer, w.CustomerId));
+        await using (var db = fixture.CreateDbContext())
+        {
+            var report = await new CustodyGlReadService(db, new SystemCompanyProvider(db), new PartyDirectory(db),
+                Options.Create(new AccountingOptions { Enabled = true })).ReadAsync(Day.AddDays(30));
+            var open = Assert.Single(report.ProviderCharges.Where(x => x.ServiceProviderId == w.ProviderId));
+            Assert.Equal(90m, open.UnpaidUsd);
+
+            // بیلانس مدیریتی: تیل امانی در ارزش موجودی شرکت نیست و تفکیک امانی شفاف گفته می‌شود.
+            var balance = await new CompanyBalanceReportService(db, new ProfitAndLossService(db), new StockService(db), new PricingService(db))
+                .BuildAsync(new CompanyBalanceReportRequest(Day.AddDays(-30), Day.AddDays(30), "USD", Day.AddDays(30)), []);
+            Assert.DoesNotContain(balance.DetailsFor(CompanyBalanceSection.InventoryValue), r => r.QuantityMt is > 0m && r.Name.Contains("Diesel"));
+            Assert.Contains(balance.NotesFa, note => note.Contains("وجوه امانی"));
+        }
         await AssertCustodyJournalsBalancedAsync();
+    }
+
+    // ---------------------------------------------------------------- لیتر در سایر عملیات
+
+    private static CustodyMeasurement Liters(decimal liters, decimal density = 800m, decimal temp = 15m, decimal densityTemp = 15m)
+        => new(liters, density, temp, densityTemp, "Lab certificate LC-77");
+
+    [Fact]
+    public async Task Delivery_Transfer_Ownership_And_Loss_Accept_Certified_Liters_And_Keep_The_Source_On_Reversal()
+    {
+        RequirePostgres();
+        var w = await SeedAsync(lotA: 40m, lotB: 50m);
+        Guid deliveryKey;
+        await using (var db = fixture.CreateDbContext())
+        {
+            deliveryKey = await Custody(db).ReleaseAsync(new CustodyReleaseInput
+            {
+                LotId = w.LotA, Kind = CustodyMovementKind.DeliveryToThirdParty, Location = new CustodyLocation(w.TerminalId, w.TankA),
+                MovementDate = Day, Measurement = Liters(5_000m), CounterpartyName = "Truck owner"
+            });
+            await Custody(db).TransferLocationAsync(new CustodyLocationTransferInput
+            {
+                LotId = w.LotA, From = new CustodyLocation(w.TerminalId, w.TankA), To = new CustodyLocation(w.TerminalId, w.TankB),
+                MovementDate = Day, Measurement = Liters(10_000m, 820m)
+            });
+            await Custody(db).TransferOwnershipAsync(new CustodyOwnershipTransferInput
+            {
+                LotId = w.LotB, NewOwner = new CustodyOwner(AccountingPartyType.Partner, w.PartnerId),
+                Location = new CustodyLocation(w.TerminalId, w.TankB), MovementDate = Day, Measurement = Liters(2_500m)
+            });
+            await Custody(db).AdjustAsync(new CustodyAdjustmentInput
+            {
+                LotId = w.LotB, Kind = CustodyMovementKind.Loss, Location = new CustodyLocation(w.TerminalId, w.TankB),
+                MovementDate = Day, Measurement = Liters(125m)
+            });
+        }
+        // ۵٬۰۰۰ لیتر × ۸۰۰ = ۴ تُن؛ ۱۰٬۰۰۰ × ۸۲۰ = ۸.۲ تُن (انتقال محل، ماندهٔ بار را تغییر نمی‌دهد)؛
+        // ۲٬۵۰۰ × ۸۰۰ = ۲ تُن؛ ۱۲۵ × ۸۰۰ = ۰.۱ تُن.
+        Assert.Equal(40m - 4m, await LotBalanceAsync(w.LotA));
+        await using (var db = fixture.CreateDbContext())
+            Assert.Equal(8.2m, await db.CustodyMovements.Where(m => m.CustodyLotId == w.LotA && m.StorageTankId == w.TankB)
+                .SumAsync(m => m.Direction == CustodyDirection.In ? m.QuantityMt : -m.QuantityMt));
+        Assert.Equal(50m - 2m - 0.1m, await LotBalanceAsync(w.LotB));
+        await using (var db = fixture.CreateDbContext())
+        {
+            var measured = await db.CustodyMovements.Where(m => (m.CustodyLotId == w.LotA || m.CustodyLotId == w.LotB)
+                && m.Kind != CustodyMovementKind.Receipt).ToListAsync();
+            Assert.All(measured, m => Assert.NotNull(m.SourceLiters));
+            Assert.Equal(2, measured.Count(m => m.Kind == CustodyMovementKind.LocationTransfer && m.SourceLiters == 10_000m && m.QuantityMt == 8.2m));
+            await Custody(db).ReverseOperationAsync(deliveryKey, "wrong truck");
+        }
+        await using var verify = fixture.CreateDbContext();
+        var reversal = await verify.CustodyMovements.SingleAsync(m => m.ReversalOfCustodyMovement!.OperationKey == deliveryKey);
+        Assert.Equal(5_000m, reversal.SourceLiters);
+        Assert.Equal(800m, reversal.DensityKgPerM3);
+        Assert.Equal(4m, reversal.QuantityMt);
+        Assert.Equal(40m, await LotBalanceAsync(w.LotA));
+    }
+
+    [Fact]
+    public async Task Sale_And_In_Transit_Loading_In_Liters_Use_The_Same_Rule_And_Reject_Guessed_Values()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        int saleId;
+        await using (var db = fixture.CreateDbContext())
+        {
+            var input = SaleInput(w, 0m, 0m);
+            saleId = await Sales(db).CreateSaleAsync(new CustodySaleInput
+            {
+                LotId = input.LotId, Location = input.Location, Measurement = Liters(12_500m), CustomerId = w.CustomerId,
+                SaleDate = Day, UnitPriceUsd = 500m, CommissionMethod = CustodyCommissionMethod.PercentOfSale, CommissionRate = 3m
+            });
+        }
+        await using (var db = fixture.CreateDbContext())
+        {
+            var sale = await db.CustodySales.SingleAsync(s => s.Id == saleId);
+            Assert.Equal(10m, sale.QuantityMt);
+            Assert.Equal(5_000m, sale.AmountUsd);
+            var movement = await db.CustodyMovements.SingleAsync(m => m.OperationKey == sale.StockOperationKey);
+            Assert.Equal(12_500m, movement.SourceLiters);
+
+            var temperature = await Assert.ThrowsAsync<BusinessRuleException>(() => Custody(db).ReleaseAsync(new CustodyReleaseInput
+            {
+                LotId = w.LotA, Kind = CustodyMovementKind.ReturnToOwner, Location = new CustodyLocation(w.TerminalId, w.TankA),
+                MovementDate = Day, Measurement = Liters(1_000m, temp: 20m, densityTemp: 15m)
+            }));
+            Assert.Equal("CUSTODY_MEASUREMENT_TEMPERATURE", temperature.Code);
+            var mismatch = await Assert.ThrowsAsync<BusinessRuleException>(() => Custody(db).ReleaseAsync(new CustodyReleaseInput
+            {
+                LotId = w.LotA, Kind = CustodyMovementKind.ReturnToOwner, Location = new CustodyLocation(w.TerminalId, w.TankA),
+                MovementDate = Day, QuantityMt = 1m, Measurement = Liters(1_000m)
+            }));
+            Assert.Equal("CUSTODY_MEASUREMENT_MISMATCH", mismatch.Code);
+        }
+        Assert.Equal(30m, await LotBalanceAsync(w.LotA));
+
+        int transitLot;
+        await using (var db = fixture.CreateDbContext())
+        {
+            transitLot = await Custody(db).RegisterInTransitAsync(new CustodyInTransitInput
+            {
+                Owner = new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId), ProductId = w.ProductId,
+                LoadedDate = Day, LoadedMeasurement = Liters(30_000m, 835m)
+            });
+        }
+        await using (var db = fixture.CreateDbContext())
+        {
+            var lot = await db.CustodyLots.SingleAsync(l => l.Id == transitLot);
+            Assert.Equal(25.05m, lot.LoadedQuantityMt);
+            Assert.Equal(30_000m, lot.LoadedSourceLiters);
+            Assert.Equal(835m, lot.LoadedDensityKgPerM3);
+            Assert.Equal(CustodyLotStatus.InTransit, lot.Status);
+            Assert.Equal(0m, await LotBalanceAsync(transitLot));
+            var guessed = await Assert.ThrowsAsync<BusinessRuleException>(() => Custody(db).RegisterInTransitAsync(new CustodyInTransitInput
+            {
+                Owner = new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId), ProductId = w.ProductId,
+                LoadedDate = Day, LoadedMeasurement = new CustodyMeasurement(30_000m, 835m, 15m, 15m, " ")
+            }));
+            Assert.Equal("CUSTODY_MEASUREMENT_REFERENCE", guessed.Code);
+        }
     }
 }

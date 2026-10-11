@@ -17,10 +17,19 @@ public sealed record CustodyGlOwnerPosition(CustodyOwner Owner, string Name, dec
     public decimal DifferenceUsd => FundsNetCreditUsd - OperationalFundsUsd;
 }
 
+/// <summary>مصرف نسیهٔ امانیِ هنوز پرداخت‌نشده به یک خدمات‌دهنده (بدهی واقعی شرکت).</summary>
+public sealed record CustodyOpenProviderCharge(int ServiceProviderId, string Name, int Charges, decimal UnpaidUsd);
+
+/// <summary>تبدیل‌های فعالِ امانی به خرید قطعی تا تاریخ راپور (مقدار و بهای قرارداد خرید canonical).</summary>
+public sealed record CustodyConversionTotals(int Count, decimal QuantityMt, decimal PurchaseValueUsd);
+
 public sealed record CustodyGlReport(DateTime AsOf, IReadOnlyList<CustodyGlOwnerPosition> Owners,
     decimal UnassignedFundsNetCreditUsd, decimal UnassignedPendingNetCreditUsd,
-    decimal AgencyCustomerReceivableUsd, int MissingActiveDocuments, IReadOnlyList<string> Blockers)
+    decimal AgencyCustomerReceivableUsd, int MissingActiveDocuments, IReadOnlyList<string> Blockers,
+    IReadOnlyList<CustodyOpenProviderCharge>? OpenProviderCharges = null,
+    CustodyConversionTotals? Conversions = null)
 {
+    public IReadOnlyList<CustodyOpenProviderCharge> ProviderCharges => OpenProviderCharges ?? [];
     // Split per person BEFORE totaling: one owner's debt cannot offset another owner's money.
     public decimal OwnerPayablesUsd => Owners.Sum(x => x.OwnerPayableUsd);
     public decimal OwnerReceivablesUsd => Owners.Sum(x => x.OwnerReceivableUsd);
@@ -100,6 +109,34 @@ public sealed class CustodyGlReadService(ApplicationDbContext db, ISystemCompany
                 && j.SourceEntityId == r.Id && j.Status == JournalEntryStatus.Posted), ct);
         var agencyAr = await lines.Where(x => x.AccountId == settings.AccountsReceivableAccountId && x.JournalEntry!.SourceModule == "Custody")
             .SumAsync(x => x.Debit - x.Credit, ct);
-        return new(date, rows, unassigned.Sum(x => x.Funds), unassigned.Sum(x => x.Pending), agencyAr, missing, blockers.Distinct().ToList());
+        return new(date, rows, unassigned.Sum(x => x.Funds), unassigned.Sum(x => x.Pending), agencyAr, missing, blockers.Distinct().ToList(),
+            await OpenProviderChargesAsync(cutoff, ct), await ConversionTotalsAsync(cutoff, ct));
+    }
+
+    private async Task<IReadOnlyList<CustodyOpenProviderCharge>> OpenProviderChargesAsync(DateTime cutoff, CancellationToken ct)
+    {
+        var charges = await db.CustodyFinanceEntries.AsNoTracking()
+            .Where(e => e.Kind == CustodyFinanceKind.ProviderCharge && e.Status == CustodyDocumentStatus.Posted
+                && e.EntryDate < cutoff && e.ServiceProviderId != null)
+            .Select(e => new
+            {
+                e.Id, ProviderId = e.ServiceProviderId!.Value, ProviderName = e.ServiceProvider!.Name, e.AmountUsd,
+                Paid = db.CustodyFinanceEntries.Where(p => p.SettlesFinanceEntryId == e.Id && p.Kind == CustodyFinanceKind.ProviderPayment
+                    && p.Status == CustodyDocumentStatus.Posted && p.EntryDate < cutoff).Sum(p => (decimal?)p.AmountUsd) ?? 0m
+            })
+            .ToListAsync(ct);
+        return charges.Where(c => c.AmountUsd - c.Paid != 0m)
+            .GroupBy(c => new { c.ProviderId, c.ProviderName })
+            .Select(g => new CustodyOpenProviderCharge(g.Key.ProviderId, g.Key.ProviderName, g.Count(), g.Sum(c => c.AmountUsd - c.Paid)))
+            .OrderBy(x => x.Name).ToList();
+    }
+
+    private async Task<CustodyConversionTotals> ConversionTotalsAsync(DateTime cutoff, CancellationToken ct)
+    {
+        var rows = await db.CustodyConversions.AsNoTracking()
+            .Where(c => c.Status == CustodyDocumentStatus.Posted && c.ConversionDate < cutoff)
+            .Select(c => new { c.QuantityMt, Price = c.Contract!.UnitPriceUsd ?? 0m })
+            .ToListAsync(ct);
+        return new CustodyConversionTotals(rows.Count, rows.Sum(r => r.QuantityMt), rows.Sum(r => decimal.Round(r.QuantityMt * r.Price, 2, MidpointRounding.AwayFromZero)));
     }
 }

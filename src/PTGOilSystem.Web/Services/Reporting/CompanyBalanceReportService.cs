@@ -123,6 +123,21 @@ public sealed class CompanyBalanceReportService(
             notes.Add($"{missingCashUsd:N0} سند ارزی صندوق/بانک معادل دالری ندارد و در ماندهٔ نقد صفر شمرده شده است.");
         }
 
+        // ── امانی: فقط شفافیت؛ مبالغ همان مانده‌های طرف‌حساب‌اند و دوباره جمع نمی‌شوند ─────
+        var custodyBalances = await db.LedgerEntries.AsNoTracking()
+            .Where(l => l.SourceType.StartsWith("Custody") && l.ServiceProviderId == null && l.EntryDate < toExclusive)
+            .GroupBy(l => new { l.CustomerId, l.SupplierId })
+            .Select(g => g.Sum(l => l.CustomerId.HasValue
+                ? (l.Side == LedgerSide.Debit ? l.AmountUsd : -l.AmountUsd)
+                : (l.Side == LedgerSide.Credit ? l.AmountUsd : -l.AmountUsd)))
+            .ToListAsync(ct);
+        var custodyPayableUsd = custodyBalances.Where(b => b > 0m).Sum();
+        var custodyReceivableUsd = -custodyBalances.Where(b => b < 0m).Sum();
+        if (custodyPayableUsd != 0m || custodyReceivableUsd != 0m)
+        {
+            notes.Add($"از مانده‌های طرف‌حساب، {custodyPayableUsd:N2} دالر وجوه امانیِ متعلق به مالکان (بدهی) و {custodyReceivableUsd:N2} دالر طلب شرکت از مالکان امانی است؛ تیلِ امانیِ دیگران در موجودی و دارایی شرکت شمرده نشده است. تفکیک هر مالک: «راپور دفتر کل امانی».");
+        }
+
         // ── طرف‌حساب‌ها (فقط بر اساس علامت مانده) ────────────────────────────
         foreach (var row in partyRows
                      .Where(r => r.BalanceUsd != 0m && r.PartyType != nameof(PartyStatementPartyType.Partner))

@@ -28,3 +28,7 @@ Migration افزایشی: `20261011215654_AddCustodyReceiptMeasurements`؛ پن�
 fixture ساختگی: مالک فروشنده100001، محصول100001، ترمینال خود شرکت100001، یک مخزن خالی با ظرفیت100 و شناسه پیش‌فرض100002. مخزن را می‌توان با `PTG_CUSTODY_E2E_MEASUREMENT_TANK` مشخص کرد. پس از اجرا مخزن80 MT دارد؛ برای اجرای دوباره، مخزن آزمایشی خالی دیگری فراهم کنید. داده واقعی یا فایل خروجی/اعتبارنامه Commit نشوند.
 
 فرمان: `node scripts/qa/custody-measurement-browser.cjs`.
+
+## گسترش در ادامهٔ Claude
+
+همان قاعده اکنون در بارگیری در راه، تحویل/برگشت به مالک، انتقال بین مخازن، انتقال مالکیت، کسر/اضافه و سهمِ بار اصلی فروش امانی نیز به کار می‌رود (partial مشترک `_CustodyMeasureFields`). جزئیات و نتایج: [custody-claude-continuation.md](custody-claude-continuation.md).

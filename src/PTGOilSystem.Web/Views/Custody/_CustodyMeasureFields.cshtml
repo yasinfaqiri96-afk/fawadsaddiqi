@@ -1,0 +1,34 @@
+@model PTGOilSystem.Web.Models.Custody.CustodyMeasureFieldsModel
+@{
+    var p = Model.Prefix;
+    var id = p.Replace(".", "_");
+    var m = Model.Form;
+}
+@* واحد اندازه‌گیری: MT یا لیتر با چگالی و دمای مستند. فقط فیلدهای واحدِ انتخاب‌شده فعال‌اند. *@
+<div class="ak-col-full" data-custody-measure-scope>
+    <div class="ak-form-grid">
+        <div class="ak-field">
+            <label for="@(id)_Unit" class="ak-label">@UiText.T(Context, "واحد اندازه‌گیری", "Unit")</label>
+            <select id="@(id)_Unit" name="@(p).Unit" class="ak-input" data-custody-unit>
+                <option value="MT" selected="@(!m.IsLiters)">@UiText.T(Context, "تُن متریک (MT)", "Metric ton (MT)")</option>
+                <option value="L" selected="@m.IsLiters">@UiText.T(Context, "لیتر", "Liters")</option>
+            </select>
+        </div>
+        <div class="ak-field" data-custody-measurement="MT">
+            <label for="@Model.MtName.Replace(".", "_")" class="ak-label">@Model.MtLabel <span class="ak-req">*</span></label>
+            <input id="@Model.MtName.Replace(".", "_")" name="@Model.MtName" type="number" step="0.0001" min="0" class="ak-input" value="@Model.MtValue" />
+            <span class="ak-field-error">@Html.ValidationMessage(Model.MtName)</span>
+        </div>
+        <div class="ak-col-full" data-custody-measurement="L" hidden="@(!m.IsLiters)">
+            <p class="text-muted small">@UiText.T(Context, "چگالیِ همین محصول در دمای حجم ثبت‌شده لازم است. نرخ تبدیل پیش‌فرض یا تصحیح حرارتی حدسی انجام نمی‌شود.", "Certified density at the volume temperature is required; no default or thermal correction.")</p>
+            <div class="ak-form-grid">
+                <div class="ak-field"><label for="@(id)_Liters" class="ak-label">@UiText.T(Context, "مقدار (لیتر)", "Quantity (liters)")</label><input id="@(id)_Liters" name="@(p).Liters" type="number" step="0.0001" min="0.0001" class="ak-input" value="@m.Liters" /></div>
+                <div class="ak-field"><label for="@(id)_DensityKgPerM3" class="ak-label">@UiText.T(Context, "چگالی معتبر (kg/m³)", "Density (kg/m³)")</label><input id="@(id)_DensityKgPerM3" name="@(p).DensityKgPerM3" type="number" step="0.000001" min="0.000001" class="ak-input" value="@m.DensityKgPerM3" /></div>
+                <div class="ak-field"><label for="@(id)_VolumeTemperatureC" class="ak-label">@UiText.T(Context, "دمای اندازه‌گیری حجم (°C)", "Volume temperature (°C)")</label><input id="@(id)_VolumeTemperatureC" name="@(p).VolumeTemperatureC" type="number" step="0.001" class="ak-input" value="@m.VolumeTemperatureC" /></div>
+                <div class="ak-field"><label for="@(id)_DensityTemperatureC" class="ak-label">@UiText.T(Context, "دمای چگالی سند (°C)", "Density temperature (°C)")</label><input id="@(id)_DensityTemperatureC" name="@(p).DensityTemperatureC" type="number" step="0.001" class="ak-input" value="@m.DensityTemperatureC" /></div>
+                <div class="ak-field ak-col-full"><label for="@(id)_Reference" class="ak-label">@UiText.T(Context, "مرجع اندازه‌گیری و چگالی محصول", "Measurement / density reference")</label><input id="@(id)_Reference" name="@(p).Reference" class="ak-input" maxlength="500" value="@m.Reference" /></div>
+            </div>
+            <span class="ak-field-error">@Html.ValidationMessage(p + ".Liters")</span>
+        </div>
+    </div>
+</div>

@@ -105,6 +105,7 @@ public sealed class CustodyReceiveForm
     [DataType(DataType.Date)]
     public DateTime? LoadedDate { get; set; }
     public decimal? LoadedQuantityMt { get; set; }
+    public CustodyMeasureForm LoadedMeasure { get; set; } = new();
     [MaxLength(200)] public string? OriginDescription { get; set; }
     [MaxLength(200)] public string? TransportReference { get; set; }
     [MaxLength(100)] public string? DocumentNumber { get; set; }
@@ -122,9 +123,39 @@ public enum CustodyOperation
     Hold = 7
 }
 
+/// <summary>
+/// ورودِ اختیاری به لیتر برای هر عملیات امانی. فقط با چگالی و دمای مستندِ همان حجم پذیرفته
+/// می‌شود و MT یک‌بار با <see cref="CustodyMeasurement"/> محاسبه می‌شود؛ هیچ مقدار پیش‌فرض یا
+/// تصحیح حرارتی حدسی وجود ندارد.
+/// </summary>
+public sealed class CustodyMeasureForm
+{
+    public string Unit { get; set; } = "MT";
+    public decimal? Liters { get; set; }
+    public decimal? DensityKgPerM3 { get; set; }
+    public decimal? VolumeTemperatureC { get; set; }
+    public decimal? DensityTemperatureC { get; set; }
+    [MaxLength(500)] public string? Reference { get; set; }
+
+    public bool IsLiters => Unit == "L";
+    public bool IsValidUnit => Unit is "MT" or "L";
+    public bool IsComplete => Liters is > 0m && DensityKgPerM3 is > 0m && VolumeTemperatureC.HasValue
+        && DensityTemperatureC.HasValue && !string.IsNullOrWhiteSpace(Reference);
+
+    public CustodyMeasurement? ToMeasurement() => IsLiters && IsComplete
+        ? new CustodyMeasurement(Liters!.Value, DensityKgPerM3!.Value, VolumeTemperatureC!.Value, DensityTemperatureC!.Value, Reference!)
+        : null;
+
+    public const string IncompleteMessage = "لیتر، چگالی، دمای حجم و چگالی و مرجع معتبر همین محصول را کامل کنید.";
+}
+
+/// <summary>مدلِ partialِ فیلدهای واحد: پیشوندِ نامِ فرم، فیلدِ MT و برچسب آن.</summary>
+public sealed record CustodyMeasureFieldsModel(string Prefix, CustodyMeasureForm Form, string MtName, decimal? MtValue, string MtLabel);
+
 public sealed class CustodyOperationForm
 {
     public int LotId { get; set; }
+    public CustodyMeasureForm Measure { get; set; } = new();
     public CustodyOperation Operation { get; set; }
     public string? LocationKey { get; set; }
     public string? ToLocationKey { get; set; }
@@ -187,6 +218,7 @@ public sealed class CustodyReceiveViewModel
 public sealed class CustodySaleForm
 {
     public int LotId { get; set; }
+    public CustodyMeasureForm Measure { get; set; } = new();
     public string? LocationKey { get; set; }
     public int? CustomerId { get; set; }
 

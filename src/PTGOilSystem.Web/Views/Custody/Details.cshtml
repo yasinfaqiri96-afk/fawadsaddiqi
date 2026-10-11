@@ -94,6 +94,10 @@
         new() { Label = UiText.T(Context, "جنس", "Product"), Value = s.ProductName, Tone = "primary" },
         new() { Label = UiText.T(Context, "محل فعلی", "Current location"), Value = s.Locations },
         new() { Label = UiText.T(Context, "تاریخ بارگیری", "Loading date"), Value = lot.LoadedDate?.ToDisplayDate() },
+        new() { Label = UiText.T(Context, "اندازه‌گیری بارگیری", "Loading measurement"),
+            Value = lot.LoadedSourceLiters.HasValue
+                ? $"{lot.LoadedSourceLiters:0.####} لیتر · چگالی {lot.LoadedDensityKgPerM3:0.######} kg/m³ · دما {lot.LoadedMeasurementTemperatureC:0.###} °C · {lot.LoadedMeasurementReference}"
+                : null },
         new() { Label = UiText.T(Context, "مبدأ / مسیر", "Origin"), Value = lot.OriginDescription },
         new() { Label = UiText.T(Context, "وسیله حمل", "Vehicle"), Value = lot.TransportReference },
         new() { Label = UiText.T(Context, "شماره سند", "Document"), Value = lot.DocumentNumber },

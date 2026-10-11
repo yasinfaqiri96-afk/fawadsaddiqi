@@ -37,7 +37,7 @@ public sealed record CustodyOwner(AccountingPartyType PartyType, int PartyId);
 public sealed record CustodyLocation(int TerminalId, int? StorageTankId);
 
 /// <summary>سهمِ یک بار و یک محل در یک فروش (یا برگشتِ فروش) امانی.</summary>
-public sealed record CustodySaleSource(int LotId, CustodyLocation Location, decimal QuantityMt);
+public sealed record CustodySaleSource(int LotId, CustodyLocation Location, decimal QuantityMt, CustodyMeasurement? Measurement = null);
 
 public sealed class CustodyInTransitInput
 {
@@ -45,6 +45,8 @@ public sealed class CustodyInTransitInput
     public int ProductId { get; init; }
     public DateTime LoadedDate { get; init; }
     public decimal LoadedQuantityMt { get; init; }
+    /// <summary>بارگیری به لیتر با چگالی و دمای مستند؛ MT یک‌بار با همان قاعدهٔ رسید محاسبه می‌شود.</summary>
+    public CustodyMeasurement? LoadedMeasurement { get; init; }
     public string? OriginDescription { get; init; }
     public string? TransportReference { get; init; }
     public string? DocumentNumber { get; init; }
@@ -78,6 +80,7 @@ public sealed class CustodyReleaseInput
     public required CustodyLocation Location { get; init; }
     public DateTime MovementDate { get; init; }
     public decimal QuantityMt { get; init; }
+    public CustodyMeasurement? Measurement { get; init; }
     public string? CounterpartyName { get; init; }
     public string? VehicleReference { get; init; }
     public string? DocumentNumber { get; init; }
@@ -92,6 +95,7 @@ public sealed class CustodyLocationTransferInput
     public required CustodyLocation To { get; init; }
     public DateTime MovementDate { get; init; }
     public decimal QuantityMt { get; init; }
+    public CustodyMeasurement? Measurement { get; init; }
     public string? DocumentNumber { get; init; }
     public string? Notes { get; init; }
     public string? FormToken { get; init; }
@@ -104,6 +108,7 @@ public sealed class CustodyOwnershipTransferInput
     public required CustodyLocation Location { get; init; }
     public DateTime MovementDate { get; init; }
     public decimal QuantityMt { get; init; }
+    public CustodyMeasurement? Measurement { get; init; }
     public string? DocumentNumber { get; init; }
     public string? Notes { get; init; }
     public string? FormToken { get; init; }
@@ -116,6 +121,7 @@ public sealed class CustodyAdjustmentInput
     public required CustodyLocation Location { get; init; }
     public DateTime MovementDate { get; init; }
     public decimal QuantityMt { get; init; }
+    public CustodyMeasurement? Measurement { get; init; }
     public CustodyLossResponsibility Responsibility { get; init; } = CustodyLossResponsibility.Undetermined;
     public string? DocumentNumber { get; init; }
     public string? Notes { get; init; }
@@ -144,13 +150,21 @@ public sealed class CustodyService(
     public Task<int> RegisterInTransitAsync(CustodyInTransitInput input, CancellationToken ct = default)
         => InTransactionAsync(async () =>
         {
-            RequirePositive(input.LoadedQuantityMt, "مقدار بارگیری");
+            var loadedMt = ResolveQuantity(input.LoadedQuantityMt, input.LoadedMeasurement, "مقدار بارگیری");
             await EnsureOwnerAsync(input.Owner, ct);
             await EnsureProductAsync(input.ProductId, ct);
 
             var lot = NewLot(input.Owner, input.ProductId, CustodyLotStatus.InTransit);
             lot.LoadedDate = ToUtc(input.LoadedDate);
-            lot.LoadedQuantityMt = input.LoadedQuantityMt;
+            lot.LoadedQuantityMt = loadedMt;
+            if (input.LoadedMeasurement is { } loaded)
+            {
+                lot.LoadedSourceLiters = loaded.Liters;
+                lot.LoadedDensityKgPerM3 = loaded.DensityKgPerM3;
+                lot.LoadedMeasurementTemperatureC = loaded.VolumeTemperatureC;
+                lot.LoadedDensityTemperatureC = loaded.DensityTemperatureC;
+                lot.LoadedMeasurementReference = loaded.Reference.Trim();
+            }
             lot.OriginDescription = Clean(input.OriginDescription);
             lot.TransportReference = Clean(input.TransportReference);
             lot.DocumentNumber = Clean(input.DocumentNumber);
@@ -162,7 +176,8 @@ public sealed class CustodyService(
             await audit.LogAsync(LotEntity, lot.Id, AuditAction.Insert, diff: Describe(new
             {
                 lot.LotNumber, Status = lot.Status.ToString(), lot.OwnerPartyType, lot.OwnerPartyId,
-                lot.ProductId, lot.LoadedQuantityMt
+                lot.ProductId, lot.LoadedQuantityMt, lot.LoadedSourceLiters, lot.LoadedDensityKgPerM3,
+                lot.LoadedMeasurementTemperatureC, lot.LoadedMeasurementReference
             }), ct: ct);
             await db.SaveChangesAsync(ct);
             return lot.Id;
@@ -171,10 +186,7 @@ public sealed class CustodyService(
     public Task<int> ReceiveAsync(CustodyReceiptInput input, CancellationToken ct = default)
         => InTransactionAsync(async () =>
         {
-            var quantityMt = input.Measurement?.ToMt() ?? input.QuantityMt;
-            RequirePositive(quantityMt, "مقدار رسید");
-            if (input.Measurement is not null && input.QuantityMt != 0m && input.QuantityMt != quantityMt)
-                throw Rule("CUSTODY_MEASUREMENT_MISMATCH", "مقدار MT با لیتر و چگالی سند یکسان نیست.");
+            var quantityMt = ResolveQuantity(input.QuantityMt, input.Measurement, "مقدار رسید");
             CustodyLot lot;
             if (input.LotId.HasValue)
             {
@@ -208,14 +220,7 @@ public sealed class CustodyService(
             var operationKey = Guid.NewGuid();
             var movement = NewMovement(lot, CustodyMovementKind.Receipt, CustodyDirection.In, input.Location,
                 input.ReceiptDate, quantityMt, operationKey);
-            if (input.Measurement is { } measured)
-            {
-                movement.SourceLiters = measured.Liters;
-                movement.DensityKgPerM3 = measured.DensityKgPerM3;
-                movement.MeasurementTemperatureC = measured.VolumeTemperatureC;
-                movement.DensityTemperatureC = measured.DensityTemperatureC;
-                movement.MeasurementReference = measured.Reference.Trim();
-            }
+            ApplyMeasurement(movement, input.Measurement);
             movement.DocumentNumber = Clean(input.DocumentNumber);
             movement.Notes = Clean(input.Notes);
             formTokens.Stamp(input.FormToken, "Custody.Receipt", MovementEntity);
@@ -234,18 +239,19 @@ public sealed class CustodyService(
                 throw Rule("CUSTODY_RELEASE_KIND", "نوع خروج معتبر نیست.");
             if (input.Kind == CustodyMovementKind.DeliveryToThirdParty && string.IsNullOrWhiteSpace(input.CounterpartyName))
                 throw Rule("CUSTODY_RECIPIENT_REQUIRED", "گیرندهٔ جنس را بنویسید.");
-            RequirePositive(input.QuantityMt, "مقدار خروج");
+            var quantityMt = ResolveQuantity(input.QuantityMt, input.Measurement, "مقدار خروج");
 
             await LockLotsAsync([input.LotId], ct);
             var lot = await LoadActiveLotAsync(input.LotId, ct);
             var operationKey = Guid.NewGuid();
             var movement = NewMovement(lot, input.Kind, CustodyDirection.Out, input.Location,
-                input.MovementDate, input.QuantityMt, operationKey);
+                input.MovementDate, quantityMt, operationKey);
+            ApplyMeasurement(movement, input.Measurement);
             movement.CounterpartyName = Clean(input.CounterpartyName);
             movement.VehicleReference = Clean(input.VehicleReference);
             movement.DocumentNumber = Clean(input.DocumentNumber);
             movement.Notes = Clean(input.Notes);
-            await EnsureOutboundAllowedAsync(lot, input.Location, movement.MovementDate, input.QuantityMt, ct);
+            await EnsureOutboundAllowedAsync(lot, input.Location, movement.MovementDate, quantityMt, ct);
 
             formTokens.Stamp(input.FormToken, "Custody.Release", MovementEntity);
             await db.SaveChangesAsync(ct);
@@ -257,7 +263,7 @@ public sealed class CustodyService(
     public Task<Guid> TransferLocationAsync(CustodyLocationTransferInput input, CancellationToken ct = default)
         => InTransactionAsync(async () =>
         {
-            RequirePositive(input.QuantityMt, "مقدار انتقال");
+            var quantityMt = ResolveQuantity(input.QuantityMt, input.Measurement, "مقدار انتقال");
             if (input.From == input.To)
                 throw Rule("CUSTODY_SAME_LOCATION", "مبدأ و مقصد انتقال یکی است.");
 
@@ -267,16 +273,17 @@ public sealed class CustodyService(
             foreach (var tankId in new[] { input.From.StorageTankId, input.To.StorageTankId }
                          .Where(id => id.HasValue).Select(id => id!.Value).Distinct().OrderBy(id => id))
                 await LockTankAsync(tankId, ct);
-            await EnsureOutboundAllowedAsync(lot, input.From, date, input.QuantityMt, ct);
-            await EnsureInboundLocationAsync(input.To, lot.ProductId, input.QuantityMt, ct);
+            await EnsureOutboundAllowedAsync(lot, input.From, date, quantityMt, ct);
+            await EnsureInboundLocationAsync(input.To, lot.ProductId, quantityMt, ct);
 
             var operationKey = Guid.NewGuid();
             var outRow = NewMovement(lot, CustodyMovementKind.LocationTransfer, CustodyDirection.Out, input.From,
-                date, input.QuantityMt, operationKey);
+                date, quantityMt, operationKey);
             var inRow = NewMovement(lot, CustodyMovementKind.LocationTransfer, CustodyDirection.In, input.To,
-                date, input.QuantityMt, operationKey);
+                date, quantityMt, operationKey);
             foreach (var row in new[] { outRow, inRow })
             {
+                ApplyMeasurement(row, input.Measurement);
                 row.DocumentNumber = Clean(input.DocumentNumber);
                 row.Notes = Clean(input.Notes);
             }
@@ -292,7 +299,7 @@ public sealed class CustodyService(
     public Task<int> TransferOwnershipAsync(CustodyOwnershipTransferInput input, CancellationToken ct = default)
         => InTransactionAsync(async () =>
         {
-            RequirePositive(input.QuantityMt, "مقدار انتقال مالکیت");
+            var quantityMt = ResolveQuantity(input.QuantityMt, input.Measurement, "مقدار انتقال مالکیت");
             await LockLotsAsync([input.LotId], ct);
             var source = await LoadActiveLotAsync(input.LotId, ct);
             if (source.OwnerPartyType == input.NewOwner.PartyType && source.OwnerPartyId == input.NewOwner.PartyId)
@@ -300,7 +307,7 @@ public sealed class CustodyService(
             await EnsureOwnerAsync(input.NewOwner, ct);
 
             var date = ToUtc(input.MovementDate);
-            await EnsureOutboundAllowedAsync(source, input.Location, date, input.QuantityMt, ct);
+            await EnsureOutboundAllowedAsync(source, input.Location, date, quantityMt, ct);
 
             var target = NewLot(input.NewOwner, source.ProductId, CustodyLotStatus.Active);
             target.ParentCustodyLot = source;
@@ -310,11 +317,12 @@ public sealed class CustodyService(
 
             var operationKey = Guid.NewGuid();
             var outRow = NewMovement(source, CustodyMovementKind.OwnershipTransfer, CustodyDirection.Out, input.Location,
-                date, input.QuantityMt, operationKey);
+                date, quantityMt, operationKey);
             var inRow = NewMovement(target, CustodyMovementKind.OwnershipTransfer, CustodyDirection.In, input.Location,
-                date, input.QuantityMt, operationKey);
+                date, quantityMt, operationKey);
             foreach (var row in new[] { outRow, inRow })
             {
+                ApplyMeasurement(row, input.Measurement);
                 row.DocumentNumber = Clean(input.DocumentNumber);
                 row.Notes = Clean(input.Notes);
             }
@@ -333,18 +341,19 @@ public sealed class CustodyService(
         {
             if (input.Kind is not (CustodyMovementKind.Loss or CustodyMovementKind.Surplus))
                 throw Rule("CUSTODY_ADJUSTMENT_KIND", "نوع اصلاح معتبر نیست.");
-            RequirePositive(input.QuantityMt, "مقدار");
+            var quantityMt = ResolveQuantity(input.QuantityMt, input.Measurement, "مقدار");
 
             await LockLotsAsync([input.LotId], ct);
             var lot = await LoadActiveLotAsync(input.LotId, ct);
             var date = ToUtc(input.MovementDate);
             var direction = input.Kind == CustodyMovementKind.Loss ? CustodyDirection.Out : CustodyDirection.In;
             if (direction == CustodyDirection.Out)
-                await EnsureOutboundAllowedAsync(lot, input.Location, date, input.QuantityMt, ct, ignoreHolds: true);
+                await EnsureOutboundAllowedAsync(lot, input.Location, date, quantityMt, ct, ignoreHolds: true);
             else
-                await EnsureInboundLocationAsync(input.Location, lot.ProductId, input.QuantityMt, ct);
+                await EnsureInboundLocationAsync(input.Location, lot.ProductId, quantityMt, ct);
 
-            var movement = NewMovement(lot, input.Kind, direction, input.Location, date, input.QuantityMt, Guid.NewGuid());
+            var movement = NewMovement(lot, input.Kind, direction, input.Location, date, quantityMt, Guid.NewGuid());
+            ApplyMeasurement(movement, input.Measurement);
             movement.LossResponsibility = input.Responsibility;
             movement.DocumentNumber = Clean(input.DocumentNumber);
             movement.Notes = Clean(input.Notes);
@@ -475,6 +484,7 @@ public sealed class CustodyService(
                 var lot = lots[line.LotId];
                 var movement = NewMovement(lot, CustodyMovementKind.Sale, CustodyDirection.Out, line.Location,
                     saleDate, line.QuantityMt, operationKey);
+                ApplyMeasurement(movement, line.Measurement);
                 movement.DocumentNumber = Clean(documentNumber);
                 movements.Add((movement, lot));
             }
@@ -544,9 +554,12 @@ public sealed class CustodyService(
             throw Rule("CUSTODY_QUANTITY", $"{label} را وارد کنید.");
         foreach (var source in sources)
             RequirePositive(source.QuantityMt, label);
-        return sources
-            .GroupBy(s => new { s.LotId, s.Location.TerminalId, s.Location.StorageTankId })
-            .Select(g => new CustodySaleSource(g.Key.LotId, new CustodyLocation(g.Key.TerminalId, g.Key.StorageTankId), g.Sum(s => s.QuantityMt)))
+        var groups = sources.GroupBy(s => new { s.LotId, s.Location.TerminalId, s.Location.StorageTankId }).ToList();
+        // سطرِ اندازه‌گیری‌شده با سطر دیگرِ همان بار/محل ادغام نمی‌شود تا اندازه‌گیری مستند گم یا جعل نشود.
+        if (groups.Any(g => g.Count() > 1 && g.Any(s => s.Measurement is not null)))
+            throw Rule("CUSTODY_MEASUREMENT_DUPLICATE", "برای یک بار و محل فقط یک سطرِ اندازه‌گیری‌شده به لیتر مجاز است.");
+        return groups
+            .Select(g => g.Count() == 1 ? g.Single() : new CustodySaleSource(g.Key.LotId, new CustodyLocation(g.Key.TerminalId, g.Key.StorageTankId), g.Sum(s => s.QuantityMt)))
             .OrderBy(s => s.LotId).ThenBy(s => s.Location.TerminalId).ThenBy(s => s.Location.StorageTankId)
             .ToList();
     }
@@ -970,6 +983,31 @@ public sealed class CustodyService(
             movement.SourceLiters, movement.DensityKgPerM3, movement.MeasurementTemperatureC,
             movement.DensityTemperatureC, movement.MeasurementReference
         }), ct: ct);
+
+    /// <summary>
+    /// همان قاعدهٔ رسید برای همهٔ عملیات: اگر اندازه‌گیری لیتری داده شد، MT یک‌بار از آن محاسبه می‌شود
+    /// و MTِ واردشدهٔ ناسازگار رد می‌شود؛ وگرنه MT خودِ کاربر.
+    /// </summary>
+    private static decimal ResolveQuantity(decimal quantityMt, CustodyMeasurement? measurement, string label)
+    {
+        var resolved = measurement?.ToMt() ?? quantityMt;
+        RequirePositive(resolved, label);
+        if (measurement is not null && quantityMt != 0m && quantityMt != resolved)
+            throw Rule("CUSTODY_MEASUREMENT_MISMATCH", "مقدار MT با لیتر و چگالی سند یکسان نیست.");
+        return resolved;
+    }
+
+    private static void ApplyMeasurement(CustodyMovement movement, CustodyMeasurement? measured)
+    {
+        if (measured is null) return;
+        if (measured.ToMt() != movement.QuantityMt)
+            throw Rule("CUSTODY_MEASUREMENT_MISMATCH", "مقدار MT با لیتر و چگالی سند یکسان نیست.");
+        movement.SourceLiters = measured.Liters;
+        movement.DensityKgPerM3 = measured.DensityKgPerM3;
+        movement.MeasurementTemperatureC = measured.VolumeTemperatureC;
+        movement.DensityTemperatureC = measured.DensityTemperatureC;
+        movement.MeasurementReference = measured.Reference.Trim();
+    }
 
     private static void RequirePositive(decimal value, string label)
     {

@@ -2226,7 +2226,23 @@ namespace PTGOilSystem.Web.Migrations
                     b.Property<DateTime?>("LoadedDate")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<decimal?>("LoadedDensityKgPerM3")
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<decimal?>("LoadedDensityTemperatureC")
+                        .HasColumnType("numeric(8,3)");
+
+                    b.Property<string>("LoadedMeasurementReference")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<decimal?>("LoadedMeasurementTemperatureC")
+                        .HasColumnType("numeric(8,3)");
+
                     b.Property<decimal?>("LoadedQuantityMt")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("LoadedSourceLiters")
                         .HasColumnType("numeric(18,4)");
 
                     b.Property<string>("LotNumber")
@@ -2283,6 +2299,8 @@ namespace PTGOilSystem.Web.Migrations
 
                     b.ToTable("CustodyLots", null, t =>
                         {
+                            t.HasCheckConstraint("CK_CustodyLots_LoadedMeasurement", "(\"LoadedSourceLiters\" IS NULL AND \"LoadedDensityKgPerM3\" IS NULL AND \"LoadedMeasurementTemperatureC\" IS NULL AND \"LoadedDensityTemperatureC\" IS NULL AND \"LoadedMeasurementReference\" IS NULL) OR (\"LoadedSourceLiters\" IS NOT NULL AND \"LoadedSourceLiters\" > 0 AND \"LoadedDensityKgPerM3\" IS NOT NULL AND \"LoadedDensityKgPerM3\" > 0 AND \"LoadedMeasurementTemperatureC\" IS NOT NULL AND \"LoadedDensityTemperatureC\" IS NOT NULL AND \"LoadedMeasurementTemperatureC\" = \"LoadedDensityTemperatureC\" AND \"LoadedMeasurementReference\" IS NOT NULL AND length(trim(\"LoadedMeasurementReference\")) > 0 AND round(\"LoadedSourceLiters\" * \"LoadedDensityKgPerM3\" / 1000000, 4) = \"LoadedQuantityMt\")");
+
                             t.HasCheckConstraint("CK_CustodyLots_LoadedQuantity", "\"LoadedQuantityMt\" IS NULL OR \"LoadedQuantityMt\" > 0");
                         });
                 });

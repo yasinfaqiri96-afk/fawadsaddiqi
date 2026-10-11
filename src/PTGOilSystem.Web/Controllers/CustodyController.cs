@@ -163,10 +163,7 @@ public class CustodyController(
             ModelState.AddModelError(nameof(form.QuantityUnit), "واحد اندازه‌گیری معتبر نیست.");
         if (form.InTransitOnly && !form.LotId.HasValue)
         {
-            if (form.QuantityUnit != "MT")
-                ModelState.AddModelError(nameof(form.QuantityUnit), "ثبت بار در راه فعلاً به MT است؛ لیتر و چگالی را در رسید مخزن ثبت کنید.");
-            if (form.LoadedQuantityMt is not > 0m)
-                ModelState.AddModelError(nameof(form.LoadedQuantityMt), "مقدار بارگیری را وارد کنید.");
+            ValidateMeasure(form.LoadedMeasure, form.LoadedQuantityMt, "LoadedMeasure", nameof(form.LoadedQuantityMt), "مقدار بارگیری را وارد کنید.");
         }
         else
         {
@@ -196,7 +193,8 @@ public class CustodyController(
                     Owner = owner!,
                     ProductId = form.ProductId!.Value,
                     LoadedDate = form.LoadedDate ?? form.Date,
-                    LoadedQuantityMt = form.LoadedQuantityMt!.Value,
+                    LoadedQuantityMt = form.LoadedMeasure.IsLiters ? 0m : form.LoadedQuantityMt!.Value,
+                    LoadedMeasurement = form.LoadedMeasure.ToMeasurement(),
                     OriginDescription = form.OriginDescription,
                     TransportReference = form.TransportReference,
                     DocumentNumber = form.DocumentNumber,
@@ -271,8 +269,15 @@ public class CustodyController(
         if (lot is null) return NotFound();
 
         var location = CustodyLocationKey.Parse(form.LocationKey);
-        if (form.QuantityMt is not > 0m)
-            ModelState.AddModelError(nameof(form.QuantityMt), "مقدار را وارد کنید.");
+        if (form.Operation == CustodyOperation.Hold)
+        {
+            if (form.QuantityMt is not > 0m)
+                ModelState.AddModelError(nameof(form.QuantityMt), "مقدار را وارد کنید.");
+        }
+        else
+        {
+            ValidateMeasure(form.Measure, form.QuantityMt, "Measure", nameof(form.QuantityMt), "مقدار را وارد کنید.");
+        }
         if (form.Operation != CustodyOperation.Hold && location is null)
             ModelState.AddModelError(nameof(form.LocationKey), "محل را انتخاب کنید.");
         var toLocation = CustodyLocationKey.Parse(form.ToLocationKey);
@@ -294,7 +299,8 @@ public class CustodyController(
         if (!ModelState.IsValid)
             return View(await BuildOperationViewModelAsync(form, lot));
 
-        var qty = form.QuantityMt!.Value;
+        var measurement = form.Operation == CustodyOperation.Hold ? null : form.Measure.ToMeasurement();
+        var qty = measurement is null ? form.QuantityMt!.Value : 0m;
         try
         {
             var redirectLotId = form.LotId;
@@ -309,6 +315,7 @@ public class CustodyController(
                         Location = location!,
                         MovementDate = form.Date,
                         QuantityMt = qty,
+                        Measurement = measurement,
                         CounterpartyName = form.CounterpartyName,
                         VehicleReference = form.VehicleReference,
                         DocumentNumber = form.DocumentNumber,
@@ -320,6 +327,7 @@ public class CustodyController(
                     await custody.TransferLocationAsync(new CustodyLocationTransferInput
                     {
                         LotId = form.LotId, From = location!, To = toLocation!, MovementDate = form.Date, QuantityMt = qty,
+                        Measurement = measurement,
                         DocumentNumber = form.DocumentNumber, Notes = form.Notes, FormToken = formToken
                     });
                     break;
@@ -327,6 +335,7 @@ public class CustodyController(
                     redirectLotId = await custody.TransferOwnershipAsync(new CustodyOwnershipTransferInput
                     {
                         LotId = form.LotId, NewOwner = newOwner!, Location = location!, MovementDate = form.Date, QuantityMt = qty,
+                        Measurement = measurement,
                         DocumentNumber = form.DocumentNumber, Notes = form.Notes, FormToken = formToken
                     });
                     break;
@@ -337,6 +346,7 @@ public class CustodyController(
                         LotId = form.LotId,
                         Kind = form.Operation == CustodyOperation.Loss ? CustodyMovementKind.Loss : CustodyMovementKind.Surplus,
                         Location = location!, MovementDate = form.Date, QuantityMt = qty,
+                        Measurement = measurement,
                         Responsibility = form.Responsibility,
                         DocumentNumber = form.DocumentNumber, Notes = form.Notes, FormToken = formToken
                     });
@@ -445,7 +455,7 @@ public class CustodyController(
         var location = CustodyLocationKey.Parse(form.LocationKey);
         if (location is null) ModelState.AddModelError(nameof(form.LocationKey), "محل را انتخاب کنید.");
         if (!form.CustomerId.HasValue) ModelState.AddModelError(nameof(form.CustomerId), "مشتری را انتخاب کنید.");
-        if (form.QuantityMt is not > 0m) ModelState.AddModelError(nameof(form.QuantityMt), "مقدار را وارد کنید.");
+        ValidateMeasure(form.Measure, form.QuantityMt, "Measure", nameof(form.QuantityMt), "مقدار را وارد کنید.");
         if (form.UnitPriceUsd is not > 0m) ModelState.AddModelError(nameof(form.UnitPriceUsd), "قیمت فی تُن را وارد کنید.");
         if (form.CommissionMethod != CustodyCommissionMethod.None && form.CommissionRate is not >= 0m)
             ModelState.AddModelError(nameof(form.CommissionRate), "مقدار کمیشن را وارد کنید.");
@@ -467,9 +477,10 @@ public class CustodyController(
                 LotId = form.LotId,
                 Location = location!,
                 AdditionalSources = extra,
+                Measurement = form.Measure.ToMeasurement(),
                 CustomerId = form.CustomerId!.Value,
                 SaleDate = form.Date,
-                QuantityMt = form.QuantityMt!.Value,
+                QuantityMt = form.Measure.IsLiters ? 0m : form.QuantityMt!.Value,
                 UnitPriceUsd = form.UnitPriceUsd!.Value,
                 CommissionMethod = form.CommissionMethod,
                 CommissionRate = form.CommissionRate ?? 0m,
@@ -774,6 +785,20 @@ public class CustodyController(
             }
         }
         return result;
+    }
+
+    /// <summary>MT یا لیتر کامل با چگالی/دما/مرجع؛ تبدیل و اعتبارسنجی عددی در <see cref="CustodyMeasurement"/>.</summary>
+    private void ValidateMeasure(CustodyMeasureForm measure, decimal? quantityMt, string prefix, string mtField, string mtMessage)
+    {
+        if (!measure.IsValidUnit)
+            ModelState.AddModelError(prefix + ".Unit", "واحد اندازه‌گیری معتبر نیست.");
+        else if (measure.IsLiters)
+        {
+            if (!measure.IsComplete)
+                ModelState.AddModelError(prefix + ".Liters", CustodyMeasureForm.IncompleteMessage);
+        }
+        else if (quantityMt is not > 0m)
+            ModelState.AddModelError(mtField, mtMessage);
     }
 
     private async Task<CustodySaleViewModel> BuildSaleViewModelAsync(CustodySaleForm form, CustodyLotSummary lot)

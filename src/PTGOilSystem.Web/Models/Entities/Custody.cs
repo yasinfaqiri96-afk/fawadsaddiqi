@@ -75,6 +75,12 @@ public class CustodyLot : BaseEntity
     // اطلاعات حمل — اختیاری؛ فقط برای بارِ در راه یا ثبت اختلاف بارگیری و رسید.
     public DateTime? LoadedDate { get; set; }
     public decimal? LoadedQuantityMt { get; set; }
+    /// <summary>اندازه‌گیریِ مستندِ بارگیری به لیتر (اختیاری)؛ LoadedQuantityMt یک‌بار از آن محاسبه شده است.</summary>
+    public decimal? LoadedSourceLiters { get; set; }
+    public decimal? LoadedDensityKgPerM3 { get; set; }
+    public decimal? LoadedMeasurementTemperatureC { get; set; }
+    public decimal? LoadedDensityTemperatureC { get; set; }
+    [MaxLength(500)] public string? LoadedMeasurementReference { get; set; }
     [MaxLength(200)] public string? OriginDescription { get; set; }
     [MaxLength(200)] public string? TransportReference { get; set; }
     public CustodyLossResponsibility TransitLossResponsibility { get; set; } = CustodyLossResponsibility.Undetermined;

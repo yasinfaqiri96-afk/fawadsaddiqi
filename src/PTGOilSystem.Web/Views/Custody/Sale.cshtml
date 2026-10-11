@@ -71,11 +71,7 @@
                         </select>
                         <span class="ak-field-error">@Html.ValidationMessage("LocationKey")</span>
                     </div>
-                    <div class="ak-field">
-                        <label for="QuantityMt" class="ak-label">@UiText.T(Context, "مقدار از همین بار (MT)", "Quantity from this lot (MT)") <span class="ak-req">*</span></label>
-                        <input id="QuantityMt" name="QuantityMt" type="number" step="0.0001" min="0" class="ak-input" value="@form.QuantityMt" />
-                        <span class="ak-field-error">@Html.ValidationMessage("QuantityMt")</span>
-                    </div>
+                    <partial name="_CustodyMeasureFields" model="@(new CustodyMeasureFieldsModel("Measure", form.Measure, "QuantityMt", form.QuantityMt, UiText.T(Context, "مقدار از همین بار (MT)", "Quantity from this lot (MT)")))" />
                     <div class="ak-field">
                         <label for="UnitPriceUsd" class="ak-label">@UiText.T(Context, "قیمت فی تُن (دالر)", "Price per MT (USD)") <span class="ak-req">*</span></label>
                         <input id="UnitPriceUsd" name="UnitPriceUsd" type="number" step="0.0001" min="0" class="ak-input" value="@form.UnitPriceUsd" />
@@ -183,3 +179,7 @@
         </form>
     </div>
 </div>
+
+@section Scripts {
+    <script src="~/js/custody-measurement.js" asp-append-version="true" defer></script>
+}

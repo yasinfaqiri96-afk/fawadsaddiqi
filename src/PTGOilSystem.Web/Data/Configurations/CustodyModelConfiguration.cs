@@ -28,8 +28,13 @@ public static class CustodyModelConfiguration
         lot.ToTable("CustodyLots", table =>
         {
             table.HasCheckConstraint("CK_CustodyLots_LoadedQuantity", "\"LoadedQuantityMt\" IS NULL OR \"LoadedQuantityMt\" > 0");
+            table.HasCheckConstraint("CK_CustodyLots_LoadedMeasurement", "(\"LoadedSourceLiters\" IS NULL AND \"LoadedDensityKgPerM3\" IS NULL AND \"LoadedMeasurementTemperatureC\" IS NULL AND \"LoadedDensityTemperatureC\" IS NULL AND \"LoadedMeasurementReference\" IS NULL) OR (\"LoadedSourceLiters\" IS NOT NULL AND \"LoadedSourceLiters\" > 0 AND \"LoadedDensityKgPerM3\" IS NOT NULL AND \"LoadedDensityKgPerM3\" > 0 AND \"LoadedMeasurementTemperatureC\" IS NOT NULL AND \"LoadedDensityTemperatureC\" IS NOT NULL AND \"LoadedMeasurementTemperatureC\" = \"LoadedDensityTemperatureC\" AND \"LoadedMeasurementReference\" IS NOT NULL AND length(trim(\"LoadedMeasurementReference\")) > 0 AND round(\"LoadedSourceLiters\" * \"LoadedDensityKgPerM3\" / 1000000, 4) = \"LoadedQuantityMt\")");
         });
         lot.Property(x => x.LoadedQuantityMt).HasColumnType("numeric(18,4)");
+        lot.Property(x => x.LoadedSourceLiters).HasColumnType("numeric(18,4)");
+        lot.Property(x => x.LoadedDensityKgPerM3).HasColumnType("numeric(18,6)");
+        lot.Property(x => x.LoadedMeasurementTemperatureC).HasColumnType("numeric(8,3)");
+        lot.Property(x => x.LoadedDensityTemperatureC).HasColumnType("numeric(8,3)");
         lot.HasIndex(x => x.LotNumber).IsUnique();
         lot.HasIndex(x => new { x.OwnerPartyType, x.OwnerPartyId });
         lot.HasIndex(x => x.ProductId);

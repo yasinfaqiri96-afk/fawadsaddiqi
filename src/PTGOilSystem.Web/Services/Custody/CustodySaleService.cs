@@ -29,6 +29,8 @@ public sealed class CustodySaleInput
     /// اصلی است؛ مقدار کلِ فروش جمعِ همهٔ سهم‌هاست و کمیشن یک‌بار روی کل حساب می‌شود.
     /// </summary>
     public IReadOnlyList<CustodySaleSource> AdditionalSources { get; init; } = [];
+    /// <summary>اندازه‌گیریِ لیتریِ سهمِ بار اصلی (اختیاری)؛ قیمت همچنان فی تُن است.</summary>
+    public CustodyMeasurement? Measurement { get; init; }
     public int CustomerId { get; init; }
     public DateTime SaleDate { get; init; }
     public decimal QuantityMt { get; init; }
@@ -149,11 +151,14 @@ public sealed class CustodySaleService(
         => InTransactionAsync(async () =>
         {
             RequireUsd(input.Currency);
-            RequirePositive(input.QuantityMt, "مقدار فروش", 4);
+            var primaryQuantity = input.Measurement?.ToMt() ?? input.QuantityMt;
+            if (input.Measurement is not null && input.QuantityMt != 0m && input.QuantityMt != primaryQuantity)
+                throw Rule("CUSTODY_MEASUREMENT_MISMATCH", "مقدار MT با لیتر و چگالی سند یکسان نیست.");
+            RequirePositive(primaryQuantity, "مقدار فروش", 4);
             RequirePositive(input.UnitPriceUsd, "قیمت فی تُن", 4);
             if (!Enum.IsDefined(input.Settlement) || !Enum.IsDefined(input.CommissionRecognition))
                 throw Rule("CUSTODY_SALE_TERMS", "شرایط فروش و زمان کمیشن معتبر نیست.");
-            var sources = new List<CustodySaleSource> { new(input.LotId, input.Location, input.QuantityMt) };
+            var sources = new List<CustodySaleSource> { new(input.LotId, input.Location, primaryQuantity, input.Measurement) };
             sources.AddRange(input.AdditionalSources ?? []);
             foreach (var source in sources)
                 RequirePositive(source.QuantityMt, "مقدار فروش", 4);
