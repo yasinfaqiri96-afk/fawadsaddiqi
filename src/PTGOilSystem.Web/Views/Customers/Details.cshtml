@@ -41,7 +41,7 @@
                 QuantityMt = active.Sum(s => s.QuantityMt),
                 TotalUsd = active.Sum(s => s.TotalUsd),
                 ReceivedUsd = active.Sum(s => s.ReceivedUsd),
-                ReceivableUsd = active.Sum(s => s.ReceivableUsd)
+                ReceivableUsd = active.Where(s => !s.IsSalePricePending).Sum(s => s.ReceivableUsd)
             };
         })
         .OrderByDescending(g => g.LastDate)
@@ -208,10 +208,21 @@
                                         <td>@(string.IsNullOrWhiteSpace(s.TransportReference) ? "-" : s.TransportReference)</td>
                                         <td>@s.SaleDate.ToDisplayDate()</td>
                                         <td class="ak-col-num ak-num">@NumberDisplay.Quantity(s.QuantityMt)</td>
-                                        <td class="ak-col-num ak-num">@s.TotalUsd.ToString("N2")</td>
-                                        <td class="ak-col-num ak-num">@s.ReceivedUsd.ToString("N2")</td>
-                                        <td class="ak-col-num ak-num">@s.ReceivableUsd.ToString("N2")</td>
-                                        <td><span class="ak-status @(s.IsCancelled ? "is-inactive" : s.ReceivableUsd <= 0 ? "" : "is-active")">@(s.IsCancelled ? "لغوشده" : s.ReceivableUsd <= 0 ? "تسویه" : "باز")</span></td>
+                                        @if (s.IsSalePricePending && !s.IsCancelled)
+                                        {
+                                            @* قیمت باز: ارزش و مانده نامشخص است، نه صفر. *@
+                                            <td class="ak-col-num">نامشخص</td>
+                                            <td class="ak-col-num ak-num">@s.ReceivedUsd.ToString("N2")</td>
+                                            <td class="ak-col-num">نامشخص</td>
+                                            <td><span class="ak-status is-warning">در انتظار قیمت</span></td>
+                                        }
+                                        else
+                                        {
+                                            <td class="ak-col-num ak-num">@s.TotalUsd.ToString("N2")</td>
+                                            <td class="ak-col-num ak-num">@s.ReceivedUsd.ToString("N2")</td>
+                                            <td class="ak-col-num ak-num">@s.ReceivableUsd.ToString("N2")</td>
+                                            <td><span class="ak-status @(s.IsCancelled ? "is-inactive" : s.ReceivableUsd <= 0 ? "" : "is-active")">@(s.IsCancelled ? "لغوشده" : s.ReceivableUsd <= 0 ? "تسویه" : "باز")</span></td>
+                                        }
                                     </tr>
                                 }
                                 </tbody>

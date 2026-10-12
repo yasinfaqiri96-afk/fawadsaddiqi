@@ -183,8 +183,8 @@
                         <div class="ak-field" data-fx-rate-group data-fx-currency-source="#currencySelect">
                             <div data-fx-rate-field>
                                 <label>نرخ دالر به <span data-fx-currency-name>ارز</span></label>
-                                <input type="text" inputmode="decimal" class="ak-input" data-fx-rate-input autocomplete="off" placeholder="مثال: ۷۷" />
-                                <input asp-for="AppliedFxRateToUsd" type="hidden" data-fx-rate-technical />
+                                <input type="text" inputmode="decimal" class="ak-input" data-fx-rate-input data-sale-price-pending-target autocomplete="off" placeholder="مثال: ۷۷" />
+                                <input asp-for="AppliedFxRateToUsd" type="hidden" data-fx-rate-technical data-sale-price-pending-target />
                             </div>
                             <div data-fx-usd-note class="d-none">
                                 <small class="form-text text-muted"><i class="bi bi-info-circle"></i> فروش دالری است؛ نرخ تبدیل لازم نیست.</small>
@@ -194,8 +194,16 @@
                             <label asp-for="UnitPriceInCurrency">نرخ فروش هر تن <em>*</em></label>
                             <div class="ak-input-unit">
                                 <span data-cur-tag>USD</span>
-                                <input asp-for="UnitPriceInCurrency" type="number" step="0.0001" min="0" class="ak-input" placeholder="0.00" />
+                                <input asp-for="UnitPriceInCurrency" type="number" step="0.0001" min="0" class="ak-input" placeholder="0.00" data-sale-price-pending-target />
                             </div>
+                        </div>
+                        @* فروش با قیمت باز: بار ثبت می‌شود؛ قیمت بعداً از صفحهٔ همان فروش تعیین می‌شود. *@
+                        <div class="ak-field ak-col-full">
+                            <div class="form-check">
+                                <input asp-for="IsSalePricePending" class="form-check-input" type="checkbox" data-sale-price-pending-toggle />
+                                <label asp-for="IsSalePricePending" class="form-check-label">@UiText.T(Context, "قیمت فروش هنوز مشخص نیست", "Sale price not yet known")</label>
+                            </div>
+                            <div class="form-text" data-sale-price-pending-hint hidden>@UiText.T(Context, "بار و موجودی همین حالا ثبت می‌شود؛ طلب مشتری، عاید و مفاد پس از تعیین قیمت از صفحهٔ همین فروش ثبت می‌شود.", "Delivery is recorded now; receivable, revenue and profit are posted once the price is set from the sale page.")</div>
                         </div>
                         <div class="ak-field">
                             <label asp-for="PaymentNote">پرداخت / شرایط</label>
@@ -290,6 +298,7 @@
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
     <script src="~/js/fx-rate-field.js" asp-append-version="true" defer></script>
+    <script src="~/js/sale-price-pending.js" asp-append-version="true" defer></script>
     <script>
     (function () {
         'use strict';

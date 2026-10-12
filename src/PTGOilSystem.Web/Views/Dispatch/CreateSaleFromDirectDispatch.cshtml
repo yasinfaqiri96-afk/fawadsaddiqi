@@ -96,15 +96,23 @@
                 </div>
                 <div class="ak-field">
                     <label asp-for="UnitPriceInCurrency" class="ak-label"></label>
-                    <input asp-for="UnitPriceInCurrency" class="ak-input" />
+                    <input asp-for="UnitPriceInCurrency" class="ak-input" data-sale-price-pending-target />
                     <span asp-validation-for="UnitPriceInCurrency" class="text-danger"></span>
+                </div>
+                @* فروش با قیمت باز: بار ثبت می‌شود؛ قیمت بعداً از صفحهٔ همان فروش تعیین می‌شود. *@
+                <div class="ak-field ak-col-full">
+                    <div class="form-check">
+                        <input asp-for="IsSalePricePending" class="form-check-input" type="checkbox" data-sale-price-pending-toggle />
+                        <label asp-for="IsSalePricePending" class="form-check-label">@UiText.T(Context, "قیمت فروش هنوز مشخص نیست", "Sale price not yet known")</label>
+                    </div>
+                    <div class="form-text" data-sale-price-pending-hint hidden>@UiText.T(Context, "بار و موجودی همین حالا ثبت می‌شود؛ طلب مشتری، عاید و مفاد پس از تعیین قیمت از صفحهٔ همین فروش ثبت می‌شود.", "Delivery is recorded now; receivable, revenue and profit are posted once the price is set from the sale page.")</div>
                 </div>
                 <div class="ak-field" data-fx-rate-group data-fx-currency-source="#Currency">
                     <div data-fx-rate-field>
                         <label class="ak-label">نرخ دالر به <span data-fx-currency-name>ارز</span></label>
                         <input type="text" inputmode="decimal" class="ak-input" data-fx-rate-input
-                               id="dispatchSaleFxDisplay" placeholder="مثال: ۷۷ یعنی ۱ دالر = ۷۷ روبل" autocomplete="off" />
-                        <input asp-for="AppliedFxRateToUsd" type="hidden" data-fx-rate-technical />
+                               id="dispatchSaleFxDisplay" placeholder="مثال: ۷۷ یعنی ۱ دالر = ۷۷ روبل" autocomplete="off" data-sale-price-pending-target />
+                        <input asp-for="AppliedFxRateToUsd" type="hidden" data-fx-rate-technical data-sale-price-pending-target />
                         <small class="ak-section-desc text-muted">۱ دالر = چند واحد ارز سند؟</small>
                         <span asp-validation-for="AppliedFxRateToUsd" class="text-danger"></span>
                     </div>
@@ -129,4 +137,5 @@
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
     <script src="~/js/fx-rate-field.js" asp-append-version="true" defer></script>
+    <script src="~/js/sale-price-pending.js" asp-append-version="true" defer></script>
 }

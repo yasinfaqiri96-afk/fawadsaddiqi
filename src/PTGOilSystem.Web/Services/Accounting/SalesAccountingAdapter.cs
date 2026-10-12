@@ -110,6 +110,9 @@ public sealed class SalesAccountingAdapter(
             return Skipped(sale, "Sale", 0, "ACCOUNTING_DISABLED");
         if (!_options.Pilots.Sale)
             return Skipped(sale, "Sale", 0, "PILOT_DISABLED");
+        // فروش با قیمت باز: عاید/طلب فقط پس از تعیین قیمت (SalesController.SetPrice) ثبت می‌شود.
+        if (sale.IsSalePricePending)
+            return Skipped(sale, "Sale", 0, "SALE_PRICE_PENDING");
 
         var (companyId, skipReason) = await ResolveCompanyAndSkipReasonAsync(sale, cancellationToken);
         if (skipReason is not null)
@@ -213,11 +216,14 @@ public sealed class SalesAccountingAdapter(
             ProductId: sale.ProductId,
             Description: "Sales revenue"));
 
+        // فروشی که بعداً قیمت گرفته تاریخ حسابداریِ خودش را دارد (دورهٔ بسته دست نمی‌خورد)؛ تاریخ
+        // عملیات همان روز تحویل است. برای فروش عادی هر سه همان تاریخ فروش‌اند.
+        var accountingDate = AccountingDateOf(sale);
         var request = new AccountingPostRequest(
             companyId,
             journalNumberGenerator.ForSale(companyId, sale.Id),
-            sale.SaleDate.Date,
-            sale.SaleDate.Date,
+            accountingDate,
+            accountingDate,
             sale.SaleDate.Date,
             SourceModule,
             lines,
@@ -369,6 +375,11 @@ public sealed class SalesAccountingAdapter(
             return Skipped(sale, "Cogs", 0, "ACCOUNTING_DISABLED");
         if (!_options.Pilots.Cogs)
             return Skipped(sale, "Cogs", 0, "PILOT_DISABLED");
+        // کالای تحویل‌شده با قیمت باز: بهایش همین حالا، به میانگینِ روزِ تحویل، از موجودی به حساب
+        // واسطِ «تحویل‌شده در انتظار قیمت» می‌رود؛ نه بهای تمام‌شده (عایدی کنارش نیست) و نه
+        // ماندن در Pool (تا میانگینِ روزِ قیمت‌گذاری بهای این فروش را عوض نکند).
+        if (sale.IsSalePricePending)
+            return await TryPostDeliveredCostAsync(sale, cancellationToken);
 
         var (companyId, skipReason) = await ResolveCompanyAndSkipReasonAsync(sale, cancellationToken);
         if (skipReason is not null)
@@ -384,63 +395,22 @@ public sealed class SalesAccountingAdapter(
                 PaymentPostingStatus.Duplicate, existing, "DUPLICATE_SOURCE_EVENT");
         }
 
+        // فروشی که هنگام تحویل قیمت نداشت: بهایش همان روز قفل شد؛ اکنون فقط به بهای تمام‌شده منتقل
+        // می‌شود. Pool دوباره مصرف نمی‌شود.
+        var delivered = await FindJournalAsync(companyId, BuildDeliveredCostSourceEventId(sale.Id), cancellationToken);
+        if (delivered is not null)
+            return await TryRecognizeDeliveredCostAsync(sale, companyId, sourceEventId, delivered, cancellationToken);
+
         // What actually left the tanks, as the operational system recorded it.
-        var outMovements = await db.InventoryMovements
-            .AsNoTracking()
-            .Where(x => x.SalesTransactionId == sale.Id && x.Direction == MovementDirection.Out)
-            .Select(x => new { x.TerminalId, x.ProductId, x.QuantityMt })
-            .ToListAsync(cancellationToken);
+        var outMovements = await LoadOutboundPoolsAsync(sale.Id, cancellationToken);
         if (outMovements.Count == 0)
-            return await TryPostLoadingDirectCogsAsync(sale, companyId, sourceEventId, cancellationToken);
+            return await TryPostLoadingDirectCogsAsync(sale, companyId, sourceEventId, cancellationToken: cancellationToken);
         if (outMovements.Any(x => x.QuantityMt <= 0m))
             return Skipped(sale, "Cogs", companyId, "INVALID_MOVEMENT_QUANTITY");
 
-        // Value every pool first. If any of them cannot cover its share, nothing is consumed:
-        // a half-valued sale would be worse than an unvalued one.
-        var pools = outMovements
-            .GroupBy(x => new { x.TerminalId, x.ProductId })
-            .Select(g => new { g.Key.TerminalId, g.Key.ProductId, QuantityMt = g.Sum(x => x.QuantityMt) })
-            .ToList();
-
-        foreach (var pool in pools)
-        {
-            var available = await db.InventoryAverageCosts
-                .AsNoTracking()
-                .Where(x => x.CompanyId == companyId
-                    && x.ProductId == pool.ProductId
-                    && x.TerminalId == pool.TerminalId)
-                .Select(x => (decimal?)x.QuantityMt)
-                .SingleOrDefaultAsync(cancellationToken);
-            if (available is null || available.Value < pool.QuantityMt)
-                return Skipped(sale, "Cogs", companyId, "INVENTORY_NOT_VALUED");
-        }
-
-        var consumed = new List<(int TerminalId, int ProductId, decimal CostUsd)>();
-        foreach (var pool in pools)
-        {
-            var consumption = await valuation.TryConsumeAsync(
-                companyId,
-                pool.ProductId,
-                pool.TerminalId,
-                pool.QuantityMt,
-                cancellationToken);
-            if (!consumption.Succeeded)
-            {
-                // Put back whatever the earlier pools already gave up, so a failure here leaves
-                // the valuation exactly as it was.
-                foreach (var done in consumed)
-                {
-                    var quantity = pools.Single(p =>
-                        p.TerminalId == done.TerminalId && p.ProductId == done.ProductId).QuantityMt;
-                    await valuation.ReturnAsync(
-                        companyId, done.ProductId, done.TerminalId, quantity, done.CostUsd, cancellationToken);
-                }
-
-                return Skipped(sale, "Cogs", companyId, consumption.Reason ?? "INVENTORY_NOT_VALUED");
-            }
-
-            consumed.Add((pool.TerminalId, pool.ProductId, consumption.CostUsd));
-        }
+        var (pools, consumed, consumeSkip) = await ConsumePoolsAsync(companyId, outMovements, cancellationToken);
+        if (consumeSkip is not null)
+            return Skipped(sale, "Cogs", companyId, consumeSkip);
 
         var totalCostUsd = consumed.Sum(x => x.CostUsd);
         if (totalCostUsd <= 0m)
@@ -521,9 +491,284 @@ public sealed class SalesAccountingAdapter(
         }
     }
 
-    private async Task<SalesAccountingResult> TryPostLoadingDirectCogsAsync(
-        SalesTransaction sale, int companyId, string sourceEventId, CancellationToken ct)
+    private sealed record OutboundPool(int TerminalId, int ProductId, decimal QuantityMt);
+
+    private async Task<List<OutboundPool>> LoadOutboundPoolsAsync(int saleId, CancellationToken cancellationToken)
+        => await db.InventoryMovements
+            .AsNoTracking()
+            .Where(x => x.SalesTransactionId == saleId && x.Direction == MovementDirection.Out)
+            .Select(x => new OutboundPool(x.TerminalId, x.ProductId, x.QuantityMt))
+            .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// Value every pool first. If any of them cannot cover its share, nothing is consumed:
+    /// a half-valued sale would be worse than an unvalued one.
+    /// </summary>
+    private async Task<(List<OutboundPool> Pools, List<(int TerminalId, int ProductId, decimal CostUsd)> Consumed, string? SkipReason)>
+        ConsumePoolsAsync(int companyId, IReadOnlyCollection<OutboundPool> outMovements, CancellationToken cancellationToken)
     {
+        var pools = outMovements
+            .GroupBy(x => new { x.TerminalId, x.ProductId })
+            .Select(g => new OutboundPool(g.Key.TerminalId, g.Key.ProductId, g.Sum(x => x.QuantityMt)))
+            .ToList();
+        var consumed = new List<(int TerminalId, int ProductId, decimal CostUsd)>();
+
+        foreach (var pool in pools)
+        {
+            var available = await db.InventoryAverageCosts
+                .AsNoTracking()
+                .Where(x => x.CompanyId == companyId
+                    && x.ProductId == pool.ProductId
+                    && x.TerminalId == pool.TerminalId)
+                .Select(x => (decimal?)x.QuantityMt)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (available is null || available.Value < pool.QuantityMt)
+                return (pools, consumed, "INVENTORY_NOT_VALUED");
+        }
+
+        foreach (var pool in pools)
+        {
+            var consumption = await valuation.TryConsumeAsync(
+                companyId,
+                pool.ProductId,
+                pool.TerminalId,
+                pool.QuantityMt,
+                cancellationToken);
+            if (!consumption.Succeeded)
+            {
+                // Put back whatever the earlier pools already gave up, so a failure here leaves
+                // the valuation exactly as it was.
+                foreach (var done in consumed)
+                {
+                    var quantity = pools.Single(p =>
+                        p.TerminalId == done.TerminalId && p.ProductId == done.ProductId).QuantityMt;
+                    await valuation.ReturnAsync(
+                        companyId, done.ProductId, done.TerminalId, quantity, done.CostUsd, cancellationToken);
+                }
+
+                return (pools, [], consumption.Reason ?? "INVENTORY_NOT_VALUED");
+            }
+
+            consumed.Add((pool.TerminalId, pool.ProductId, consumption.CostUsd));
+        }
+
+        return (pools, consumed, null);
+    }
+
+    /// <summary>
+    /// بهای کالای تحویل‌شده با قیمت باز، به میانگینِ همان روزِ تحویل:
+    ///   Dr کالای تحویل‌شده در انتظار قیمت (۱۳۲۰)   Cr موجودی (۱۳۰۰)
+    /// مصرف هر Pool مثل فروش عادی در SalesCostConsumption قفل می‌شود تا لغو، دقیقاً همان را برگرداند.
+    /// عاید و بهای تمام‌شده‌ای ثبت نمی‌شود؛ پس هیچ سود یا زیانی پیش از تعیین قیمت در دفتر نمی‌نشیند.
+    /// </summary>
+    private async Task<SalesAccountingResult> TryPostDeliveredCostAsync(
+        SalesTransaction sale, CancellationToken cancellationToken)
+    {
+        if (sale.IsCancelled)
+            return Skipped(sale, "DeliveredCost", 0, "SALE_CANCELLED");
+        if (sale.QuantityMt <= 0m)
+            return Skipped(sale, "DeliveredCost", 0, "INVALID_SALE_QUANTITY");
+
+        var companyId = await ResolveCompanyAsync(sale, cancellationToken);
+        if (companyId is null)
+            return Skipped(sale, "DeliveredCost", 0, "SALE_COMPANY_UNKNOWN");
+
+        var settings = await db.AccountingSettings
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.CompanyId == companyId.Value, cancellationToken);
+        if (settings is null)
+            return Skipped(sale, "DeliveredCost", companyId.Value, "ACCOUNTING_SETTINGS_MISSING");
+        if (!string.Equals(settings.FunctionalCurrencyCode?.Trim(), "USD", StringComparison.OrdinalIgnoreCase))
+            return Skipped(sale, "DeliveredCost", companyId.Value, "UNSUPPORTED_FUNCTIONAL_CURRENCY");
+        if (settings.DeliveredPendingPricingAccountId is not int pendingAccountId)
+            return Skipped(sale, "DeliveredCost", companyId.Value, "DELIVERED_PENDING_PRICING_ACCOUNT_MISSING");
+
+        var accountIds = new[] { settings.InventoryAccountId, pendingAccountId };
+        var validAccountCount = await db.Accounts.AsNoTracking().CountAsync(
+            x => accountIds.Contains(x.Id) && x.CompanyId == companyId.Value && x.IsActive,
+            cancellationToken);
+        if (validAccountCount != accountIds.Distinct().Count())
+            return Skipped(sale, "DeliveredCost", companyId.Value, "ACCOUNTING_SETTINGS_INVALID_ACCOUNTS");
+
+        var sourceEventId = BuildDeliveredCostSourceEventId(sale.Id);
+        var existing = await FindJournalAsync(companyId.Value, sourceEventId, cancellationToken);
+        if (existing is not null)
+        {
+            LogOutcome(sale, "DeliveredCost", companyId.Value, 0m,
+                existing.Lines.Sum(x => x.Debit), PaymentPostingStatus.Duplicate, "DUPLICATE_SOURCE_EVENT");
+            return new SalesAccountingResult(PaymentPostingStatus.Duplicate, existing, "DUPLICATE_SOURCE_EVENT");
+        }
+
+        var outMovements = await LoadOutboundPoolsAsync(sale.Id, cancellationToken);
+        if (outMovements.Count == 0)
+        {
+            // فروش مستقیم از بارگیری: بها همان سهم سند خریدِ ثبت‌شده تا زمان ثبت فروش است (مستقل از
+            // زمان قیمت‌گذاری) و از «کالای در راه» به حساب واسط می‌رود.
+            return await TryPostLoadingDirectCogsAsync(
+                sale,
+                companyId.Value,
+                sourceEventId,
+                debitAccountId: pendingAccountId,
+                journalNumber: journalNumberGenerator.ForSaleDeliveredCost(companyId.Value, sale.Id),
+                accountingDate: sale.SaleDate.Date,
+                eventKind: "DeliveredCost",
+                cancellationToken: cancellationToken);
+        }
+        if (outMovements.Any(x => x.QuantityMt <= 0m))
+            return Skipped(sale, "DeliveredCost", companyId.Value, "INVALID_MOVEMENT_QUANTITY");
+
+        var (pools, consumed, consumeSkip) = await ConsumePoolsAsync(companyId.Value, outMovements, cancellationToken);
+        if (consumeSkip is not null)
+            return Skipped(sale, "DeliveredCost", companyId.Value, consumeSkip);
+
+        var totalCostUsd = consumed.Sum(x => x.CostUsd);
+        if (totalCostUsd <= 0m)
+            return Skipped(sale, "DeliveredCost", companyId.Value, "INVENTORY_NOT_VALUED");
+
+        var request = new AccountingPostRequest(
+            companyId.Value,
+            journalNumberGenerator.ForSaleDeliveredCost(companyId.Value, sale.Id),
+            sale.SaleDate.Date,
+            sale.SaleDate.Date,
+            sale.SaleDate.Date,
+            SourceModule,
+            [
+                new AccountingPostLine(
+                    pendingAccountId,
+                    Debit: totalCostUsd,
+                    Credit: 0m,
+                    SystemCurrency.BaseCurrencyCode,
+                    totalCostUsd,
+                    1m,
+                    ContractId: sale.ContractId,
+                    ShipmentId: sale.ShipmentId,
+                    ProductId: sale.ProductId,
+                    Description: $"Goods delivered pending pricing for invoice {sale.InvoiceNumber}"),
+                new AccountingPostLine(
+                    settings.InventoryAccountId,
+                    Debit: 0m,
+                    Credit: totalCostUsd,
+                    SystemCurrency.BaseCurrencyCode,
+                    totalCostUsd,
+                    1m,
+                    ContractId: sale.ContractId,
+                    ShipmentId: sale.ShipmentId,
+                    ProductId: sale.ProductId,
+                    Description: "Goods left inventory")
+            ],
+            SourceEventId: sourceEventId,
+            SourceEntityType: SourceEntityType,
+            SourceEntityId: sale.Id,
+            Description: $"Delivered cost of unpriced sale #{sale.Id} invoice {sale.InvoiceNumber}");
+
+        try
+        {
+            var journal = await postingService.PostAsync(request, cancellationToken);
+            foreach (var item in consumed)
+            {
+                db.SalesCostConsumptions.Add(new SalesCostConsumption
+                {
+                    SalesTransactionId = sale.Id,
+                    CompanyId = companyId.Value,
+                    ProductId = item.ProductId,
+                    TerminalId = item.TerminalId,
+                    QuantityMt = pools.Single(p => p.TerminalId == item.TerminalId && p.ProductId == item.ProductId).QuantityMt,
+                    CostUsd = item.CostUsd,
+                    Status = SalesCostConsumptionStatus.Active
+                });
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            LogOutcome(sale, "DeliveredCost", companyId.Value, totalCostUsd,
+                journal.Lines.Sum(x => x.Debit), PaymentPostingStatus.Posted, null);
+            return new SalesAccountingResult(PaymentPostingStatus.Posted, journal, null);
+        }
+        catch (Exception exception)
+        {
+            LogFailure(sale, "DeliveredCost", exception);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// تعیین قیمت: همان مبلغِ قفل‌شدهٔ روزِ تحویل از حساب واسط به بهای تمام‌شده می‌رود.
+    ///   Dr بهای تمام‌شده (۵۱۰۰)   Cr کالای تحویل‌شده در انتظار قیمت (۱۳۲۰)
+    /// تاریخ حسابداری همان تاریخ عاید است تا بها و عاید در یک دوره بنشینند.
+    /// </summary>
+    private async Task<SalesAccountingResult> TryRecognizeDeliveredCostAsync(
+        SalesTransaction sale, int companyId, string sourceEventId, JournalEntry delivered, CancellationToken cancellationToken)
+    {
+        var reversed = await FindJournalAsync(companyId, BuildDeliveredCostReversedSourceEventId(sale.Id), cancellationToken);
+        if (reversed is not null)
+            return Skipped(sale, "Cogs", companyId, "DELIVERED_COST_REVERSED");
+
+        var settings = await db.AccountingSettings
+            .AsNoTracking()
+            .SingleAsync(x => x.CompanyId == companyId, cancellationToken);
+        var pendingLine = delivered.Lines.FirstOrDefault(x => x.Debit > 0m);
+        if (pendingLine is null)
+            return Skipped(sale, "Cogs", companyId, "DELIVERED_COST_INVALID");
+
+        var costUsd = delivered.Lines.Sum(x => x.Debit);
+        var accountingDate = AccountingDateOf(sale);
+        var request = new AccountingPostRequest(
+            companyId,
+            journalNumberGenerator.ForCogs(companyId, sale.Id),
+            accountingDate,
+            accountingDate,
+            sale.SaleDate.Date,
+            SourceModule,
+            [
+                new AccountingPostLine(
+                    settings.CostOfGoodsSoldAccountId,
+                    Debit: costUsd,
+                    Credit: 0m,
+                    SystemCurrency.BaseCurrencyCode,
+                    costUsd,
+                    1m,
+                    ContractId: sale.ContractId,
+                    ShipmentId: sale.ShipmentId,
+                    ProductId: sale.ProductId,
+                    Description: $"Cost of goods sold for invoice {sale.InvoiceNumber} (delivered {sale.SaleDate:yyyy-MM-dd})"),
+                new AccountingPostLine(
+                    pendingLine.AccountId,
+                    Debit: 0m,
+                    Credit: costUsd,
+                    SystemCurrency.BaseCurrencyCode,
+                    costUsd,
+                    1m,
+                    ContractId: sale.ContractId,
+                    ShipmentId: sale.ShipmentId,
+                    ProductId: sale.ProductId,
+                    Description: "Delivered goods priced")
+            ],
+            SourceEventId: sourceEventId,
+            SourceEntityType: SourceEntityType,
+            SourceEntityId: sale.Id,
+            Description: $"COGS for sale #{sale.Id} invoice {sale.InvoiceNumber} from delivered cost {delivered.JournalNumber}");
+
+        try
+        {
+            var journal = await postingService.PostAsync(request, cancellationToken);
+            LogOutcome(sale, "Cogs", companyId, costUsd, journal.Lines.Sum(x => x.Debit), PaymentPostingStatus.Posted, null);
+            return new SalesAccountingResult(PaymentPostingStatus.Posted, journal, null);
+        }
+        catch (Exception exception)
+        {
+            LogFailure(sale, "Cogs", exception);
+            throw;
+        }
+    }
+
+    private static DateTime AccountingDateOf(SalesTransaction sale)
+        => (sale.SalePriceAccountingDate ?? sale.SaleDate).Date;
+
+    private async Task<SalesAccountingResult> TryPostLoadingDirectCogsAsync(
+        SalesTransaction sale, int companyId, string sourceEventId,
+        int? debitAccountId = null, string? journalNumber = null, DateTime? accountingDate = null,
+        string eventKind = "Cogs", CancellationToken cancellationToken = default)
+    {
+        var ct = cancellationToken;
         var shares = await db.LoadingReceiptAllocations.AsNoTracking()
             .Where(a => a.SalesTransactionId == sale.Id
                 && a.Destination == LoadingReceiptAllocationDestination.DirectSale
@@ -535,20 +780,20 @@ public sealed class SalesAccountingAdapter(
                 LoadedMt = a.LoadingReceipt.LoadingRegister!.LoadedQuantityMt,
                 LoadingUpdatedAtUtc = a.LoadingReceipt.LoadingRegister.UpdatedAtUtc,
                 ProductId = a.LoadingReceipt.LoadingRegister.ProductId }).ToListAsync(ct);
-        if (shares.Count == 0) return Skipped(sale, "Cogs", companyId, "NO_OUTBOUND_MOVEMENT");
+        if (shares.Count == 0) return Skipped(sale, eventKind, companyId, "NO_OUTBOUND_MOVEMENT");
         if (shares.Sum(a => a.QuantityMt) != sale.QuantityMt
             || shares.Any(a => a.QuantityMt <= 0m || a.LoadedMt <= 0m || a.ProductId != sale.ProductId))
-            return Skipped(sale, "Cogs", companyId, "DIRECT_SALE_SOURCE_QUANTITY_MISMATCH");
+            return Skipped(sale, eventKind, companyId, "DIRECT_SALE_SOURCE_QUANTITY_MISMATCH");
         var receiptIds = shares.Select(a => a.LoadingReceiptId).Distinct().ToArray();
         if (await db.JournalEntries.AsNoTracking().AnyAsync(j => j.SourceModule == PurchaseAccountingAdapter.SourceModule
             && j.SourceEntityType == nameof(LoadingReceipt) && j.SourceEntityId.HasValue && receiptIds.Contains(j.SourceEntityId.Value)
             && !j.IsReversal && j.Status == JournalEntryStatus.Posted
             && !db.JournalEntries.Any(r => r.ReversalOfJournalEntryId == j.Id), ct))
-            return Skipped(sale, "Cogs", companyId, "DIRECT_SALE_RECEIPT_HAS_INVENTORY_JOURNAL_NEEDS_REVIEW");
+            return Skipped(sale, eventKind, companyId, "DIRECT_SALE_RECEIPT_HAS_INVENTORY_JOURNAL_NEEDS_REVIEW");
         var settings = await db.AccountingSettings.AsNoTracking().SingleAsync(x => x.CompanyId == companyId, ct);
         if (!await db.Accounts.AsNoTracking().AnyAsync(a => a.Id == settings.InventoryInTransitAccountId
                 && a.CompanyId == companyId && a.IsActive, ct))
-            return Skipped(sale, "Cogs", companyId, "IN_TRANSIT_ACCOUNT_MISSING");
+            return Skipped(sale, eventKind, companyId, "IN_TRANSIT_ACCOUNT_MISSING");
         var lines = new List<AccountingPostLine>();
         decimal totalCost = 0m;
         foreach (var share in shares)
@@ -563,19 +808,19 @@ public sealed class SalesAccountingAdapter(
                     && !db.JournalEntries.Any(r => r.ReversalOfJournalEntryId == j.Id
                         && r.CreatedAtUtc <= sale.CreatedAtUtc))
                 .OrderByDescending(j => j.CreatedAtUtc).ThenByDescending(j => j.Id).FirstOrDefaultAsync(ct);
-            if (purchase is null) return Skipped(sale, "Cogs", companyId, "SOURCE_PURCHASE_NOT_POSTED_AT_SALE");
+            if (purchase is null) return Skipped(sale, eventKind, companyId, "SOURCE_PURCHASE_NOT_POSTED_AT_SALE");
             var hasQuantitySnapshot = PurchaseQuantitySnapshot.TryRead(purchase.Description, out var purchaseQuantityMt);
             if (!hasQuantitySnapshot)
             {
                 if (share.LoadingUpdatedAtUtc > sale.CreatedAtUtc)
-                    return Skipped(sale, "Cogs", companyId, "DIRECT_SALE_HISTORICAL_QUANTITY_NEEDS_REVIEW");
+                    return Skipped(sale, eventKind, companyId, "DIRECT_SALE_HISTORICAL_QUANTITY_NEEDS_REVIEW");
                 purchaseQuantityMt = share.LoadedMt;
             }
             var purchaseCost = purchase.Lines.Where(l => l.AccountId == settings.InventoryInTransitAccountId).Sum(l => l.Debit);
             var cost = decimal.Round(purchaseCost * share.QuantityMt / purchaseQuantityMt, 4, MidpointRounding.AwayFromZero);
-            if (cost <= 0m) return Skipped(sale, "Cogs", companyId, "SOURCE_PURCHASE_NOT_VALUED");
+            if (cost <= 0m) return Skipped(sale, eventKind, companyId, "SOURCE_PURCHASE_NOT_VALUED");
             totalCost += cost;
-            lines.Add(new AccountingPostLine(settings.CostOfGoodsSoldAccountId, cost, 0m,
+            lines.Add(new AccountingPostLine(debitAccountId ?? settings.CostOfGoodsSoldAccountId, cost, 0m,
                 SystemCurrency.BaseCurrencyCode, cost, 1m, ContractId: share.SourcePurchaseContractId,
                 ProductId: share.ProductId, Description: $"Direct sale cost from loading #{share.LoadingId}"));
             lines.Add(new AccountingPostLine(settings.InventoryInTransitAccountId, 0m, cost,
@@ -583,13 +828,14 @@ public sealed class SalesAccountingAdapter(
                 ProductId: share.ProductId, Description: $"Goods sold directly from loading #{share.LoadingId}"));
         }
         var journal = await postingService.PostAsync(new AccountingPostRequest(companyId,
-            journalNumberGenerator.ForCogs(companyId, sale.Id), sale.SaleDate.Date, sale.SaleDate.Date,
+            journalNumber ?? journalNumberGenerator.ForCogs(companyId, sale.Id),
+            accountingDate ?? AccountingDateOf(sale), accountingDate ?? AccountingDateOf(sale),
             sale.SaleDate.Date, SourceModule, lines, SourceEventId: sourceEventId,
             SourceEntityType: SourceEntityType, SourceEntityId: sale.Id,
             Description: $"Direct loading COGS for invoice {sale.InvoiceNumber}"), ct);
         // No valuation-pool consumption: these goods never entered a tank. Reversal already
         // reverses the original journal and has no outbound movement/pool to return.
-        LogOutcome(sale, "Cogs", companyId, totalCost, totalCost, PaymentPostingStatus.Posted, null);
+        LogOutcome(sale, eventKind, companyId, totalCost, totalCost, PaymentPostingStatus.Posted, null);
         return new(PaymentPostingStatus.Posted, journal, null);
     }
 
@@ -685,8 +931,16 @@ public sealed class SalesAccountingAdapter(
 
         var original = await FindJournalAsync(
             companyId.Value, BuildCogsSourceEventId(sale.Id), cancellationToken);
+        var delivered = await FindJournalAsync(
+            companyId.Value, BuildDeliveredCostSourceEventId(sale.Id), cancellationToken);
         if (original is null)
-            return Skipped(sale, "CogsReversal", companyId.Value, "ORIGINAL_JOURNAL_NOT_POSTED");
+        {
+            // لغوِ فروشی که هنوز قیمت نگرفته: فقط سند «تحویل در انتظار قیمت» برمی‌گردد و Pool همان
+            // مقدار و ارزشِ روزِ تحویل را پس می‌گیرد.
+            return delivered is null
+                ? Skipped(sale, "CogsReversal", companyId.Value, "ORIGINAL_JOURNAL_NOT_POSTED")
+                : await ReverseDeliveredCostAsync(sale, companyId.Value, delivered, reversalDate, returnToPool: true, cancellationToken);
+        }
 
         // بهای واقعیِ هر pool که هنگام فروش قفل شد، مبنای دقیقِ برگشت است.
         var consumptions = await db.SalesCostConsumptions
@@ -733,6 +987,11 @@ public sealed class SalesAccountingAdapter(
                 await ReturnByMovementSplitAsync(sale, companyId.Value, original.Lines.Sum(x => x.Debit), cancellationToken);
             }
 
+            // بهای فروشی که پس از تحویل قیمت گرفته از دو سند ساخته شده (تحویل و انتقال به بها)؛ هر دو
+            // برمی‌گردند. Pool بالا یک‌بار پس گرفته شد، پس این‌جا فقط سند برمی‌گردد.
+            if (delivered is not null)
+                await ReverseDeliveredCostAsync(sale, companyId.Value, delivered, reversalDate, returnToPool: false, cancellationToken);
+
             LogOutcome(sale, "CogsReversal", companyId.Value, original.Lines.Sum(x => x.Debit),
                 journal.Lines.Sum(x => x.Debit), PaymentPostingStatus.Posted, null);
             return new SalesAccountingResult(PaymentPostingStatus.Posted, journal, null);
@@ -742,6 +1001,54 @@ public sealed class SalesAccountingAdapter(
             LogFailure(sale, "CogsReversal", exception);
             throw;
         }
+    }
+
+    private async Task<SalesAccountingResult> ReverseDeliveredCostAsync(
+        SalesTransaction sale,
+        int companyId,
+        JournalEntry delivered,
+        DateTime reversalDate,
+        bool returnToPool,
+        CancellationToken cancellationToken)
+    {
+        var reversedEventId = BuildDeliveredCostReversedSourceEventId(sale.Id);
+        var existingReversal = await FindJournalAsync(companyId, reversedEventId, cancellationToken);
+        if (existingReversal is not null)
+            return new SalesAccountingResult(PaymentPostingStatus.Duplicate, existingReversal, "DUPLICATE_SOURCE_EVENT");
+
+        var consumptions = returnToPool
+            ? await db.SalesCostConsumptions
+                .Where(x => x.SalesTransactionId == sale.Id && x.Status == SalesCostConsumptionStatus.Active)
+                .ToListAsync(cancellationToken)
+            : [];
+
+        var journal = await postingService.ReverseAsync(new AccountingReversalRequest(
+            delivered.Id,
+            journalNumberGenerator.ForSaleDeliveredCostReversal(companyId, sale.Id),
+            reversalDate.Date,
+            SourceModule,
+            reversedEventId,
+            Description: $"Reversal of delivered cost for sale #{sale.Id} invoice {sale.InvoiceNumber}"), cancellationToken);
+
+        foreach (var consumption in consumptions)
+        {
+            await valuation.ReturnAsync(
+                companyId,
+                consumption.ProductId,
+                consumption.TerminalId,
+                consumption.QuantityMt,
+                consumption.CostUsd,
+                cancellationToken);
+            consumption.Status = SalesCostConsumptionStatus.Reversed;
+            consumption.ReversedAtUtc = DateTime.UtcNow;
+        }
+
+        if (consumptions.Count > 0)
+            await db.SaveChangesAsync(cancellationToken);
+
+        LogOutcome(sale, "DeliveredCostReversal", companyId, delivered.Lines.Sum(x => x.Debit),
+            journal.Lines.Sum(x => x.Debit), PaymentPostingStatus.Posted, null);
+        return new SalesAccountingResult(PaymentPostingStatus.Posted, journal, null);
     }
 
     private async Task ReturnByMovementSplitAsync(
@@ -786,6 +1093,12 @@ public sealed class SalesAccountingAdapter(
 
     public static string BuildCogsReversedSourceEventId(int salesTransactionId)
         => $"Sale:{salesTransactionId}:CogsReversed";
+
+    public static string BuildDeliveredCostSourceEventId(int salesTransactionId)
+        => $"Sale:{salesTransactionId}:DeliveredCost";
+
+    public static string BuildDeliveredCostReversedSourceEventId(int salesTransactionId)
+        => $"Sale:{salesTransactionId}:DeliveredCostReversed";
 
     public static string BuildAdvanceApplicationSourceEventId(int applicationId)
         => $"CustomerAdvanceApplication:{applicationId}:Created";

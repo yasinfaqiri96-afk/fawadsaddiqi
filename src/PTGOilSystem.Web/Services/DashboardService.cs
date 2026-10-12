@@ -661,6 +661,7 @@ public class DashboardService : IDashboardService
                 s.SaleDate,
                 s.QuantityMt,
                 s.TotalUsd,
+                s.IsSalePricePending,
                 ProductCode = s.Product == null ? "" : s.Product.Code
             })
             .Take(DashboardRowLimit)
@@ -724,8 +725,8 @@ public class DashboardService : IDashboardService
                     TimeText = FormatActivityTime(s.SaleDate),
                     Amount = $"-{s.QuantityMt:N2} MT",
                     AmountClass = "is-negative",
-                    Status = Text("تکمیل شده", "Completed"),
-                    StatusClass = "status-badge-success"
+                    Status = s.IsSalePricePending ? Text("در انتظار قیمت", "Awaiting price") : Text("تکمیل شده", "Completed"),
+                    StatusClass = s.IsSalePricePending ? "status-badge-warning" : "status-badge-success"
                 }))
             .Concat(loadings.Select(l =>
             {

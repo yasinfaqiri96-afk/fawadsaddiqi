@@ -28,6 +28,8 @@ public sealed class AccountingChartSeeder(
         new("1210", "Custody Receivables for Owners (contra)", AccountType.Asset, NormalBalance.Credit, MonetaryTreatment.Monetary),
         new("1300", "Inventory", AccountType.Asset, NormalBalance.Debit, MonetaryTreatment.NonMonetary),
         new("1310", "Inventory In Transit", AccountType.Asset, NormalBalance.Debit, MonetaryTreatment.NonMonetary),
+        // کالایی که با قیمت فروشِ باز تحویل شده: دیگر در مخزن نیست و هنوز بهای فروش هم نشده است.
+        new("1320", "Goods Delivered Pending Pricing", AccountType.Asset, NormalBalance.Debit, MonetaryTreatment.NonMonetary),
         new("1400", "Supplier Prepayment", AccountType.Asset, NormalBalance.Debit, MonetaryTreatment.NonMonetary),
         new("1410", "Employee Advance", AccountType.Asset, NormalBalance.Debit, MonetaryTreatment.NonMonetary),
         new("1500", "Operational Fixed Assets", AccountType.Asset, NormalBalance.Debit, MonetaryTreatment.NonMonetary),
@@ -79,6 +81,22 @@ public sealed class AccountingChartSeeder(
         await EnsurePartnerCurrentAccountAsync(cancellationToken);
         await EnsureSalaryExpenseAccountAsync(cancellationToken);
         await EnsureCustodyAccountsAsync(cancellationToken);
+        await EnsureDeliveredPendingPricingAccountAsync(cancellationToken);
+    }
+
+    /// <summary>حساب ۱۳۲۰ بعد از تنظیماتِ شرکت‌های موجود اضافه شد؛ همان الگوی امانی.</summary>
+    private async Task EnsureDeliveredPendingPricingAccountAsync(CancellationToken cancellationToken)
+    {
+        var pending = await db.AccountingSettings
+            .Where(x => x.DeliveredPendingPricingAccountId == null)
+            .ToListAsync(cancellationToken);
+        if (pending.Count == 0)
+            return;
+
+        foreach (var settings in pending)
+            settings.DeliveredPendingPricingAccountId = await EnsureAccountAsync(settings.CompanyId, "1320", cancellationToken);
+
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>
@@ -306,6 +324,7 @@ public sealed class AccountingChartSeeder(
                 CustodyPendingCollectionAccountId = accountsByCode["1210"].Id,
                 CustodyCommissionRevenueAccountId = accountsByCode["4500"].Id,
                 CustodyServiceRevenueAccountId = accountsByCode["4510"].Id,
+                DeliveredPendingPricingAccountId = accountsByCode["1320"].Id,
                 FixedAssetAccountId = accountsByCode["1500"].Id,
                 AccumulatedDepreciationAccountId = accountsByCode["1590"].Id
             });

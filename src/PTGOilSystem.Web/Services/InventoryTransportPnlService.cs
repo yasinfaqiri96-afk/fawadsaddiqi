@@ -221,7 +221,8 @@ public sealed class InventoryTransportPnlService
                 && requestedIds.Contains(a.TransportLegId.Value)
                 && !alreadyExactSaleIds.Contains(a.SalesTransactionId)
                 && a.SalesTransaction != null
-                && !a.SalesTransaction.IsCancelled)
+                && !a.SalesTransaction.IsCancelled
+                && !a.SalesTransaction.IsSalePricePending)
             .ToListAsync(ct);
         foreach (var group in allocatedSaleRows.GroupBy(a => new { a.SalesTransactionId, LegId = a.TransportLegId!.Value }))
         {
@@ -397,6 +398,7 @@ public sealed class InventoryTransportPnlService
         var shipmentSales = await _db.SalesTransactions
             .AsNoTracking()
             .Where(s => !s.IsCancelled
+                && !s.IsSalePricePending
                 && s.ShipmentId.HasValue
                 && shipmentIds.Contains(s.ShipmentId.Value)
                 && !exactSaleIds.Contains(s.Id)

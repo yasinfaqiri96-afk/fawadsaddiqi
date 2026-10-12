@@ -1687,6 +1687,7 @@ public class ContractJourneyViewStructureTests
     {
         var contents = ReadRepoFile("src/PTGOilSystem.Web/Views/Sales/Create.cshtml");
 
+        Assert.Contains("<select asp-for=\"BuyerKey\" asp-items=\"ViewBag.Buyers\" class=\"ak-input\" data-ak-entity-combobox>", contents);
         Assert.Contains("SourcePurchaseContractId", contents);
         Assert.Contains("نمی‌دانم — محاسبه خودکار از موجودی مخزن", contents);
         Assert.Contains("قرارداد خرید منبع (اختیاری)", contents);

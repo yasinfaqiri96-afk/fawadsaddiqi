@@ -9,8 +9,11 @@
     var currentReturnUrl = Context.Request.Path + Context.Request.QueryString;
     var activeLines = Model.Lines.Where(l => !l.IsCancelled).ToList();
     var liveQty = activeLines.Sum(l => l.QuantityMt);
-    var liveTotal = activeLines.Sum(l => l.TotalInCurrency);
-    var liveTotalUsd = activeLines.Sum(l => l.TotalUsd);
+    // ردیف قیمت‌باز مبلغ ندارد؛ جمع فقط ردیف‌های قیمت‌قطعی است و تعداد قیمت‌بازها جدا گفته می‌شود.
+    var pendingLines = activeLines.Where(l => l.IsSalePricePending).ToList();
+    var liveTotal = activeLines.Where(l => !l.IsSalePricePending).Sum(l => l.TotalInCurrency);
+    var liveTotalUsd = activeLines.Where(l => !l.IsSalePricePending).Sum(l => l.TotalUsd);
+    var unknownText = T(PTGOilSystem.Web.Models.Sales.SalePricingText.Unknown, "Unknown");
     var cancelledCount = Model.Lines.Count - activeLines.Count;
     var openLines = activeLines.Where(l => l.OpenReceivableUsd > 0m).ToList();
     var canApplyReceipt = !Model.IsSupplierBuyer && !Model.IsCancelled && Model.ApplicableReceipts.Count > 0 && openLines.Count > 0;
@@ -54,7 +57,7 @@
         new() { Label = T("خریدار", "Buyer"), Value = Model.CustomerName },
         new() { Label = T("تاریخ فروش", "Sale date"), Value = Model.SaleDate.ToDisplayDate(), IsNumeric = true },
         new() { Label = T("ارز", "Currency"), Value = Model.Currency },
-        new() { Label = T("نرخ هر تن", "Unit price"), Value = Model.UnitPriceInCurrency.ToString("N2"), Unit = Model.Currency, IsNumeric = true },
+        new() { Label = T("نرخ هر تن", "Unit price"), Value = Model.UnitPriceInCurrency > 0m ? Model.UnitPriceInCurrency.ToString("N2") : unknownText, Unit = Model.UnitPriceInCurrency > 0m ? Model.Currency : null, IsNumeric = Model.UnitPriceInCurrency > 0m, Tone = Model.UnitPriceInCurrency > 0m ? null : "warning" },
         new() { Label = T("نرخ تبدیل", "FX rate"), Value = Model.AppliedFxRateToUsd?.ToString("N4"), IsNumeric = true }
     };
 
@@ -155,14 +158,31 @@
                             <td class="ak-col-grow">@l.ProductName</td>
                             <td class="ak-num">@l.InvoiceNumber</td>
                             <td class="ak-col-num ak-num">@l.QuantityMt.ToString("N3")</td>
-                            <td class="ak-col-num ak-num">@l.TotalInCurrency.ToString("N2") @Model.Currency</td>
-                            <td class="ak-col-num ak-num">@l.TotalUsd.ToString("N2")</td>
-                            <td class="ak-col-num ak-num">@l.ReceivedUsd.ToString("N2")</td>
-                            <td class="ak-col-num ak-num">@l.OpenReceivableUsd.ToString("N2")</td>
+                            @if (l.IsSalePricePending && !l.IsCancelled)
+                            {
+                                <td class="ak-col-num">@unknownText</td>
+                                <td class="ak-col-num">@unknownText</td>
+                                <td class="ak-col-num ak-num">@l.ReceivedUsd.ToString("N2")</td>
+                                <td class="ak-col-num">@unknownText</td>
+                            }
+                            else
+                            {
+                                <td class="ak-col-num ak-num">@l.TotalInCurrency.ToString("N2") @Model.Currency</td>
+                                <td class="ak-col-num ak-num">@l.TotalUsd.ToString("N2")</td>
+                                <td class="ak-col-num ak-num">@l.ReceivedUsd.ToString("N2")</td>
+                                <td class="ak-col-num ak-num">@l.OpenReceivableUsd.ToString("N2")</td>
+                            }
                             <td>
-                                <span class="ak-status @(l.IsCancelled ? "is-inactive" : "is-active")">
-                                    @(l.IsCancelled ? T("لغو شده", "Cancelled") : T("فعال", "Active"))
-                                </span>
+                                @if (l.IsSalePricePending && !l.IsCancelled)
+                                {
+                                    <a class="ak-status is-warning" asp-action="SetPrice" asp-route-id="@l.SalesTransactionId" asp-route-returnUrl="@currentReturnUrl">@T("در انتظار قیمت", "Awaiting price")</a>
+                                }
+                                else
+                                {
+                                    <span class="ak-status @(l.IsCancelled ? "is-inactive" : "is-active")">
+                                        @(l.IsCancelled ? T("لغو شده", "Cancelled") : T("فعال", "Active"))
+                                    </span>
+                                }
                             </td>
                             <td class="ak-col-actions">
                                 <a class="ak-row-menu-btn" asp-action="Details" asp-route-id="@l.SalesTransactionId" asp-route-returnUrl="@currentReturnUrl"
@@ -173,7 +193,13 @@
                 </tbody>
                 <tfoot>
                     <tr>
-                        <td colspan="6" class="ak-table-total">@T("مجموع ردیف‌های فعال", "Active lines total")</td>
+                        <td colspan="6" class="ak-table-total">
+                            @T("مجموع ردیف‌های فعال", "Active lines total")
+                            @if (pendingLines.Count > 0)
+                            {
+                                <span class="ak-section-desc">@T($"مبلغ {pendingLines.Count:N0} ردیف در انتظار قیمت در جمع نیست", $"{pendingLines.Count:N0} lines awaiting a price are not in the total")</span>
+                            }
+                        </td>
                         <td class="ak-col-num ak-num">@liveQty.ToString("N3")</td>
                         <td class="ak-col-num ak-num">@liveTotal.ToString("N2") @Model.Currency</td>
                         <td class="ak-col-num ak-num">@liveTotalUsd.ToString("N2")</td>

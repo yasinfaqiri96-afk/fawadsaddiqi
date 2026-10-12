@@ -625,6 +625,7 @@ public partial class LoadingReceiptsController : Controller
                 SaleDate = model.SaleDate,
                 SaleCurrency = model.SaleCurrency,
                 SaleUnitPriceInCurrency = model.SaleUnitPriceInCurrency,
+                SaleIsPricePending = model.SaleIsPricePending,
                 SaleAppliedFxRateToUsd = model.SaleAppliedFxRateToUsd,
                 SaleInvoiceNumber = model.SaleInvoiceNumber,
                 SaleNotes = model.SaleNotes,
@@ -986,7 +987,13 @@ public partial class LoadingReceiptsController : Controller
             modelState.AddModelError(Key(prefix, nameof(line.SaleDate)), "برای DirectSale تاریخ فروش الزامی است.");
         }
 
-        if (!line.SaleUnitPriceInCurrency.HasValue || line.SaleUnitPriceInCurrency.Value <= 0m)
+        // قیمت باز: قیمت و نرخ ارز بعداً از صفحهٔ همان فروش ثبت می‌شود.
+        if (line.SaleIsPricePending)
+        {
+            line.SaleUnitPriceInCurrency = null;
+            line.SaleAppliedFxRateToUsd = null;
+        }
+        else if (!line.SaleUnitPriceInCurrency.HasValue || line.SaleUnitPriceInCurrency.Value <= 0m)
         {
             modelState.AddModelError(Key(prefix, nameof(line.SaleUnitPriceInCurrency)), "برای DirectSale قیمت واحد فروش باید بزرگ‌تر از صفر باشد.");
         }
@@ -1712,6 +1719,7 @@ public partial class LoadingReceiptsController : Controller
                 }
 
                 var directSaleLedgerEntries = directSaleDrafts
+                    .Where(d => SalePendingPricing.ShouldPostLedger(d.Draft.Sale))
                     .Select(d => Ledger.Post(BuildDirectSaleLedgerEntry(
                         d.Draft.Sale,
                         d.Allocation.SourcePurchaseContractId!.Value,

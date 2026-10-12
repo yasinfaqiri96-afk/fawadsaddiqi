@@ -60,8 +60,17 @@
                         <td>@item.SaleDate.ToDisplayDate()</td>
                         <td>@item.CustomerName</td>
                         <td class="ak-col-num ak-num">@NumberDisplay.Quantity(item.QuantityMt) @UnitMt()</td>
-                        <td class="ak-col-num ak-num">@item.UnitPriceUsd.ToString("N2") @UnitUsd()</td>
-                        <td class="ak-col-num ak-num">@item.AmountUsd.ToString("N2") @UnitUsd()</td>
+                        @if (item.IsSalePricePending)
+                        {
+                            @* قیمت فروش هنوز تعیین نشده؛ مبلغ نامشخص است، نه صفر. *@
+                            <td class="ak-col-num">@T("نامشخص", "Unknown")</td>
+                            <td class="ak-col-num"><span class="ak-status is-warning">@T("در انتظار قیمت", "Awaiting price")</span></td>
+                        }
+                        else
+                        {
+                            <td class="ak-col-num ak-num">@item.UnitPriceUsd.ToString("N2") @UnitUsd()</td>
+                            <td class="ak-col-num ak-num">@item.AmountUsd.ToString("N2") @UnitUsd()</td>
+                        }
                         <td class="ak-col-actions">
                             <div class="dropdown ak-row-menu">
                                 <button type="button" class="ak-row-menu-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="@T("عملیات", "Actions")">

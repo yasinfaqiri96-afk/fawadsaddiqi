@@ -287,13 +287,17 @@ public sealed class PeriodActivityService(ApplicationDbContext db) : IPeriodActi
                 s.InvoiceNumber,
                 ProductCode = s.Product != null ? s.Product.Code : null,
                 s.QuantityMt,
-                s.TotalUsd
+                s.TotalUsd,
+                s.IsSalePricePending
             })
             .ToListAsync(cancellationToken);
 
+        // فروش با قیمت باز: مقدار در فعالیت دوره می‌ماند؛ مبلغ خالی و وضعیت «در انتظار قیمت».
         return TrimPage(rows, paging).Select(s => new PeriodActivityRow(
             s.SaleDate, FirstNonEmpty(s.InvoiceNumber, $"#{s.Id}"),
-            s.ProductCode, s.QuantityMt, s.TotalUsd, null)).ToList();
+            s.ProductCode, s.QuantityMt,
+            s.IsSalePricePending ? null : s.TotalUsd,
+            s.IsSalePricePending ? "در انتظار قیمت" : null)).ToList();
     }
 
     // دریافت/پرداخت — PaymentTransaction شرکت دارد.
@@ -410,7 +414,7 @@ public sealed class PeriodActivityService(ApplicationDbContext db) : IPeriodActi
                 && s.SaleDate >= start && s.SaleDate < endExclusive);
         var salesCount = await salesQuery.CountAsync(cancellationToken);
         var salesQty = await salesQuery.SumAsync(s => (decimal?)s.QuantityMt, cancellationToken) ?? 0m;
-        var salesUsd = await salesQuery.SumAsync(s => (decimal?)s.TotalUsd, cancellationToken) ?? 0m;
+        var salesUsd = await salesQuery.Where(s => !s.IsSalePricePending).SumAsync(s => (decimal?)s.TotalUsd, cancellationToken) ?? 0m;
 
         var receiptsUsd = await db.PaymentTransactions.AsNoTracking()
             .Where(p => p.Direction == PaymentDirection.In && p.CompanyId == companyId

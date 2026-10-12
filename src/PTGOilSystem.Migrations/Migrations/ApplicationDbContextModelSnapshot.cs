@@ -158,6 +158,9 @@ namespace PTGOilSystem.Web.Migrations
                     b.Property<int>("CustomerAdvanceAccountId")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("DeliveredPendingPricingAccountId")
+                        .HasColumnType("integer");
+
                     b.Property<int?>("DepreciationExpenseAccountId")
                         .HasColumnType("integer");
 
@@ -260,6 +263,8 @@ namespace PTGOilSystem.Web.Migrations
                     b.HasIndex("CustodyServiceRevenueAccountId");
 
                     b.HasIndex("CustomerAdvanceAccountId");
+
+                    b.HasIndex("DeliveredPendingPricingAccountId");
 
                     b.HasIndex("DepreciationExpenseAccountId");
 
@@ -9127,6 +9132,9 @@ namespace PTGOilSystem.Web.Migrations
                     b.Property<bool>("IsCancelled")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsSalePricePending")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
@@ -9145,6 +9153,15 @@ namespace PTGOilSystem.Web.Migrations
 
                     b.Property<DateTime>("SaleDate")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SalePriceAccountingDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SalePriceFixedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("SalePriceFixedByUserId")
+                        .HasColumnType("integer");
 
                     b.Property<int>("SaleStage")
                         .HasColumnType("integer");
@@ -9210,6 +9227,10 @@ namespace PTGOilSystem.Web.Migrations
 
                     b.HasIndex("InvoiceNumber")
                         .IsUnique();
+
+                    b.HasIndex("IsSalePricePending")
+                        .HasDatabaseName("IX_SalesTransactions_PendingSalePrice")
+                        .HasFilter("\"IsSalePricePending\"");
 
                     b.HasIndex("PreSaleOrderId");
 
@@ -10988,6 +11009,11 @@ namespace PTGOilSystem.Web.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.Account", "DeliveredPendingPricingAccount")
+                        .WithMany()
+                        .HasForeignKey("DeliveredPendingPricingAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("PTGOilSystem.Web.Models.Entities.Account", "DepreciationExpenseAccount")
                         .WithMany()
                         .HasForeignKey("DepreciationExpenseAccountId")
@@ -11116,6 +11142,8 @@ namespace PTGOilSystem.Web.Migrations
                     b.Navigation("CustodyServiceRevenueAccount");
 
                     b.Navigation("CustomerAdvanceAccount");
+
+                    b.Navigation("DeliveredPendingPricingAccount");
 
                     b.Navigation("DepreciationExpenseAccount");
 

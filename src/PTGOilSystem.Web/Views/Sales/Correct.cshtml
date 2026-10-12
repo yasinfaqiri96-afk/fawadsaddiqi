@@ -27,8 +27,15 @@
                 <div class="ak-field"><dt class="ak-label">تاریخ فروش</dt><dd>@Model.SaleDate.ToDisplayDate()</dd></div>
                 <div class="ak-field"><dt class="ak-label">مشتری</dt><dd>@Model.CustomerName</dd></div>
                 <div class="ak-field"><dt class="ak-label">مقدار</dt><dd>@NumberDisplay.Quantity(Model.QuantityMt) MT</dd></div>
-                <div class="ak-field"><dt class="ak-label">مبلغ</dt><dd>@Model.TotalInCurrency.ToString("N2") @Model.Currency</dd></div>
-                <div class="ak-field"><dt class="ak-label">معادل دالر</dt><dd>@Model.TotalUsd.ToString("N2") USD</dd></div>
+                @if (Model.IsSalePricePending)
+                {
+                    <div class="ak-field"><dt class="ak-label">مبلغ</dt><dd>نامشخص — در انتظار قیمت فروش</dd></div>
+                }
+                else
+                {
+                    <div class="ak-field"><dt class="ak-label">مبلغ</dt><dd>@Model.TotalInCurrency.ToString("N2") @Model.Currency</dd></div>
+                    <div class="ak-field"><dt class="ak-label">معادل دالر</dt><dd>@Model.TotalUsd.ToString("N2") USD</dd></div>
+                }
             </dl>
         </section>
 

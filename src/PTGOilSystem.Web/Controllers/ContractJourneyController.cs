@@ -832,6 +832,7 @@ public partial class ContractJourneyController : Controller
                 return new ContractJourneySaleItemViewModel
                 {
                     SalesTransactionId = sale.Id,
+                    IsSalePricePending = sale.IsSalePricePending,
                     ShipmentId = sale.ShipmentId,
                     InvoiceNumber = sale.InvoiceNumber,
                     CustomerName = sale.Customer?.Name ?? string.Empty,
@@ -880,6 +881,7 @@ public partial class ContractJourneyController : Controller
                 return new ContractJourneySaleItemViewModel
                 {
                     SalesTransactionId = sale.Id,
+                    IsSalePricePending = sale.IsSalePricePending,
                     ShipmentId = sale.ShipmentId,
                     InvoiceNumber = sale.InvoiceNumber,
                     CustomerName = sale.Customer?.Name ?? string.Empty,
@@ -963,6 +965,7 @@ public partial class ContractJourneyController : Controller
                 return new ContractJourneySaleItemViewModel
                 {
                     SalesTransactionId = sale.Id,
+                    IsSalePricePending = sale.IsSalePricePending,
                     ShipmentId = sale.ShipmentId,
                     InventoryTransportLegId = sourceLegId,
                     InventoryTransportReceiptId = r.Id,
@@ -1061,6 +1064,7 @@ public partial class ContractJourneyController : Controller
                 return new ContractJourneySaleItemViewModel
                 {
                     SalesTransactionId = sale.Id,
+                    IsSalePricePending = sale.IsSalePricePending,
                     ShipmentId = sale.ShipmentId,
                     TruckDispatchId = d.Id,
                     InvoiceNumber = sale.InvoiceNumber,
@@ -1504,6 +1508,7 @@ public partial class ContractJourneyController : Controller
             return new ContractJourneySaleItemViewModel
             {
                 SalesTransactionId = item.SalesTransactionId,
+                IsSalePricePending = item.IsSalePricePending,
                 ShipmentId = item.ShipmentId,
                 TruckDispatchId = item.TruckDispatchId,
                 InventoryTransportLegId = item.InventoryTransportLegId,
@@ -4300,6 +4305,7 @@ public partial class ContractJourneyController : Controller
             .Select(s => new ContractJourneySaleItemViewModel
             {
                 SalesTransactionId = s.Id,
+                IsSalePricePending = s.IsSalePricePending,
                 ShipmentId = s.ShipmentId,
                 InvoiceNumber = s.InvoiceNumber,
                 CustomerName = s.Customer?.Name ?? baseModel.CustomerName ?? string.Empty,

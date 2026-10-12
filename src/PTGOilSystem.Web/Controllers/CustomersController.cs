@@ -270,7 +270,8 @@ public partial class CustomersController : Controller
                     UnitPriceUsd = s.UnitPriceUsd,
                     TotalInCurrency = s.TotalInCurrency,
                     TotalUsd = s.TotalUsd,
-                    IsCancelled = s.IsCancelled
+                    IsCancelled = s.IsCancelled,
+                    IsSalePricePending = s.IsSalePricePending
                 })
                 .ToListAsync())
             .DistinctBy(s => s.Id)
@@ -566,7 +567,8 @@ public partial class CustomersController : Controller
                     TotalUsd = s.TotalUsd,
                     ReceivedUsd = receivedUsd,
                     PaidToCustomerUsd = paidToCustomerUsd,
-                    IsCancelled = s.IsCancelled
+                    IsCancelled = s.IsCancelled,
+                    IsSalePricePending = s.IsSalePricePending
                 };
             })
             .ToList();
@@ -834,6 +836,7 @@ public partial class CustomersController : Controller
         public decimal TotalInCurrency { get; init; }
         public decimal TotalUsd { get; init; }
         public bool IsCancelled { get; init; }
+        public bool IsSalePricePending { get; init; }
     }
 
     // Slim read-model for customer ledger rows on the Details page.

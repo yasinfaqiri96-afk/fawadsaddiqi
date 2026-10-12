@@ -60,6 +60,13 @@ public interface ITransportSourceAllocationService
         IReadOnlyCollection<SaleSourceAllocationWrite> writes,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// مبلغ سهم‌های منبعِ یک فروش را از TotalUsd فعلی فروش و با همان نسبت مقدار دوباره تقسیم
+    /// می‌کند. فقط برای فروشی که با قیمت باز ثبت شده و اکنون قیمت گرفته است؛ مقدار سهم‌ها
+    /// دست نمی‌خورد. تغییرات ردیابی می‌شوند و با SaveChanges فراخواننده ذخیره می‌شوند.
+    /// </summary>
+    Task RepriceSaleAsync(SalesTransaction sale, CancellationToken ct = default);
+
     Task PersistLossAsync(
         LossEvent lossEvent,
         TransportSourcePlan plan,
@@ -210,6 +217,25 @@ public sealed class TransportSourceAllocationService : ITransportSourceAllocatio
         CancellationToken ct = default)
     {
         await PersistSaleBatchAsync([new SaleSourceAllocationWrite(sale, plan, transportLegId)], ct);
+    }
+
+    public async Task RepriceSaleAsync(SalesTransaction sale, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(sale);
+        var allocations = await _db.SalesTransactionSourceAllocations
+            .Where(a => a.SalesTransactionId == sale.Id)
+            .OrderBy(a => a.Id)
+            .ToListAsync(ct);
+        if (allocations.Count == 0)
+        {
+            return;
+        }
+
+        var amounts = SplitAmount(sale.TotalUsd, allocations.Select(a => a.QuantityMt).ToList());
+        for (var index = 0; index < allocations.Count; index++)
+        {
+            allocations[index].AmountUsd = amounts[index];
+        }
     }
 
     public async Task PersistSaleBatchAsync(

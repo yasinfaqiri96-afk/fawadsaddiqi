@@ -24,6 +24,7 @@ public sealed class SaleCorrectionViewModel
     public string Currency { get; set; } = "USD";
     public decimal TotalInCurrency { get; set; }
     public decimal TotalUsd { get; set; }
+    public bool IsSalePricePending { get; set; }
 
     [Display(Name = "دلیل ابطال")]
     [Required(ErrorMessage = "نوشتن دلیل ابطال الزامی است.")]

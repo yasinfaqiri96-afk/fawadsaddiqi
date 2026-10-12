@@ -1803,6 +1803,7 @@ public partial class ShipmentPnlController : Controller
                 QuantityMt = sale.QuantityMt,
                 UnitPriceUsd = sale.UnitPriceUsd,
                 TotalUsd = sale.TotalUsd,
+                IsSalePricePending = sale.IsSalePricePending,
                 IsDirectShipmentSale = isDirectShipmentSale,
                 VehicleNumber = sale.TruckDispatch?.Truck?.PlateNumber,
                 ContractBreakdownLines = saleBreakdownBySaleId.TryGetValue(sale.Id, out var breakdown)

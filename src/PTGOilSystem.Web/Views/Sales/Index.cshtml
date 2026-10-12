@@ -11,7 +11,8 @@
         || Model.Filter.CustomerId.Length > 0
         || Model.Filter.ProductId.Length > 0
         || Model.Filter.FromDate.HasValue
-        || Model.Filter.ToDate.HasValue;
+        || Model.Filter.ToDate.HasValue
+        || !string.IsNullOrWhiteSpace(Model.Filter.PriceStatus);
     var hasFilters = hasAdvancedFilter || !string.IsNullOrWhiteSpace(Model.Filter.InvoiceNumber);
     var returnUrl = $"{Context.Request.Path}{Context.Request.QueryString}";
 }
@@ -26,6 +27,8 @@
         var sumQuantity = (decimal)(ViewBag.SumQuantity ?? 0m);
         var sumTotalUsd = (decimal)(ViewBag.SumTotalUsd ?? 0m);
         var customerCount = (int)(ViewBag.CustomerCount ?? 0);
+        var pendingPriceCount = (int)(ViewBag.PendingPriceCount ?? 0);
+        var unknownPrice = UiText.T(Context, SalePricingText.Unknown, "Unknown");
     }
     <section class="ak-stat-grid mb-3" aria-label="@UiText.T(Context, "آمار فروش", "Sales statistics")">
         <vc:stat-card title="@UiText.T(Context, "کل فاکتورها", "Total invoices")" value="@Model.TotalCount.ToString("N0")" unit="@UiText.T(Context, "فاکتور", "invoices")" avatar="statement"></vc:stat-card>
@@ -33,6 +36,14 @@
         <vc:stat-card title="@UiText.T(Context, "کل فروش", "Total sales")" value="@sumTotalUsd.ToString("N0")" unit="USD" avatar="sales-value"></vc:stat-card>
         <vc:stat-card title="@UiText.T(Context, "مشتریان", "Customers")" value="@customerCount.ToString("N0")" unit="@UiText.T(Context, "مشتری", "customers")" avatar="customers"></vc:stat-card>
     </section>
+    @if (pendingPriceCount > 0)
+    {
+        @* «کل فروش» فقط فروش‌های قیمت‌قطعی است؛ فروش با قیمت باز صفر حساب نمی‌شود و جدا گفته می‌شود. *@
+        <div class="alert alert-warning mb-3" role="status">
+            @UiText.T(Context, $"{pendingPriceCount:N0} فروش در انتظار تعیین قیمت است و در «کل فروش» شمرده نشده است.", $"{pendingPriceCount:N0} sales are awaiting a price and are not included in total sales.")
+            <a asp-action="Index" asp-route-Filter.PriceStatus="pending">@UiText.T(Context, "نمایش", "Show")</a>
+        </div>
+    }
     <div class="ak-list">
         @{
             List<AkFilterOption> SalesOpts(object? s) => (s as IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>
@@ -47,6 +58,13 @@
                     AkFilterDefinition.MultiSelect("Filter.CustomerId", UiText.T(Context, "مشتری", "Customer"), SalesOpts(ViewBag.Customers), AkFilterQuery.Values(Context, "Filter.CustomerId")),
                     AkFilterDefinition.MultiSelect("Filter.ProductId", UiText.T(Context, "جنس", "Product"), SalesOpts(ViewBag.Products), AkFilterQuery.Values(Context, "Filter.ProductId")),
                     AkFilterDefinition.MultiSelect("Filter.CompanyId", UiText.T(Context, "شرکت", "Company"), SalesOpts(ViewBag.Companies), AkFilterQuery.Values(Context, "Filter.CompanyId")),
+                    new("Filter.PriceStatus", UiText.T(Context, "وضعیت قیمت", "Price status"), "select",
+                        new List<AkFilterOption>
+                        {
+                            new("pending", UiText.T(Context, SalePricingText.PendingSalePrice, "Awaiting sale price")),
+                            new("final", UiText.T(Context, "قیمت قطعی", "Final price"))
+                        },
+                        Model.Filter.PriceStatus),
                     new("Filter.FromDate", UiText.T(Context, "بازه تاریخ", "Date range"), "daterange", null,
                         Model.Filter.FromDate?.ToString("yyyy-MM-dd"), "Filter.ToDate", Model.Filter.ToDate?.ToString("yyyy-MM-dd"))
                 });
@@ -102,13 +120,27 @@
                             <td>
                                 <span class="col-ltr">@NumberDisplay.Quantity(item.QuantityMt) MT</span>
                             </td>
-                            <td>
-                                <span class="col-ltr">@NumberDisplay.Money(item.UnitPriceInCurrency) @item.Currency</span>
+                            @if (item.IsSalePricePending)
+                            {
+                                <td><span>@unknownPrice</span></td>
+                                <td><span>@unknownPrice</span></td>
+                            }
+                            else
+                            {
+                                <td>
+                                    <span class="col-ltr">@NumberDisplay.Money(item.UnitPriceInCurrency) @item.Currency</span>
+                                </td>
+                                <td>
+                                    <span class="col-ltr">@NumberDisplay.Money(item.TotalInCurrency) @item.Currency</span>
+                                </td>
+                            }
+                            <td class="col-status">
+                                <span class="ak-status is-info">@SaleStageLabels.ToPersian(item.SaleStage)</span>
+                                @if (item.IsSalePricePending)
+                                {
+                                    <span class="ak-status is-warning">@UiText.T(Context, SalePricingText.PendingSalePrice, "Awaiting price")</span>
+                                }
                             </td>
-                            <td>
-                                <span class="col-ltr">@NumberDisplay.Money(item.TotalInCurrency) @item.Currency</span>
-                            </td>
-                            <td class="col-status"><span class="ak-status is-info">@SaleStageLabels.ToPersian(item.SaleStage)</span></td>
                             <td class="col-actions">
                                 <div class="ak-row-menu">
                                     <a asp-action="Details" asp-route-id="@item.Id" asp-route-returnUrl="@returnUrl" class="btn btn-light ak-secondary-action" title="@UiText.T(Context, "مشاهده", "View")" aria-label="@UiText.T(Context, "مشاهده", "View")"><i class="bi bi-eye" aria-hidden="true"></i></a>

@@ -85,6 +85,32 @@ public class SalesTransaction : BaseEntity, IVersionedEntity
     public decimal TotalUsd { get; set; }
     [MaxLength(1000)] public string? Notes { get; set; }
 
+    // ---- فروش با قیمت باز ----------------------------------------------------------------
+    //
+    // بار تحویل شده (موجودی کم شده) ولی قیمت فروش هنوز با مشتری قطعی نشده است. تا وقتی این
+    // پرچم روشن است، ستون‌های قیمت/مبلغ بالا «عدد» نیستند و نباید خوانده شوند: هیچ سطر دفتر
+    // (طلب مشتری/عاید)، هیچ ژورنال درآمد/بهای تمام‌شده و هیچ سود قطعی‌ای برای این فروش ساخته
+    // نمی‌شود. قطعی‌سازی (SalesController.SetPrice) قیمت را می‌نشاند و همان مسیرهای همیشگیِ
+    // ثبت فروش را یک‌بار اجرا می‌کند. «قیمت خرید» این‌جا ذخیره نمی‌شود: بهای خرید همیشه از
+    // قرارداد خرید منبع (ContractPricingAdapter) خوانده می‌شود.
+
+    /// <summary>قیمت فروش هنوز تعیین نشده است.</summary>
+    public bool IsSalePricePending { get; set; }
+
+    /// <summary>زمان (UTC) قطعی‌شدن قیمت فروشی که با قیمت باز ثبت شده بود.</summary>
+    public DateTime? SalePriceFixedAtUtc { get; set; }
+
+    /// <summary>کاربری که قیمت فروش را قطعی کرد.</summary>
+    public int? SalePriceFixedByUserId { get; set; }
+
+    /// <summary>
+    /// تاریخ حسابداریِ اسناد مالیِ قیمت‌گذاری (سطر دفتر، ژورنال عاید و بهای تمام‌شده). اگر دورهٔ تاریخِ
+    /// فروش باز باشد همان تاریخ فروش است؛ اگر بسته باشد، روزِ تعیین قیمت در دورهٔ باز — دورهٔ بسته
+    /// دست نمی‌خورد. تاریخ معامله (SaleDate) و زمان تعیین قیمت (SalePriceFixedAtUtc) جدا می‌مانند.
+    /// برای فروشی که از اول با قیمت قطعی ثبت شده null است و تاریخ فروش ملاک است.
+    /// </summary>
+    public DateTime? SalePriceAccountingDate { get; set; }
+
     // فروش گروهی — سهمِ یک رکورد اصلی SalesBatch (nullable، backward-compatible).
     // هر تخصیص یک SalesTransaction عادی با Ledger/موجودی خودش است؛ منطق مالی موازی ساخته نمی‌شود.
     public int? SalesBatchId { get; set; }

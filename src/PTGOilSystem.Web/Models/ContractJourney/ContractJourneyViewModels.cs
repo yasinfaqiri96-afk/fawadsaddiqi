@@ -691,6 +691,8 @@ public sealed class ContractJourneySaleItemViewModel
     public decimal QuantityMt { get; init; }
     public decimal UnitPriceUsd { get; init; }
     public decimal AmountUsd { get; init; }
+    /// <summary>قیمت فروش هنوز تعیین نشده؛ مبلغ‌ها «نامشخص»اند، نه صفر.</summary>
+    public bool IsSalePricePending { get; init; }
     public string SalesContractDisplay { get; init; } = string.Empty;
     public string? StockSourceTypeName { get; init; }
     public string? SaleStageName { get; init; }

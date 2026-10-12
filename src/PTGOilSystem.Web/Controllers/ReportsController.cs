@@ -1141,7 +1141,7 @@ public partial class ReportsController : Controller
 
         var salesWithoutLedger = await _db.SalesTransactions
             .AsNoTracking()
-            .CountAsync(s => !s.IsCancelled && !_db.LedgerEntries.Any(l => l.SourceType == "Sale" && l.SourceId == s.Id));
+            .CountAsync(s => !s.IsCancelled && !s.IsSalePricePending && !_db.LedgerEntries.Any(l => l.SourceType == "Sale" && l.SourceId == s.Id));
         var expensesWithoutLedger = await _db.ExpenseTransactions
             .AsNoTracking()
             .CountAsync(e => !e.IsCancelled && !_db.LedgerEntries.Any(l => l.SourceType == "Expense" && l.SourceId == e.Id));

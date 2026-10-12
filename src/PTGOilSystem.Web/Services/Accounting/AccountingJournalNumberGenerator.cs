@@ -19,6 +19,9 @@ public interface IAccountingJournalNumberGenerator
     string ForSaleReversal(int companyId, int salesTransactionId);
     string ForCogs(int companyId, int salesTransactionId);
     string ForCogsReversal(int companyId, int salesTransactionId);
+    /// <summary>بهای کالای تحویل‌شده با قیمت باز: موجودی → کالای تحویل‌شده در انتظار قیمت.</summary>
+    string ForSaleDeliveredCost(int companyId, int salesTransactionId);
+    string ForSaleDeliveredCostReversal(int companyId, int salesTransactionId);
     string ForCustomerAdvanceApplication(int companyId, int applicationId);
     string ForCustomerAdvanceApplicationReversal(int companyId, int applicationId);
     string ForInventoryLoss(int companyId, int lossEventId);
@@ -192,6 +195,26 @@ public sealed class AccountingJournalNumberGenerator : IAccountingJournalNumberG
             throw new ArgumentOutOfRangeException(nameof(salesTransactionId));
 
         return $"SALR-{companyId:D6}-{salesTransactionId:D10}";
+    }
+
+    public string ForSaleDeliveredCost(int companyId, int salesTransactionId)
+    {
+        if (companyId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(companyId));
+        if (salesTransactionId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(salesTransactionId));
+
+        return $"SDC-{companyId:D6}-{salesTransactionId:D10}";
+    }
+
+    public string ForSaleDeliveredCostReversal(int companyId, int salesTransactionId)
+    {
+        if (companyId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(companyId));
+        if (salesTransactionId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(salesTransactionId));
+
+        return $"SDCR-{companyId:D6}-{salesTransactionId:D10}";
     }
 
     public string ForCogs(int companyId, int salesTransactionId)

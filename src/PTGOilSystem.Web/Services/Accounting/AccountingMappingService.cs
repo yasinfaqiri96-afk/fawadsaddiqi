@@ -128,6 +128,11 @@ public static class AccountingMappingCatalog
             "کسری رسید، ضایعات و کسریِ حملِ بین‌ترمینالی.",
             "Receipt shortage, losses and inter-terminal transport shortage.",
             AccountType.Expense, s => s.InventoryLossAccountId, (s, id) => s.InventoryLossAccountId = id),
+        new(nameof(AccountingSettings.DeliveredPendingPricingAccountId), Inventory, "Inventory",
+            "کالای تحویل‌شده در انتظار قیمت", "Goods delivered pending pricing",
+            "بهای کالایی که با قیمت فروشِ باز تحویل شده؛ هنگام تعیین قیمت با همان مبلغ به بهای تمام‌شده می‌رود.",
+            "Cost of goods delivered before the sale price was agreed; moved to cost of goods sold at the same amount when priced.",
+            AccountType.Asset, s => s.DeliveredPendingPricingAccountId, (s, id) => s.DeliveredPendingPricingAccountId = id),
 
         new(nameof(AccountingSettings.InventoryInTransitAccountId), InTransit, "Goods in transit",
             "کالای در راه", "Inventory in transit",

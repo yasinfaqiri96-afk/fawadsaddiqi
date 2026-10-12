@@ -995,6 +995,58 @@ public class DispatchControllerTests
     }
 
     [Fact]
+    public async Task CreateSaleFromDirectDispatch_With_Pending_Price_Records_The_Sale_Without_Ledger()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+
+        await using var db = new ApplicationDbContext(options);
+        await SeedDirectDispatchAllocationAsync(db);
+        db.TruckDispatches.Add(new TruckDispatch
+        {
+            Id = 1,
+            DispatchMode = TruckDispatchMode.DirectFromReceipt,
+            LoadingReceiptAllocationId = 1,
+            ContractId = 1,
+            ProductId = 1,
+            TruckId = 1,
+            DestinationLocationId = 1,
+            DispatchDate = new DateTime(2026, 4, 24),
+            LoadedQuantityMt = 60m
+        });
+        await db.SaveChangesAsync();
+
+        var controller = new DispatchController(
+            db,
+            new ThrowingStockService(new InvalidOperationException("StockService must not be called for DirectFromReceipt sale.")),
+            new AuditService(db),
+            NullLogger<DispatchController>.Instance)
+        {
+            TempData = BuildTempData()
+        };
+
+        var result = await controller.CreateSaleFromDirectDispatch(new DispatchDirectFromReceiptSaleCreateViewModel
+        {
+            TruckDispatchId = 1,
+            CustomerId = 1,
+            SaleDate = new DateTime(2026, 4, 25),
+            QuantityMt = 60m,
+            Currency = "USD",
+            IsSalePricePending = true,
+            InvoiceNumber = "DDS-PENDING"
+        });
+
+        Assert.IsType<RedirectToActionResult>(result);
+        var sale = await db.SalesTransactions.SingleAsync();
+        Assert.True(sale.IsSalePricePending);
+        Assert.Equal(60m, sale.QuantityMt);
+        Assert.Equal(0m, sale.TotalUsd);
+        Assert.Empty(await db.LedgerEntries.Where(l => l.SourceType == "Sale").ToListAsync());
+        Assert.Equal(sale.Id, (await db.TruckDispatches.SingleAsync()).SalesTransactionId);
+    }
+
+    [Fact]
     public async Task CreateSaleFromDirectDispatch_Post_Creates_Optional_Sale_And_Ledger_Without_Stock_Movement()
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()

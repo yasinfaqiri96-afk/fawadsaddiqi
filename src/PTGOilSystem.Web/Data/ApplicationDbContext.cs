@@ -396,6 +396,10 @@ public partial class ApplicationDbContext : DbContext
             .HasForeignKey(s => s.SupplierId)
             .OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<SalesTransaction>().HasIndex(s => s.SupplierId);
+        // فقط فروش‌های در انتظار قیمت — کوچک و برای فیلتر «در انتظار قیمت» و شمارش راپورها.
+        modelBuilder.Entity<SalesTransaction>().HasIndex(s => s.IsSalePricePending)
+            .HasFilter("\"IsSalePricePending\"")
+            .HasDatabaseName("IX_SalesTransactions_PendingSalePrice");
 
         ConfigureMoney<ExpenseRule>(modelBuilder, r => r.Amount);
         ConfigureMoney<ExpenseTransaction>(modelBuilder, e => e.Amount);
@@ -2807,6 +2811,7 @@ public partial class ApplicationDbContext : DbContext
 
         var pending = ChangeTracker.Entries()
             .Where(entry => entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+            .Where(entry => !IsPricingOfDeliveredSale(entry))
             .Select(entry => new
             {
                 entry.Entity,
@@ -2842,6 +2847,39 @@ public partial class ApplicationDbContext : DbContext
                 closedThrough);
         }
     }
+
+    /// <summary>
+    /// ستون‌هایی که «تعیین قیمتِ فروشِ تحویل‌شده» روی خودِ سند فروش می‌نویسد. فقط همین‌ها.
+    /// </summary>
+    private static readonly HashSet<string> SalePricingProperties = new(StringComparer.Ordinal)
+    {
+        nameof(SalesTransaction.Currency),
+        nameof(SalesTransaction.UnitPriceInCurrency),
+        nameof(SalesTransaction.AppliedFxRateToUsd),
+        nameof(SalesTransaction.UnitPriceUsd),
+        nameof(SalesTransaction.TotalInCurrency),
+        nameof(SalesTransaction.TotalUsd),
+        nameof(SalesTransaction.IsSalePricePending),
+        nameof(SalesTransaction.SalePriceFixedAtUtc),
+        nameof(SalesTransaction.SalePriceFixedByUserId),
+        nameof(SalesTransaction.SalePriceAccountingDate),
+        nameof(SalesTransaction.Version),
+        nameof(BaseEntity.UpdatedAtUtc),
+        nameof(BaseEntity.UpdatedByUserId)
+    };
+
+    /// <summary>
+    /// تعیین قیمتِ فروشی که در دورهٔ بسته تحویل شده، دورهٔ بسته را تغییر نمی‌دهد: تحویل، مقدار و
+    /// موجودیِ آن سند دست نمی‌خورد و تمامِ اسناد مالیِ قیمت‌گذاری (سطر دفتر، ژورنال‌ها) با تاریخِ
+    /// دورهٔ باز ثبت می‌شوند و خودشان زیر همین قفل‌اند. پس فقط این تغییرِ مشخص — سندی که پیش از
+    /// ذخیره «در انتظار قیمت» بود و جز ستون‌های قیمت‌گذاری چیزی از آن عوض نشده — از قفل عبور
+    /// می‌کند. هر تغییرِ دیگری روی همان سند (مقدار، تاریخ، لغو) همچنان رد می‌شود.
+    /// </summary>
+    private static bool IsPricingOfDeliveredSale(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry entry)
+        => entry.Entity is SalesTransaction
+           && entry.State == EntityState.Modified
+           && entry.Property(nameof(SalesTransaction.IsSalePricePending)).OriginalValue is true
+           && entry.Properties.Where(p => p.IsModified).All(p => SalePricingProperties.Contains(p.Metadata.Name));
 
     /// <summary>
     /// آخرین روزِ بسته، یا <c>DateTime.MinValue</c> وقتی هیچ قفلی فعال نیست.

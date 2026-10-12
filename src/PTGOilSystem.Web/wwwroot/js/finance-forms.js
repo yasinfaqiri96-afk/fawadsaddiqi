@@ -115,6 +115,8 @@ var shipmentSelect = form.querySelector("[data-sales-shipment]");
 var destinationInput = form.querySelector("[data-sales-destination-id]");
 var quantityInput = form.querySelector("[data-sales-quantity]");
 var unitPriceInput = form.querySelector("[data-sales-unit-price]");
+// «قیمت فروش هنوز مشخص نیست»: فیلد قیمت غیرفعال و مبلغ «نامشخص» نمایش داده می‌شود، نه صفر.
+var pricePendingInput = form.querySelector("[data-sales-price-pending]");
 var currencySelect = form.querySelector("[data-sales-currency]");
 var fxRateField = form.querySelector("[data-sales-fx-rate-field]");
 var fxRateInput = form.querySelector("[data-sales-fx-rate]");
@@ -287,6 +289,16 @@ var rate = parseDecimal(fxRate);
 if (rate <= 0) return null;
 return quantity * unitPrice * rate;
 }
+function isPricePending() {
+return !!(pricePendingInput && pricePendingInput.checked);
+}
+function refreshPricePending() {
+if (!pricePendingInput || !unitPriceInput) return;
+var pending = isPricePending();
+unitPriceInput.disabled = pending;
+if (pending) unitPriceInput.value = "";
+if (fxRateInput) fxRateInput.disabled = pending;
+}
 function refreshSaveSummary() {
 // خلاصهٔ انتهای فرم فقط دو عدد دارد؛ فهرست خطی اختیاری است.
 if (saveSummaryWarning) {
@@ -300,8 +312,8 @@ var currency = normalizeCurrency(currencySelect && currencySelect.value) || base
 var total = quantity * unitPrice;
 var usdTotal = computeUsdTotal(quantity, unitPrice, currency, fxRateInput && fxRateInput.value);
 if (summaryQty) summaryQty.textContent = formatQuantity(quantity);
-if (summaryAmount) summaryAmount.textContent = formatMoney(total);
-if (summaryAmountUnit) summaryAmountUnit.textContent = currency;
+if (summaryAmount) summaryAmount.textContent = isPricePending() ? text("نامشخص", "Unknown") : formatMoney(total);
+if (summaryAmountUnit) summaryAmountUnit.textContent = isPricePending() ? "" : currency;
 if (summaryBase) {
 var baseEquivalent = usdTotal !== null ? usdTotal : (currency === baseCurrency ? total : 0);
 summaryBase.textContent = formatMoney(baseEquivalent);
@@ -369,7 +381,7 @@ if (!totalValue) return;
 var quantity = parseDecimal(quantityInput && quantityInput.value);
 var unitPrice = parseDecimal(unitPriceInput && unitPriceInput.value);
 // واحد پول در سربرگ ستون آمده؛ داخل سلول تکرار نمی‌شود.
-totalValue.textContent = formatMoney(quantity * unitPrice);
+totalValue.textContent = isPricePending() ? text("نامشخص", "Unknown") : formatMoney(quantity * unitPrice);
 refreshSaveSummary();
 }
 function hideStockAlert() {
@@ -484,7 +496,7 @@ hint.classList.remove("d-none");
 formula.textContent = data.formulaText || "";
 reason.textContent = data.reason || "";
 fallback.classList.toggle("d-none", !data.fallbackApplied);
-if (data.ok && data.finalUnitPrice !== null && data.finalUnitPrice !== undefined) {
+if (data.ok && data.finalUnitPrice !== null && data.finalUnitPrice !== undefined && !isPricePending()) {
 unitPriceInput.value = data.finalUnitPrice;
 refreshTotal();
 }
@@ -546,7 +558,12 @@ if (currencySelect) currencySelect.addEventListener("change", function () {
 refreshFxRateVisibility();
 refreshTotal();
 });
+if (pricePendingInput) pricePendingInput.addEventListener("change", function () {
+refreshPricePending();
+refreshTotal();
+});
 syncSourceTerminalFromTank();
+refreshPricePending();
 refreshStage();
 refreshFxRateVisibility();
 refreshTotal();

@@ -97,5 +97,13 @@ public class AccountingSettings : BaseEntity
     public int? CustodyServiceRevenueAccountId { get; set; }
     public Account? CustodyServiceRevenueAccount { get; set; }
 
+    /// <summary>
+    /// کالای تحویل‌شده در انتظار قیمت فروش (۱۳۲۰). بهای کالایی که با قیمت باز تحویل شده هنگامِ
+    /// تحویل از موجودی (۱۳۰۰) به این حساب می‌آید و هنگامِ تعیین قیمت، با همان مبلغ، بهای تمام‌شده
+    /// (۵۱۰۰) می‌شود؛ پس بهای فروش به میانگینِ روزِ تحویل قفل است، نه روزِ قیمت‌گذاری.
+    /// </summary>
+    public int? DeliveredPendingPricingAccountId { get; set; }
+    public Account? DeliveredPendingPricingAccount { get; set; }
+
     public uint RowVersion { get; set; }
 }

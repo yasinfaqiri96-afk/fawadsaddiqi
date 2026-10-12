@@ -2550,6 +2550,41 @@ public class SalesControllerTests
     }
 
     [Fact]
+    public async Task CreateGroup_With_Pending_Price_Delivers_Without_Ledger_And_Each_Line_Is_Priced_Later()
+    {
+        await using var db = new ApplicationDbContext(NewDbOptions());
+        SeedReferenceData(db);
+        SeedPurchaseContract(db, 2);
+        db.LoadingRegisters.Add(new LoadingRegister { Id = 1, ContractId = 2, ProductId = 1,
+            LoadedQuantityMt = 100m, LoadingDate = new DateTime(2026, 5, 1) });
+        await db.SaveChangesAsync();
+
+        var result = await BuildController(db).CreateGroup(new GroupSaleCreateViewModel
+        {
+            CustomerId = 1, SaleDate = new DateTime(2026, 5, 3), Currency = "USD", IsSalePricePending = true,
+            LoadingSaleTerminalId = 1, Items = [new() { Kind = GroupSaleSourceKind.LoadingRegister, Id = 1, QuantityMt = 40m }]
+        });
+
+        Assert.IsType<RedirectToActionResult>(result);
+        var sale = await db.SalesTransactions.SingleAsync();
+        Assert.True(sale.IsSalePricePending);
+        Assert.Equal(0m, sale.TotalUsd);
+        Assert.Null(sale.AppliedFxRateToUsd);
+        Assert.Empty(await db.LedgerEntries.ToListAsync());
+        Assert.Equal(40m, (await db.LoadingReceiptAllocations.SingleAsync()).QuantityMt);
+        var batch = await db.SalesBatches.SingleAsync();
+        Assert.Equal(0m, batch.TotalUsd);
+
+        var controller = BuildController(db);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        await controller.SetPrice(sale.Id, new SalePriceFixViewModel { Version = sale.Version, Currency = "USD", UnitPriceInCurrency = 450m });
+
+        Assert.Equal(18_000m, (await db.LedgerEntries.SingleAsync()).AmountUsd);
+        Assert.Equal(18_000m, (await db.SalesBatches.AsNoTracking().SingleAsync()).TotalUsd);
+        Assert.False((await db.SalesTransactions.AsNoTracking().SingleAsync()).IsSalePricePending);
+    }
+
+    [Fact]
     public async Task CreateGroup_Loading_Rejects_OverRemaining_And_Cancelled_Source()
     {
         await using var db = new ApplicationDbContext(NewDbOptions());

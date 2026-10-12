@@ -346,8 +346,15 @@ public sealed class CompanyBalanceReportService(
         }
 
         // همان فیلتر فروش BuildCompanyAsync (لغونشده، تاریخ فروش داخل دوره)؛ جمع ردیف‌ها = فروشات دوره.
+        var pendingPriceSales = await db.SalesTransactions.AsNoTracking()
+            .CountAsync(s => !s.IsCancelled && s.IsSalePricePending && s.SaleDate >= fromDate && s.SaleDate < toExclusive, ct);
+        if (pendingPriceSales > 0)
+        {
+            notes.Add($"{pendingPriceSales:N0} فروش داخل دوره هنوز قیمت فروش ندارد؛ عاید و سود آن‌ها تا تعیین قیمت شمرده نمی‌شود.");
+        }
+
         var periodSales = await db.SalesTransactions.AsNoTracking()
-            .Where(s => !s.IsCancelled && s.SaleDate >= fromDate && s.SaleDate < toExclusive)
+            .Where(s => !s.IsCancelled && !s.IsSalePricePending && s.SaleDate >= fromDate && s.SaleDate < toExclusive)
             .OrderBy(s => s.SaleDate).ThenBy(s => s.Id)
             .Select(s => new
             {

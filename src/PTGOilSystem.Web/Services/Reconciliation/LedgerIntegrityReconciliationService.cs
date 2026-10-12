@@ -135,12 +135,12 @@ public sealed class LedgerIntegrityReconciliationService(ApplicationDbContext db
         var saleLedgerIds = db.LedgerEntries.Where(entry => entry.SourceType == "Sale").Select(entry => entry.SourceId);
         var salesWithoutLedger = await db.SalesTransactions
             .AsNoTracking()
-            .Where(sale => !saleLedgerIds.Contains(sale.Id))
+            .Where(sale => !sale.IsSalePricePending && !saleLedgerIds.Contains(sale.Id))
             .Select(sale => new { sale.Id, sale.SaleDate, sale.TotalUsd })
             .Take(SampleSize)
             .ToListAsync(cancellationToken);
         count += await db.SalesTransactions.AsNoTracking()
-            .CountAsync(sale => !saleLedgerIds.Contains(sale.Id), cancellationToken);
+            .CountAsync(sale => !sale.IsSalePricePending && !saleLedgerIds.Contains(sale.Id), cancellationToken);
         samples.AddRange(salesWithoutLedger.Select(row => $"Sale#{row.Id} ({row.SaleDate:yyyy-MM-dd}, {row.TotalUsd:N2} USD)"));
 
         var expenseLedgerIds = db.LedgerEntries.Where(entry => entry.SourceType == "Expense").Select(entry => entry.SourceId);

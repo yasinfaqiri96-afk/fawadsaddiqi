@@ -247,8 +247,10 @@ public sealed class SaleContractAttributionReader : ISaleContractAttributionRead
             return new PurchaseContractSales(new Dictionary<int, IReadOnlyList<AttributedContractSale>>(), mismatchByContract);
         }
 
+        // فروش با قیمت باز هنوز «فروش تحقق‌یافته» نیست: مقدارش در سهم فروش قرارداد نمی‌نشیند و
+        // بهایش در بهای فروش‌نرفته می‌ماند تا قیمت تعیین شود (هیچ عاید صفری کنار بهای کامل نمی‌نشیند).
         var saleRows = await _db.SalesTransactions.AsNoTracking()
-            .Where(s => (!_reportBefore.HasValue || s.SaleDate < _reportBefore.Value) && !s.IsCancelled && saleIds.Contains(s.Id))
+            .Where(s => (!_reportBefore.HasValue || s.SaleDate < _reportBefore.Value) && !s.IsCancelled && !s.IsSalePricePending && saleIds.Contains(s.Id))
             .Select(s => new { s.Id, s.SaleDate, s.InvoiceNumber, s.QuantityMt, s.TotalUsd })
             .ToDictionaryAsync(s => s.Id, ct);
         var attribution = await LoadForSalesAsync(saleIds, ct);

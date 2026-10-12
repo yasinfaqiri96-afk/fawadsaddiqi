@@ -40,6 +40,39 @@ public static class SalesContractText
         => string.IsNullOrWhiteSpace(contractNumber) ? WithoutSalesContract : contractNumber;
 }
 
+// وضعیت قیمت‌گذاری یک فروش از دو پرچم مستقل ساخته می‌شود: قیمت فروش (روی خودِ فروش ذخیره
+// می‌شود) و قیمت خرید (از قرارداد خرید منبع خوانده می‌شود، هرگز روی فروش کپی نمی‌شود).
+public enum SalePricingState
+{
+    Final = 0,
+    AwaitingSalePrice = 1,
+    AwaitingPurchasePrice = 2,
+    AwaitingBothPrices = 3
+}
+
+public static class SalePricingText
+{
+    public const string Unknown = "نامشخص";
+    public const string PendingSalePrice = "در انتظار قیمت فروش";
+
+    public static SalePricingState Resolve(bool salePricePending, bool purchasePricePending)
+        => (salePricePending, purchasePricePending) switch
+        {
+            (true, true) => SalePricingState.AwaitingBothPrices,
+            (true, false) => SalePricingState.AwaitingSalePrice,
+            (false, true) => SalePricingState.AwaitingPurchasePrice,
+            _ => SalePricingState.Final
+        };
+
+    public static string Label(SalePricingState state) => state switch
+    {
+        SalePricingState.AwaitingSalePrice => PendingSalePrice,
+        SalePricingState.AwaitingPurchasePrice => "در انتظار قیمت خرید",
+        SalePricingState.AwaitingBothPrices => "در انتظار قیمت فروش و خرید",
+        _ => "قیمت قطعی"
+    };
+}
+
 public sealed class SalesCreateViewModel
 {
     /// <summary>
@@ -114,6 +147,13 @@ public sealed class SalesCreateViewModel
         set => UnitPriceInCurrency = value;
     }
 
+    /// <summary>
+    /// قیمت فروش هنوز با مشتری قطعی نشده است. فروش و خروج موجودی ثبت می‌شود، ولی هیچ سند مالی
+    /// تا تعیین قیمت ساخته نمی‌شود (قیمت واحد در این حالت نادیده گرفته می‌شود).
+    /// </summary>
+    [Display(Name = "قیمت فروش هنوز مشخص نیست")]
+    public bool IsSalePricePending { get; set; }
+
     [Display(Name = "نرخ تبدیل به USD")]
     [Range(typeof(decimal), "0.000001", "79228162514264337593543950335", ErrorMessage = "نرخ تبدیل باید بزرگ‌تر از صفر باشد.")]
     public decimal? AppliedFxRateToUsd { get; set; }
@@ -178,6 +218,10 @@ public sealed class ShipmentFlowSaleCreateViewModel
     [Display(Name = "قیمت هر تن")]
     [Range(typeof(decimal), "0.0001", "79228162514264337593543950335", ErrorMessage = "قیمت هر تن باید بزرگ‌تر از صفر باشد.")]
     public decimal UnitPriceInCurrency { get; set; }
+
+    /// <summary>قیمت فروش هنوز مشخص نیست؛ بار و موجودی ثبت می‌شود، سند مالی پس از تعیین قیمت.</summary>
+    [Display(Name = "قیمت فروش هنوز مشخص نیست")]
+    public bool IsSalePricePending { get; set; }
 
     [Display(Name = "ارز فروش")]
     [Required(ErrorMessage = "ارز الزامی است.")]
@@ -259,6 +303,11 @@ public sealed class SalesIndexFilterViewModel
     [Display(Name = "تا تاریخ")]
     [DataType(DataType.Date)]
     public DateTime? ToDate { get; set; }
+
+    /// <summary>«pending» فقط فروش‌های در انتظار قیمت فروش؛ «final» فقط قیمت‌قطعی؛ خالی همه.</summary>
+    [Display(Name = "وضعیت قیمت")]
+    [StringLength(20)]
+    public string? PriceStatus { get; set; }
 }
 
 public sealed class SalesListItemViewModel
@@ -283,6 +332,13 @@ public sealed class SalesListItemViewModel
     public decimal? AppliedFxRateToUsd { get; init; }
     public decimal UnitPriceUsd { get; init; }
     public decimal TotalUsd { get; init; }
+    public bool IsSalePricePending { get; init; }
+
+    // ستون‌های خروجی (Excel/PDF/CSV): فروش با قیمت باز خانهٔ خالی می‌گیرد، نه صفر.
+    public decimal? ReportUnitPriceInCurrency => IsSalePricePending ? null : UnitPriceInCurrency;
+    public decimal? ReportTotalInCurrency => IsSalePricePending ? null : TotalInCurrency;
+    public decimal? ReportTotalUsd => IsSalePricePending ? null : TotalUsd;
+    public string PriceStatusName => IsSalePricePending ? SalePricingText.PendingSalePrice : "قیمت قطعی";
 }
 
 public sealed class SalesIndexViewModel
@@ -347,6 +403,55 @@ public sealed class SalesDetailsViewModel
     public int? SourcePurchaseContractId { get; init; }
     public string? SourceTerminalName { get; init; }
     public string? SourceStorageTankCode { get; init; }
+
+    // ---- وضعیت قیمت‌گذاری ----
+    public bool IsSalePricePending { get; init; }
+    /// <summary>دست‌کم یکی از قراردادهای خرید منبع هنوز نرخ نهایی ندارد.</summary>
+    public bool IsPurchasePricePending { get; init; }
+    /// <summary>قراردادهای خرید منبعی که نرخ نهایی ندارند (برای پیوند به صفحهٔ نرخ قرارداد).</summary>
+    public IReadOnlyList<SalePendingPurchaseContractViewModel> PendingPurchaseContracts { get; init; } = [];
+    public SalePricingState PricingState => SalePricingText.Resolve(IsSalePricePending, IsPurchasePricePending);
+    public DateTime? SalePriceFixedAtUtc { get; init; }
+    public DateTime? SalePriceAccountingDate { get; init; }
+    public string? SalePriceFixedByName { get; init; }
+    public long Version { get; init; }
+}
+
+public sealed class SalePendingPurchaseContractViewModel
+{
+    public int ContractId { get; init; }
+    public string Label { get; init; } = string.Empty;
+}
+
+// فرم تعیین قیمت فروشی که با قیمت باز ثبت شده است. فقط قیمت/ارز/نرخ تبدیل؛ مقدار، خریدار،
+// تاریخ و منبع همان سند اصلی می‌مانند و از این فرم تغییر نمی‌کنند.
+public sealed class SalePriceFixViewModel
+{
+    public int Id { get; set; }
+    public long Version { get; set; }
+
+    [Display(Name = "ارز")]
+    [Required(ErrorMessage = "ارز الزامی است.")]
+    [StringLength(10)]
+    public string Currency { get; set; } = "USD";
+
+    [Display(Name = "قیمت فی تن")]
+    [Range(typeof(decimal), "0.0001", "79228162514264337593543950335", ErrorMessage = "قیمت واحد باید بزرگ‌تر از صفر باشد.")]
+    public decimal? UnitPriceInCurrency { get; set; }
+
+    [Display(Name = "نرخ تبدیل به USD")]
+    [Range(typeof(decimal), "0.000001", "79228162514264337593543950335", ErrorMessage = "نرخ تبدیل باید بزرگ‌تر از صفر باشد.")]
+    public decimal? AppliedFxRateToUsd { get; set; }
+
+    [StringLength(1000)]
+    public string? ReturnUrl { get; set; }
+
+    // فقط نمایشی
+    public string InvoiceNumber { get; set; } = string.Empty;
+    public string CustomerName { get; set; } = string.Empty;
+    public string ProductName { get; set; } = string.Empty;
+    public DateTime SaleDate { get; set; }
+    public decimal QuantityMt { get; set; }
 }
 
 public sealed class SalesPaymentDetailsViewModel

@@ -78,6 +78,10 @@ public sealed class GroupSaleCreateViewModel
     [Range(typeof(decimal), "0.0001", "79228162514264337593543950335", ErrorMessage = "نرخ فروش هر تن باید بزرگ‌تر از صفر باشد.")]
     public decimal UnitPriceInCurrency { get; set; }
 
+    /// <summary>قیمت فروش هنوز مشخص نیست؛ بار و موجودی ثبت می‌شود، سند مالی پس از تعیین قیمت.</summary>
+    [Display(Name = "قیمت فروش هنوز مشخص نیست")]
+    public bool IsSalePricePending { get; set; }
+
     [Display(Name = "یادداشت پرداخت")]
     [StringLength(500)]
     public string? PaymentNote { get; set; }
@@ -137,6 +141,7 @@ public sealed class GroupSaleLineViewModel
     public decimal TotalInCurrency { get; init; }
     public decimal TotalUsd { get; init; }
     public bool IsCancelled { get; init; }
+    public bool IsSalePricePending { get; init; }
     public decimal ReceivedUsd { get; init; }
     public decimal OpenReceivableUsd { get; init; }
 }

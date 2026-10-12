@@ -13,7 +13,10 @@ public static class SaleLedgerFactory
 {
     // توضیحِ استانداردِ ردیفِ لجرِ فروش (همان رشته‌ای که در همهٔ مسیرها استفاده می‌شد).
     public static string BuildDescription(SalesTransaction sale)
-        => $"ثبت فروش {SaleStageLabels.ToPersian(sale.SaleStage)} فاکتور {sale.InvoiceNumber}";
+        => $"ثبت فروش {SaleStageLabels.ToPersian(sale.SaleStage)} فاکتور {sale.InvoiceNumber}"
+           + (sale.SalePriceAccountingDate.HasValue && sale.SalePriceAccountingDate.Value.Date != sale.SaleDate.Date
+               ? $" | تحویل {sale.SaleDate:yyyy-MM-dd}، قیمت‌گذاری در دورهٔ باز"
+               : string.Empty);
 
     public static LedgerPostingRequest BuildSaleLedgerEntry(
         SalesTransaction sale,
@@ -21,7 +24,8 @@ public static class SaleLedgerFactory
         int? contractId)
         => new()
         {
-            EntryDate = sale.SaleDate,
+            // فروشی که بعداً قیمت گرفته تاریخ حسابداریِ خودش را دارد؛ فروش عادی همان تاریخ فروش.
+            EntryDate = sale.SalePriceAccountingDate ?? sale.SaleDate,
             Side = LedgerSide.Credit,
             AmountUsd = sale.TotalUsd,
             Currency = SystemCurrency.BaseCurrencyCode,

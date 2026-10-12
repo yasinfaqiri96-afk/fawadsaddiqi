@@ -14,8 +14,11 @@ public sealed class LoadingDirectSaleDraftService(ICurrencyConversionService cur
     {
         if (loading.Contract is null)
             throw new BusinessRuleException("DIRECT_SALE_SOURCE_CONTRACT_REQUIRED", "قرارداد خرید منبع باید مشخص باشد.");
-        var conversion = await currencyConversion.ResolveToBaseAsync(line.SaleCurrency,
-            line.SaleDate!.Value.Date, line.SaleAppliedFxRateToUsd);
+        // قیمت باز: نرخ ارز با خودِ قیمت و در «تعیین قیمت فروش» گرفته می‌شود.
+        var conversion = line.SaleIsPricePending
+            ? SalePendingPricing.NeutralConversion(line.SaleCurrency, line.SaleDate!.Value)
+            : await currencyConversion.ResolveToBaseAsync(line.SaleCurrency,
+                line.SaleDate!.Value.Date, line.SaleAppliedFxRateToUsd);
         return Build(line, loading, conversion);
     }
 
@@ -24,9 +27,10 @@ public sealed class LoadingDirectSaleDraftService(ICurrencyConversionService cur
     {
         if (loading.Contract is null)
             throw new BusinessRuleException("DIRECT_SALE_SOURCE_CONTRACT_REQUIRED", "قرارداد خرید منبع باید مشخص باشد.");
-        var totalInCurrency = decimal.Round(line.QuantityMt * line.SaleUnitPriceInCurrency!.Value,
+        var unitPrice = line.SaleIsPricePending ? 0m : line.SaleUnitPriceInCurrency!.Value;
+        var totalInCurrency = decimal.Round(line.QuantityMt * unitPrice,
             4, MidpointRounding.AwayFromZero);
-        return new(new SalesTransaction
+        var draft = new LoadingDirectSaleDraft(new SalesTransaction
         {
             ContractId = null, CompanyId = loading.Contract.CompanyId,
             SourcePurchaseContractId = loading.ContractId,
@@ -35,11 +39,14 @@ public sealed class LoadingDirectSaleDraftService(ICurrencyConversionService cur
             ShipmentId = null, SaleStage = SaleStage.InTransit,
             InvoiceNumber = line.SaleInvoiceNumber!, SaleDate = line.SaleDate!.Value.Date,
             QuantityMt = line.QuantityMt, Currency = conversion.SourceCurrencyCode,
-            UnitPriceInCurrency = line.SaleUnitPriceInCurrency.Value,
+            UnitPriceInCurrency = unitPrice,
             AppliedFxRateToUsd = conversion.AppliedRateToBase,
-            UnitPriceUsd = conversion.ConvertToBase(line.SaleUnitPriceInCurrency.Value),
+            UnitPriceUsd = conversion.ConvertToBase(unitPrice),
             TotalInCurrency = totalInCurrency, TotalUsd = conversion.ConvertToBase(totalInCurrency),
             Notes = line.SaleNotes
         }, conversion);
+        if (line.SaleIsPricePending)
+            SalePendingPricing.MarkPending(draft.Sale, line.SaleCurrency);
+        return draft;
     }
 }

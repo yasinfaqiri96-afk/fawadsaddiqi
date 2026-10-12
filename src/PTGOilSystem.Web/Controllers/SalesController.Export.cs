@@ -21,10 +21,11 @@ public partial class SalesController
             new("قرارداد", "Contract", TabularExportValueType.Text, 16, "ContractNumber"),
             new("جنس", "Product", TabularExportValueType.Text, 18, "ProductName"),
             new("مقدار MT", "Quantity MT", TabularExportValueType.Number, 14, "QuantityMt"),
-            new("نرخ واحد", "Unit price", TabularExportValueType.Number, 14, "UnitPriceInCurrency"),
-            new("مجموع", "Total", TabularExportValueType.Number, 15, "TotalInCurrency"),
+            new("نرخ واحد", "Unit price", TabularExportValueType.Number, 14, "ReportUnitPriceInCurrency"),
+            new("مجموع", "Total", TabularExportValueType.Number, 15, "ReportTotalInCurrency"),
             new("ارز", "Currency", TabularExportValueType.Text, 10, "Currency"),
-            new("مجموع USD", "Total USD", TabularExportValueType.Number, 15, "TotalUsd"),
+            new("مجموع USD", "Total USD", TabularExportValueType.Number, 15, "ReportTotalUsd"),
+            new("وضعیت قیمت", "Price status", TabularExportValueType.Text, 16, "PriceStatusName"),
             new("مقصد", "Destination", TabularExportValueType.Text, 18, "DestinationName"),
             new("نمبر وسیله", "Vehicle no.", TabularExportValueType.Text, 16, "VehicleNumber")
         ], TabularExportSupport.FiltersFromQuery(Request), forceLandscape: true);

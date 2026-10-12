@@ -17,6 +17,8 @@ public sealed class ShipmentSaleDisplayRow
     public decimal QuantityMt { get; init; }
     public decimal UnitPriceUsd { get; init; }
     public decimal TotalUsd { get; init; }
+    /// <summary>دست‌کم یکی از فروش‌های این ردیف هنوز قیمت ندارد؛ مبلغ ردیف نامشخص است.</summary>
+    public bool IsSalePricePending { get; init; }
     public bool IsDirectShipmentSale { get; init; }
     /// <summary>نمبر وسیله؛ اگر سطر گروهی چند وسیله داشته باشد «چند وسیله».</summary>
     public string? VehicleNumber { get; init; }
@@ -155,6 +157,7 @@ public static class ShipmentPnlDisplayGrouping
                         ? RoundMoney(totalUsd / quantityMt)
                         : RoundMoney(ordered.First().UnitPriceUsd),
                     TotalUsd = totalUsd,
+                    IsSalePricePending = ordered.Any(sale => sale.IsSalePricePending),
                     IsDirectShipmentSale = ordered.Any(sale => sale.IsDirectShipmentSale),
                     VehicleNumber = ResolveSingleOrMixed(
                         ordered.Select(sale => sale.VehicleNumber),

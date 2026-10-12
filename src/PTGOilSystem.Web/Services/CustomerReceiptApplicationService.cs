@@ -113,7 +113,7 @@ public sealed class CustomerReceiptApplicationService(ApplicationDbContext db)
         var sale = await db.SalesTransactions
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.Id == salesTransactionId, ct);
-        if (sale is null || sale.IsCancelled)
+        if (sale is null || sale.IsCancelled || sale.IsSalePricePending)
         {
             return 0m;
         }
@@ -129,6 +129,7 @@ public sealed class CustomerReceiptApplicationService(ApplicationDbContext db)
             .AsNoTracking()
             .Where(s => s.CustomerId == customerId
                 && !s.IsCancelled
+                && !s.IsSalePricePending
                 && (salesBatchId == null || s.SalesBatchId == salesBatchId))
             .OrderBy(s => s.SaleDate).ThenBy(s => s.Id)
             .Select(s => new { s.Id, s.InvoiceNumber, s.SaleDate, s.TotalUsd })
@@ -257,6 +258,13 @@ public sealed class CustomerReceiptApplicationService(ApplicationDbContext db)
                 throw new BusinessRuleException(
                     "CUSTOMER_APPLICATION_SALE_CANCELLED",
                     $"فروش {sale.InvoiceNumber} لغو شده و تطبیق نمی‌پذیرد.");
+            }
+
+            if (sale.IsSalePricePending)
+            {
+                throw new BusinessRuleException(
+                    "CUSTOMER_APPLICATION_SALE_PRICE_PENDING",
+                    $"قیمت فروش {sale.InvoiceNumber} هنوز تعیین نشده است؛ دریافت به‌عنوان پیش‌دریافت روی حساب مشتری می‌ماند و پس از تعیین قیمت تطبیق شود.");
             }
 
             if (sale.SupplierId.HasValue)

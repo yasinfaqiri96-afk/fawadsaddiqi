@@ -2113,7 +2113,15 @@ public partial class DispatchController : Controller
                 $"مقدار فروش از باقی‌ماندهٔ قابل فروش این موتر بیشتر است ({remainingQuantityMt:N4} MT).");
         }
 
-        if (model.UnitPriceInCurrency <= 0m)
+        if (model.IsSalePricePending)
+        {
+            // قیمت باز: قیمت و نرخ ارز بعداً از صفحهٔ همان فروش ثبت می‌شود.
+            ModelState.Remove(nameof(model.UnitPriceInCurrency));
+            ModelState.Remove(nameof(model.AppliedFxRateToUsd));
+            model.UnitPriceInCurrency = 0m;
+            model.AppliedFxRateToUsd = null;
+        }
+        else if (model.UnitPriceInCurrency <= 0m)
         {
             ModelState.AddModelError(nameof(model.UnitPriceInCurrency), "Unit price must be greater than zero.");
         }
@@ -2128,7 +2136,11 @@ public partial class DispatchController : Controller
         }
 
         CurrencyConversionResult? conversion = null;
-        if (ModelState.IsValid)
+        if (ModelState.IsValid && model.IsSalePricePending)
+        {
+            conversion = SalePendingPricing.NeutralConversion(model.Currency, model.SaleDate);
+        }
+        else if (ModelState.IsValid)
         {
             try
             {
@@ -2197,6 +2209,11 @@ public partial class DispatchController : Controller
             _sourceAllocations.ApplyLegacyHeader(sale, saleSourcePlan);
         }
 
+        if (model.IsSalePricePending)
+        {
+            SalePendingPricing.MarkPending(sale, model.Currency);
+        }
+
         IDbContextTransaction? transaction = null;
         if (_db.Database.IsRelational())
         {
@@ -2217,12 +2234,14 @@ public partial class DispatchController : Controller
             // SalesTransaction.TruckDispatchId ردیابی می‌شوند.
             dispatch.SalesTransactionId ??= sale.Id;
 
-            var ledgerEntry = Ledger.Post(SaleLedgerFactory.BuildSaleLedgerEntry(
-                sale,
-                conversion,
-                contractId: saleSourcePlan.Shares.Count > 0
-                    ? saleSourcePlan.SingleContractId
-                    : sourcePurchaseContract.Id));
+            var ledgerEntry = SalePendingPricing.ShouldPostLedger(sale)
+                ? Ledger.Post(SaleLedgerFactory.BuildSaleLedgerEntry(
+                    sale,
+                    conversion,
+                    contractId: saleSourcePlan.Shares.Count > 0
+                        ? saleSourcePlan.SingleContractId
+                        : sourcePurchaseContract.Id))
+                : null;
             await _db.SaveChangesAsync();
 
             // مرحله ۷ — Dual-write داخل همان Transaction قدیمی.

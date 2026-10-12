@@ -204,7 +204,15 @@ public partial class SalesController
             ModelState.AddModelError(nameof(model.Currency), "ارز انتخاب‌شده معتبر نیست.");
         }
 
-        if (model.UnitPriceInCurrency <= 0m)
+        if (model.IsSalePricePending)
+        {
+            // قیمت باز برای همهٔ ردیف‌های این فروش گروهی؛ هر ردیف بعداً جدا قیمت‌گذاری می‌شود.
+            ModelState.Remove(nameof(model.UnitPriceInCurrency));
+            ModelState.Remove(nameof(model.AppliedFxRateToUsd));
+            model.UnitPriceInCurrency = 0m;
+            model.AppliedFxRateToUsd = null;
+        }
+        else if (model.UnitPriceInCurrency <= 0m)
         {
             ModelState.AddModelError(nameof(model.UnitPriceInCurrency), "نرخ فروش هر تن باید بزرگ‌تر از صفر باشد.");
         }
@@ -248,7 +256,9 @@ public partial class SalesController
         CurrencyConversionResult conversion;
         try
         {
-            conversion = await _currencyConversion.ResolveToBaseAsync(model.Currency, model.SaleDate.Date, model.AppliedFxRateToUsd);
+            conversion = model.IsSalePricePending
+                ? SalePendingPricing.NeutralConversion(model.Currency, model.SaleDate)
+                : await _currencyConversion.ResolveToBaseAsync(model.Currency, model.SaleDate.Date, model.AppliedFxRateToUsd);
         }
         catch (BusinessRuleException ex)
         {
@@ -286,7 +296,7 @@ public partial class SalesController
                 SupplierId = model.SupplierId,
                 SaleDate = model.SaleDate.Date,
                 Currency = conversion.SourceCurrencyCode,
-                AppliedFxRateToUsd = conversion.AppliedRateToBase,
+                AppliedFxRateToUsd = model.IsSalePricePending ? null : conversion.AppliedRateToBase,
                 UnitPriceInCurrency = model.UnitPriceInCurrency,
                 LineCount = selections.Count,
                 Notes = model.Notes,
@@ -354,7 +364,9 @@ public partial class SalesController
                 await transaction.CommitAsync();
             }
 
-            TempData["ok"] = $"فروش گروهی {batch.BatchNumber} برای {selections.Count} منبع ثبت شد.";
+            TempData["ok"] = model.IsSalePricePending
+                ? $"فروش گروهی {batch.BatchNumber} برای {selections.Count} منبع با قیمت باز ثبت شد؛ قیمت هر ردیف از صفحهٔ همان فروش تعیین می‌شود."
+                : $"فروش گروهی {batch.BatchNumber} برای {selections.Count} منبع ثبت شد.";
             if (_groupAccountingSkippedReasons.Count > 0)
                 TempData["warn"] = "فروش ثبت شد؛ برخی اسناد حسابداری ثبت نشده‌اند: "
                     + string.Join("؛ ", _groupAccountingSkippedReasons.Select(r => $"{r.Key} ({r.Value} مورد)"));
@@ -409,6 +421,7 @@ public partial class SalesController
         {
             QuantityMt = quantity, SaleDate = model.SaleDate, SaleCurrency = model.Currency,
             SaleAppliedFxRateToUsd = conversion.AppliedRateToBase, SaleUnitPriceInCurrency = model.UnitPriceInCurrency,
+            SaleIsPricePending = model.IsSalePricePending,
             SaleCustomerId = model.CustomerId, SaleSupplierId = model.SupplierId,
             SaleInvoiceNumber = invoice, SaleNotes = model.Notes
         }, loading, conversion);
@@ -434,7 +447,8 @@ public partial class SalesController
         _db.SalesTransactions.Add(sale);
         _db.LoadingReceiptAllocations.Add(allocation);
         await _db.SaveChangesAsync();
-        Ledger.Post(SaleLedgerFactory.BuildSaleLedgerEntry(sale, draft.Conversion, loading.ContractId));
+        if (SalePendingPricing.ShouldPostLedger(sale))
+            Ledger.Post(SaleLedgerFactory.BuildSaleLedgerEntry(sale, draft.Conversion, loading.ContractId));
         await _db.SaveChangesAsync();
         if (_salesAccounting is null)
             RecordGroupAccountingSkip("حسابداری این مسیر فعال نیست");
@@ -445,6 +459,8 @@ public partial class SalesController
             foreach (var result in new[] { revenue, cogs })
             {
                 if (result.Status != Services.Accounting.PaymentPostingStatus.Skipped) continue;
+                // عایدِ فروش قیمت‌باز عمداً تا تعیین قیمت ثبت نمی‌شود؛ کمبود نیست.
+                if (result.Reason == SalePendingPricing.PendingSkipReason) continue;
                 RecordGroupAccountingSkip(result.Reason switch
                 {
                     "ACCOUNTING_DISABLED" or "PILOT_DISABLED" => "ثبت حسابداری این عملیات فعال نیست",
@@ -539,6 +555,8 @@ public partial class SalesController
             TotalUsd = conversion.ConvertToBase(totalInCurrency),
             Notes = model.Notes
         };
+        if (model.IsSalePricePending)
+            SalePendingPricing.MarkPending(sale, model.Currency);
         _db.SalesTransactions.Add(sale);
         await _db.SaveChangesAsync();
 
@@ -561,11 +579,14 @@ public partial class SalesController
         await _sourceAllocations.PersistSaleAsync(sale, sourcePlan);
 
         await _lineage.AllocateSaleAsync(sale, input.SourcePurchaseContractId, input.TerminalId, input.StorageTankId);
+        if (sale.IsSalePricePending)
+            await ClearPendingSaleLotAmountsAsync(sale.Id);
 
         // AUD-06: مثل مسیر فروش تکی، قرارداد Ledger از همان planِ FIFO می‌آید (که
         // ApplyLegacyHeader روی SourcePurchaseContractId نشانده) نه از انتخاب کاربر.
-        var ledger = Ledger.Post(
-            SaleLedgerFactory.BuildSaleLedgerEntry(sale, conversion, contractId: sale.SourcePurchaseContractId));
+        if (SalePendingPricing.ShouldPostLedger(sale))
+            Ledger.Post(
+                SaleLedgerFactory.BuildSaleLedgerEntry(sale, conversion, contractId: sale.SourcePurchaseContractId));
         await _db.SaveChangesAsync();
 
         await PostSaleAccountingAsync(sale);
@@ -648,6 +669,8 @@ public partial class SalesController
             Notes = model.Notes,
             TicketSerialNumber = dispatch.TicketSerialNumber
         };
+        if (model.IsSalePricePending)
+            SalePendingPricing.MarkPending(sale, model.Currency);
         if (sourcePlan.Shares.Count > 0)
         {
             _sourceAllocations.ApplyLegacyHeader(sale, sourcePlan);
@@ -658,10 +681,11 @@ public partial class SalesController
 
         dispatch.SalesTransactionId = sale.Id;
 
-        var ledger = Ledger.Post(SaleLedgerFactory.BuildSaleLedgerEntry(
-            sale,
-            conversion,
-            contractId: sourcePlan.Shares.Count > 0 ? sourcePlan.SingleContractId : sourceContract.Id));
+        if (SalePendingPricing.ShouldPostLedger(sale))
+            Ledger.Post(SaleLedgerFactory.BuildSaleLedgerEntry(
+                sale,
+                conversion,
+                contractId: sourcePlan.Shares.Count > 0 ? sourcePlan.SingleContractId : sourceContract.Id));
         await _db.SaveChangesAsync();
 
         await PostSaleAccountingAsync(sale);
@@ -726,7 +750,8 @@ public partial class SalesController
             SaleInvoiceNumber = invoice,
             SaleDate = model.SaleDate.Date,
             SaleCurrency = model.Currency,
-            SaleUnitPriceInCurrency = model.UnitPriceInCurrency,
+            SaleUnitPriceInCurrency = model.IsSalePricePending ? null : model.UnitPriceInCurrency,
+            SaleIsPricePending = model.IsSalePricePending,
             SaleAppliedFxRateToUsd = model.AppliedFxRateToUsd,
             Notes = model.Notes
         };
@@ -784,7 +809,8 @@ public partial class SalesController
                 s.QuantityMt,
                 s.TotalInCurrency,
                 s.TotalUsd,
-                s.IsCancelled
+                s.IsCancelled,
+                s.IsSalePricePending
             })
             .ToListAsync();
 
@@ -905,8 +931,10 @@ public partial class SalesController
                     TotalInCurrency = l.TotalInCurrency,
                     TotalUsd = l.TotalUsd,
                     IsCancelled = l.IsCancelled,
+                    IsSalePricePending = l.IsSalePricePending,
                     ReceivedUsd = l.IsCancelled ? 0m : ReceivedUsdOf(l.Id),
-                    OpenReceivableUsd = l.IsCancelled
+                    // قیمت باز: طلبی هنوز وجود ندارد.
+                    OpenReceivableUsd = l.IsCancelled || l.IsSalePricePending
                         ? 0m
                         : Math.Max(decimal.Round(l.TotalUsd - ReceivedUsdOf(l.Id), 4, MidpointRounding.AwayFromZero), 0m)
                 };
@@ -916,7 +944,7 @@ public partial class SalesController
             ReceivedUsd = decimal.Round(
                 lines.Where(l => !l.IsCancelled).Sum(l => ReceivedUsdOf(l.Id)), 4, MidpointRounding.AwayFromZero),
             OpenReceivableUsd = Math.Max(decimal.Round(
-                lines.Where(l => !l.IsCancelled).Sum(l => l.TotalUsd - ReceivedUsdOf(l.Id)),
+                lines.Where(l => !l.IsCancelled && !l.IsSalePricePending).Sum(l => l.TotalUsd - ReceivedUsdOf(l.Id)),
                 4,
                 MidpointRounding.AwayFromZero), 0m),
             Applications = applications,

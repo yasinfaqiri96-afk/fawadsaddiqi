@@ -156,8 +156,16 @@
                             </div>
                             <div class="ak-field">
                                 <label asp-for="SaleUnitPriceInCurrency" class="ak-label">@T("قیمت فی تن", "Unit price per MT") <b>*</b></label>
-                                <input asp-for="SaleUnitPriceInCurrency" type="number" step="0.0001" min="0" class="ak-input" />
+                                <input asp-for="SaleUnitPriceInCurrency" type="number" step="0.0001" min="0" class="ak-input" data-sale-price-pending-target />
                                 <span asp-validation-for="SaleUnitPriceInCurrency" class="ak-field-error"></span>
+                            </div>
+                            @* فروش با قیمت باز: بار ثبت می‌شود؛ قیمت بعداً از صفحهٔ همان فروش تعیین می‌شود. *@
+                            <div class="ak-field ak-col-full">
+                                <div class="form-check">
+                                    <input asp-for="SaleIsPricePending" class="form-check-input" type="checkbox" data-sale-price-pending-toggle />
+                                    <label asp-for="SaleIsPricePending" class="form-check-label">@UiText.T(Context, "قیمت فروش هنوز مشخص نیست", "Sale price not yet known")</label>
+                                </div>
+                                <div class="form-text" data-sale-price-pending-hint hidden>@UiText.T(Context, "بار و موجودی همین حالا ثبت می‌شود؛ طلب مشتری، عاید و مفاد پس از تعیین قیمت از صفحهٔ همین فروش ثبت می‌شود.", "Delivery is recorded now; receivable, revenue and profit are posted once the price is set from the sale page.")</div>
                             </div>
                             <div class="ak-field">
                                 <label asp-for="SaleCurrency" class="ak-label">@T("ارز فروش", "Sale currency") <b>*</b></label>
@@ -183,7 +191,7 @@
                             <div class="ak-field" data-fx-rate-group data-fx-currency-source="#SaleCurrency">
                                 <label>@T("نرخ دالر به ارز", "Currency units per USD")</label>
                                 <div>
-                                    <div data-fx-rate-field><input type="text" inputmode="decimal" class="ak-input" data-fx-rate-input id="receiptSaleFxDisplay" autocomplete="off" /><input asp-for="SaleAppliedFxRateToUsd" type="hidden" data-fx-rate-technical /></div>
+                                    <div data-fx-rate-field><input type="text" inputmode="decimal" class="ak-input" data-fx-rate-input id="receiptSaleFxDisplay" autocomplete="off" data-sale-price-pending-target /><input asp-for="SaleAppliedFxRateToUsd" type="hidden" data-fx-rate-technical data-sale-price-pending-target /></div>
                                     <div data-fx-usd-note class="d-none"><small>@T("برای فروش دالری نرخ تبدیل لازم نیست.", "No FX rate is needed for a USD sale.")</small></div>
                                 </div>
                                 <span asp-validation-for="SaleAppliedFxRateToUsd" class="ak-field-error"></span>
@@ -378,11 +386,19 @@
                         <div class="ak-field"><label asp-for="SaleInvoiceNumber" class="ak-label">@T("شماره فاکتور", "Invoice number")</label><input asp-for="SaleInvoiceNumber" class="ak-input" /></div>
                         <div class="ak-field"><label asp-for="SaleDate" class="ak-label">@T("تاریخ فروش", "Sale date")</label><input asp-for="SaleDate" type="date" class="ak-input" /></div>
                         <div class="ak-field"><label asp-for="SaleCurrency" class="ak-label">@T("ارز", "Currency")</label><select asp-for="SaleCurrency" asp-items="ViewBag.Currencies" class="ak-input"></select></div>
-                        <div class="ak-field"><label asp-for="SaleUnitPriceInCurrency" class="ak-label">@T("قیمت فی", "Unit price")</label><input asp-for="SaleUnitPriceInCurrency" type="number" step="0.0001" min="0" class="ak-input" /></div>
+                        <div class="ak-field"><label asp-for="SaleUnitPriceInCurrency" class="ak-label">@T("قیمت فی", "Unit price")</label><input asp-for="SaleUnitPriceInCurrency" type="number" step="0.0001" min="0" class="ak-input" data-sale-price-pending-target /></div>
+                        @* فروش با قیمت باز: بار ثبت می‌شود؛ قیمت بعداً از صفحهٔ همان فروش تعیین می‌شود. *@
+                        <div class="ak-field ak-col-full">
+                            <div class="form-check">
+                                <input asp-for="SaleIsPricePending" class="form-check-input" type="checkbox" data-sale-price-pending-toggle />
+                                <label asp-for="SaleIsPricePending" class="form-check-label">@UiText.T(Context, "قیمت فروش هنوز مشخص نیست", "Sale price not yet known")</label>
+                            </div>
+                            <div class="form-text" data-sale-price-pending-hint hidden>@UiText.T(Context, "بار و موجودی همین حالا ثبت می‌شود؛ طلب مشتری، عاید و مفاد پس از تعیین قیمت از صفحهٔ همین فروش ثبت می‌شود.", "Delivery is recorded now; receivable, revenue and profit are posted once the price is set from the sale page.")</div>
+                        </div>
                         <div class="ak-field" data-fx-rate-group data-fx-currency-source="#SaleCurrency">
                             <label>@T("نرخ دالر به ارز", "Currency units per USD")</label>
                             <div>
-                                <div data-fx-rate-field><input type="text" inputmode="decimal" class="ak-input" data-fx-rate-input id="receiptSaleFxDisplay" autocomplete="off" /><input asp-for="SaleAppliedFxRateToUsd" type="hidden" data-fx-rate-technical /></div>
+                                <div data-fx-rate-field><input type="text" inputmode="decimal" class="ak-input" data-fx-rate-input id="receiptSaleFxDisplay" autocomplete="off" data-sale-price-pending-target /><input asp-for="SaleAppliedFxRateToUsd" type="hidden" data-fx-rate-technical data-sale-price-pending-target /></div>
                                 <div data-fx-usd-note class="d-none"><small>@T("پرداخت دالری؛ نرخ تبدیل لازم نیست.", "USD payment; no FX rate required.")</small></div>
                             </div>
                         </div>
@@ -470,6 +486,7 @@
 
 @section Scripts {
     <script src="~/js/fx-rate-field.js" asp-append-version="true" defer></script>
+    <script src="~/js/sale-price-pending.js" asp-append-version="true" defer></script>
     <script>
         (() => {
             const select = document.querySelector("[data-receipt-destination]");

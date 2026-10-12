@@ -973,6 +973,10 @@ public sealed class InventoryTransportReceiptCreateViewModel
     [Display(Name = "Unit Price")]
     public decimal? SaleUnitPriceInCurrency { get; set; }
 
+    /// <summary>قیمت فروش مستقیم هنوز مشخص نیست؛ فروش بدون سند مالی ثبت و بعداً قیمت‌گذاری می‌شود.</summary>
+    [Display(Name = "قیمت فروش هنوز مشخص نیست")]
+    public bool SaleIsPricePending { get; set; }
+
     [Display(Name = "FX Rate to USD")]
     public decimal? SaleAppliedFxRateToUsd { get; set; }
 

@@ -802,6 +802,10 @@ public sealed class LoadingReceiptCreateViewModel
         set => SaleUnitPriceInCurrency = value;
     }
 
+    /// <summary>قیمت فروش مستقیم هنوز مشخص نیست؛ فروش بدون سند مالی ثبت و بعداً قیمت‌گذاری می‌شود.</summary>
+    [Display(Name = "قیمت فروش هنوز مشخص نیست")]
+    public bool SaleIsPricePending { get; set; }
+
     [Display(Name = "نرخ تبدیل فروش مستقیم به USD")]
     public decimal? SaleAppliedFxRateToUsd { get; set; }
 
@@ -1114,6 +1118,10 @@ public sealed class LoadingReceiptAllocationLineInput
         get => SaleUnitPriceInCurrency;
         set => SaleUnitPriceInCurrency = value;
     }
+
+    /// <summary>قیمت فروش مستقیم هنوز مشخص نیست؛ فروش بدون سند مالی ثبت و بعداً قیمت‌گذاری می‌شود.</summary>
+    [Display(Name = "قیمت فروش هنوز مشخص نیست")]
+    public bool SaleIsPricePending { get; set; }
 
     [Display(Name = "نرخ تبدیل فروش مستقیم به USD")]
     public decimal? SaleAppliedFxRateToUsd { get; set; }

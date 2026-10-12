@@ -13,7 +13,14 @@
     var customerText = string.IsNullOrWhiteSpace(Model.CustomerName)
         ? T("خریدار نامشخص", "Unknown buyer")
         : Model.CustomerName;
-    var canRegisterReceipt = !Model.IsSupplierBuyer && !Model.IsCancelled && Model.CustomerId > 0 && Model.ReceivableBalanceUsd > 0m;
+    // فروش با قیمت باز: مبلغ و مانده «نامشخص»اند، نه صفر. دریافت پیش از تعیین قیمت به همین فروش
+    // وصل می‌شود و تا تعیین قیمت پیش‌دریافت روی حساب مشتری می‌ماند.
+    var pricePending = Model.IsSalePricePending && !Model.IsCancelled;
+    var pricingAwaiting = !Model.IsCancelled && Model.PricingState != SalePricingState.Final;
+    var pricingLabel = SalePricingText.Label(Model.PricingState);
+    var unknownText = T(SalePricingText.Unknown, "Unknown");
+    var canRegisterReceipt = !Model.IsSupplierBuyer && !Model.IsCancelled && Model.CustomerId > 0
+        && (Model.ReceivableBalanceUsd > 0m || pricePending);
     var directApplications = Model.Payments.Where(p => p.IsAdvanceApplication == false && p.ApplicationId != null).ToList();
     var canApplyReceipt = !Model.IsSupplierBuyer && !Model.IsCancelled && Model.ReceivableBalanceUsd > 0m && Model.ApplicableReceipts.Count > 0;
     var firstReceipt = Model.ApplicableReceipts.FirstOrDefault();
@@ -30,8 +37,8 @@
 
     ViewData["AkHeaderStatus"] = Model.IsCancelled
         ? T("لغو شده", "Cancelled")
-        : T("تکمیل شده", "Completed");
-    ViewData["AkHeaderStatusState"] = Model.IsCancelled ? "is-danger" : "is-active";
+        : pricingAwaiting ? pricingLabel : T("تکمیل شده", "Completed");
+    ViewData["AkHeaderStatusState"] = Model.IsCancelled ? "is-danger" : pricingAwaiting ? "is-warning" : "is-active";
     // خط زمینهٔ سربرگ حذف شد: مشتری، تاریخ و مرحله عیناً در کارت «اطلاعات فروش» می‌آیند.
 
     // Action split shared by every Operations detail page:
@@ -67,9 +74,9 @@
     var amountMetrics = new List<AkKpiItem>
     {
         new() { Title = T("مقدار فروش", "Sale quantity"), Value = NumberDisplay.Quantity(Model.QuantityMt), Unit = "MT", Avatar = "flow-weight-mt" },
-        new() { Title = T("مبلغ کل", "Total amount"), Value = Model.TotalInCurrency.ToString("N2"), Unit = Model.Currency, State = "accent", Avatar = "flow-cash" },
-        new() { Title = T("دریافت‌شده", "Received"), Value = Model.ReceivedUsd.ToString("N2"), Unit = "USD", Avatar = "flow-receipt-check" },
-        new() { Title = T("مانده قابل دریافت", "Outstanding receivable"), Value = Model.ReceivableBalanceUsd.ToString("N2"), Unit = "USD", State = Model.ReceivableBalanceUsd > 0 ? "warning" : null, Avatar = "flow-invoice-check" }
+        new() { Title = T("مبلغ کل", "Total amount"), Value = pricePending ? unknownText : Model.TotalInCurrency.ToString("N2"), Unit = pricePending ? null : Model.Currency, State = pricePending ? "warning" : "accent", Avatar = "flow-cash" },
+        new() { Title = pricePending ? T("پیش‌دریافت", "Received in advance") : T("دریافت‌شده", "Received"), Value = Model.ReceivedUsd.ToString("N2"), Unit = "USD", Avatar = "flow-receipt-check" },
+        new() { Title = T("مانده قابل دریافت", "Outstanding receivable"), Value = pricePending ? unknownText : Model.ReceivableBalanceUsd.ToString("N2"), Unit = pricePending ? null : "USD", State = pricePending || Model.ReceivableBalanceUsd > 0 ? "warning" : null, Avatar = "flow-invoice-check" }
     };
 
     // زون ۳: یک کارت هویتی + یک کارت منبع. اعداد پول از این گرید بیرون کشیده شده‌اند
@@ -82,8 +89,50 @@
         new() { Label = T("مرحله", "Stage"), Value = stageText, Tone = "info" },
         new() { Label = T("کالا", "Product"), Value = Model.ProductName },
         new() { Label = T("شرکت / جواز", "Company / licence"), Value = Model.CompanyName },
-        new() { Label = T("قیمت فی تن", "Unit price / MT"), Value = $"{Model.UnitPriceInCurrency:N2} {Model.Currency}", IsNumeric = true }
+        new() { Label = T("قیمت فی تن", "Unit price / MT"), Value = pricePending ? unknownText : $"{Model.UnitPriceInCurrency:N2} {Model.Currency}", IsNumeric = !pricePending, Tone = pricePending ? "warning" : null }
     };
+    if (!Model.IsCancelled)
+    {
+        summaryItems.Add(new AkInfoItem
+        {
+            Label = T("وضعیت قیمت", "Pricing status"),
+            Value = pricingLabel,
+            Tone = pricingAwaiting ? "warning" : "success"
+        });
+    }
+    if (Model.IsPurchasePricePending && !Model.IsCancelled)
+    {
+        // بهای خرید از قرارداد خرید منبع می‌آید؛ تکمیلش در صفحهٔ نرخ همان قرارداد است، نه این‌جا.
+        var pendingContract = Model.PendingPurchaseContracts[0];
+        summaryItems.Add(new AkInfoItem
+        {
+            Label = T("قیمت خرید", "Purchase price"),
+            Value = T("در انتظار نرخ قرارداد ", "Awaiting contract price ")
+                + string.Join("، ", Model.PendingPurchaseContracts.Select(c => c.Label)),
+            Href = Url.Action("Details", "Contracts", new { id = pendingContract.ContractId }),
+            Tone = "warning"
+        });
+    }
+    if (Model.SalePriceFixedAtUtc.HasValue)
+    {
+        summaryItems.Add(new AkInfoItem
+        {
+            Label = T("تعیین قیمت فروش", "Sale price fixed"),
+            Value = Model.SalePriceFixedAtUtc.Value.ToDisplayDate()
+                + (string.IsNullOrWhiteSpace(Model.SalePriceFixedByName) ? string.Empty : $" · {Model.SalePriceFixedByName}")
+        });
+    }
+    if (Model.SalePriceAccountingDate.HasValue && Model.SalePriceAccountingDate.Value.Date != Model.SaleDate.Date)
+    {
+        // دورهٔ تاریخ تحویل بسته بود؛ اسناد مالی قیمت‌گذاری در دورهٔ باز ثبت شده‌اند.
+        summaryItems.Add(new AkInfoItem
+        {
+            Label = T("تاریخ ثبت مالی", "Accounting date"),
+            Value = Model.SalePriceAccountingDate.Value.ToDisplayDate(),
+            IsNumeric = true,
+            Tone = "info"
+        });
+    }
     // کارت منبع فقط واقعیت عملیاتی است؛ هیچ‌کدام state نیستند، پس بدون رنگ می‌مانند.
     var sourceItems = new List<AkInfoItem>
     {
@@ -126,7 +175,7 @@
             Timestamp = Model.SaleDate,
             Icon = "bi-receipt",
             State = Model.Payments.Count == 0 ? "is-current" : null,
-            Meta = $"{Model.TotalUsd:N2} USD"
+            Meta = pricePending ? T(SalePricingText.PendingSalePrice, "Awaiting sale price") : $"{Model.TotalUsd:N2} USD"
         }
     };
     foreach (var payment in Model.Payments)
@@ -210,42 +259,55 @@
     // Next operations of this sale. Recording the receipt is the CTA while money
     // is still outstanding; otherwise printing the invoice is.
     var nextActions = new List<AkHeaderMenuItem>();
+    if (pricePending)
+    {
+        nextActions.Add(new AkHeaderMenuItem
+        {
+            Label = T("تعیین قیمت فروش", "Set sale price"),
+            Href = Url.Action("SetPrice", new { id = Model.Id, returnUrl = currentReturnUrl }),
+            Icon = "bi-tag"
+        });
+    }
     if (canRegisterReceipt)
     {
         nextActions.Add(new AkHeaderMenuItem
         {
-            Label = T("ثبت دریافت", "Record receipt"),
+            Label = pricePending ? T("ثبت پیش‌دریافت", "Record advance receipt") : T("ثبت دریافت", "Record receipt"),
             Href = Url.Action("Create", "Payments", new { customerId = Model.CustomerId, salesTransactionId = Model.Id, returnUrl = currentReturnUrl }),
             Icon = "bi-cash-coin"
         });
     }
-    nextActions.Add(new AkHeaderMenuItem
+    // فاکتور بدون قیمت چاپ نمی‌شود؛ پس از تعیین قیمت دوباره در دسترس است.
+    if (!pricePending)
     {
-        Label = T("فاکتور ۱", "Invoice 1"),
-        Href = Url.Action("Invoice", new { id = Model.Id, template = "faisal" }),
-        Icon = "bi-receipt"
-    });
-    nextActions.Add(new AkHeaderMenuItem
-    {
-        Label = T("فاکتور ۲", "Invoice 2"),
-        Href = Url.Action("Invoice", new { id = Model.Id, template = "fawad" }),
-        Icon = "bi-receipt-cutoff"
-    });
+        nextActions.Add(new AkHeaderMenuItem
+        {
+            Label = T("فاکتور ۱", "Invoice 1"),
+            Href = Url.Action("Invoice", new { id = Model.Id, template = "faisal" }),
+            Icon = "bi-receipt"
+        });
+        nextActions.Add(new AkHeaderMenuItem
+        {
+            Label = T("فاکتور ۲", "Invoice 2"),
+            Href = Url.Action("Invoice", new { id = Model.Id, template = "fawad" }),
+            Icon = "bi-receipt-cutoff"
+        });
+    }
     var activityRows = new List<AkDetailActivityRow>
     {
-        new() { Label = T("دریافت‌ها", "Receipts"), Value = Model.Payments.Count.ToString("N0"), Meta = Model.Payments.Count > 0 ? T("پرداخت ثبت شده", "Recorded payments") : T("بدون پرداخت", "No payment"), Status = Model.ReceivableBalanceUsd <= 0m ? T("تکمیل", "Complete") : T("باز", "Open"), StatusTone = Model.ReceivableBalanceUsd <= 0m ? "success" : "warning", Href = "#sale-payments", Icon = "bi-cash-coin" },
+        new() { Label = T("دریافت‌ها", "Receipts"), Value = Model.Payments.Count.ToString("N0"), Meta = Model.Payments.Count > 0 ? T("پرداخت ثبت شده", "Recorded payments") : T("بدون پرداخت", "No payment"), Status = pricePending ? T("در انتظار قیمت", "Awaiting price") : Model.ReceivableBalanceUsd <= 0m ? T("تکمیل", "Complete") : T("باز", "Open"), StatusTone = !pricePending && Model.ReceivableBalanceUsd <= 0m ? "success" : "warning", Href = "#sale-payments", Icon = "bi-cash-coin" },
         new() { Label = T("منبع و تحویل", "Source & delivery"), Value = stockSourceText, Meta = Model.DestinationName, Status = !string.IsNullOrWhiteSpace(stockSourceText) ? T("مشخص", "Defined") : null, StatusTone = !string.IsNullOrWhiteSpace(stockSourceText) ? "success" : null, Icon = "bi-box-arrow-right" },
         new() { Label = T("رکوردهای مرتبط", "Related records"), Value = relatedRecords.Count > 0 ? relatedRecords.Count.ToString("N0") : null, Status = relatedRecords.Count > 0 ? T("متصل", "Linked") : null, StatusTone = relatedRecords.Count > 0 ? "success" : null, Icon = "bi-link-45deg" }
     };
 
-    var statusText = Model.IsCancelled ? T("لغو شده", "Cancelled") : T("تکمیل شده", "Completed");
+    var statusText = Model.IsCancelled ? T("لغو شده", "Cancelled") : pricingAwaiting ? pricingLabel : T("تکمیل شده", "Completed");
 
     var cardsModel = new AkDetailCardsModel
     {
         Code = Model.InvoiceNumber,
         CodeLabel = T("شماره فاکتور", "Invoice no."),
         Status = statusText,
-        StatusState = Model.IsCancelled ? "is-danger" : "is-active",
+        StatusState = Model.IsCancelled ? "is-danger" : pricingAwaiting ? "is-warning" : "is-active",
         StripItems = new List<AkInfoItem>
         {
             new() { Label = T("خریدار", "Buyer"), Value = customerText },

@@ -116,6 +116,7 @@ public sealed class CustomerSaleSummaryViewModel
     public decimal PaidToCustomerUsd { get; init; }
     public decimal ReceivableUsd => TotalUsd - ReceivedUsd + PaidToCustomerUsd;
     public bool IsCancelled { get; init; }
+    public bool IsSalePricePending { get; init; }
 }
 
 public sealed class CustomerPaymentSummaryViewModel

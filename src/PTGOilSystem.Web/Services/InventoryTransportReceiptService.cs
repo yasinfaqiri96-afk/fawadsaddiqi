@@ -214,6 +214,11 @@ public sealed class InventoryTransportReceiptService
             return null;
         }
 
+        if (model.SaleIsPricePending)
+        {
+            return SalePendingPricing.NeutralConversion(model.SaleCurrency, model.SaleDate!.Value);
+        }
+
         try
         {
             return await _currencyConversion.ResolveToBaseAsync(
@@ -424,10 +429,13 @@ public sealed class InventoryTransportReceiptService
 
             receipt.SalesTransactionId = directSale.Id;
 
-            Ledger.Post(BuildDirectSaleLedgerEntry(
-                directSale,
-                saleSourcePlan.SingleContractId,
-                saleConversion!));
+            if (SalePendingPricing.ShouldPostLedger(directSale))
+            {
+                Ledger.Post(BuildDirectSaleLedgerEntry(
+                    directSale,
+                    saleSourcePlan.SingleContractId,
+                    saleConversion!));
+            }
             await _db.SaveChangesAsync();
 
             // مرحله ۷ — Dual-write داخل همان Transaction قدیمی.
@@ -533,7 +541,13 @@ public sealed class InventoryTransportReceiptService
             modelState.AddModelError(keyPrefix + nameof(model.SaleDate), "Sale date is required for direct sale.");
         }
 
-        if (!model.SaleUnitPriceInCurrency.HasValue || model.SaleUnitPriceInCurrency.Value <= 0m)
+        // قیمت باز: قیمت و نرخ ارز بعداً از صفحهٔ همان فروش ثبت می‌شود.
+        if (model.SaleIsPricePending)
+        {
+            model.SaleUnitPriceInCurrency = null;
+            model.SaleAppliedFxRateToUsd = null;
+        }
+        else if (!model.SaleUnitPriceInCurrency.HasValue || model.SaleUnitPriceInCurrency.Value <= 0m)
         {
             modelState.AddModelError(keyPrefix + nameof(model.SaleUnitPriceInCurrency), "Unit price is required for direct sale.");
         }
@@ -636,12 +650,13 @@ public sealed class InventoryTransportReceiptService
         InventoryTransportLeg leg,
         CurrencyConversionResult conversion)
     {
+        var unitPrice = model.SaleIsPricePending ? 0m : model.SaleUnitPriceInCurrency!.Value;
         var totalInCurrency = decimal.Round(
-            model.ReceivedQuantityMt * model.SaleUnitPriceInCurrency!.Value,
+            model.ReceivedQuantityMt * unitPrice,
             4,
             MidpointRounding.AwayFromZero);
 
-        return new SalesTransaction
+        var sale = new SalesTransaction
         {
             ContractId = null,
             CompanyId = leg.SourcePurchaseContract!.CompanyId,
@@ -655,13 +670,19 @@ public sealed class InventoryTransportReceiptService
             SaleDate = model.SaleDate!.Value.Date,
             QuantityMt = model.ReceivedQuantityMt,
             Currency = conversion.SourceCurrencyCode,
-            UnitPriceInCurrency = model.SaleUnitPriceInCurrency.Value,
+            UnitPriceInCurrency = unitPrice,
             AppliedFxRateToUsd = conversion.AppliedRateToBase,
-            UnitPriceUsd = conversion.ConvertToBase(model.SaleUnitPriceInCurrency.Value),
+            UnitPriceUsd = conversion.ConvertToBase(unitPrice),
             TotalInCurrency = totalInCurrency,
             TotalUsd = conversion.ConvertToBase(totalInCurrency),
             Notes = string.IsNullOrWhiteSpace(model.Notes) ? null : model.Notes.Trim()
         };
+        if (model.SaleIsPricePending)
+        {
+            SalePendingPricing.MarkPending(sale, model.SaleCurrency);
+        }
+
+        return sale;
     }
 
     private static LedgerPostingRequest BuildDirectSaleLedgerEntry(

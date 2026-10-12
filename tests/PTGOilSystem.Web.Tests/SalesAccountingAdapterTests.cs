@@ -382,7 +382,9 @@ public sealed class SalesAccountingAdapterTests(AccountingPostgreSqlFixture fixt
 
         Assert.Equal("PILOT_DISABLED", (await adapter.TryPostSaleAsync(sale)).Reason);
         Assert.Equal("PILOT_DISABLED", (await adapter.TryPostCogsAsync(sale)).Reason);
+        // برگشت‌های ماژول فروش SourceEntityId = شناسهٔ ژورنال اصلی دارند؛ فقط ژورنال‌های خودِ فروش شمرده می‌شوند.
         Assert.Equal(0, await db.JournalEntries.CountAsync(x => x.SourceEntityId == sale.Id
+            && x.SourceEntityType == SalesAccountingAdapter.SourceEntityType
             && x.SourceModule == SalesAccountingAdapter.SourceModule));
     }
 

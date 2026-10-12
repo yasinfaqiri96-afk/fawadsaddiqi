@@ -772,8 +772,16 @@
                                 </td>
                                 <td>@(item.VehicleNumber ?? "-")</td>
                                 <td class="ak-num ak-col-num">@NumberDisplay.Quantity(item.QuantityMt) @T("تن", "MT")</td>
-                                <td class="ak-num ak-col-num">@MoneyCard(item.UnitPriceUsd) @T("دالر", "USD")</td>
-                                <td class="ak-num ak-col-num">@MoneyCard(item.TotalUsd) @T("دالر", "USD")</td>
+                                @if (item.IsSalePricePending)
+                                {
+                                    <td class="ak-col-num">@T("نامشخص", "Unknown")</td>
+                                    <td class="ak-col-num"><span class="ak-status is-warning">@T("در انتظار قیمت", "Awaiting price")</span></td>
+                                }
+                                else
+                                {
+                                    <td class="ak-num ak-col-num">@MoneyCard(item.UnitPriceUsd) @T("دالر", "USD")</td>
+                                    <td class="ak-num ak-col-num">@MoneyCard(item.TotalUsd) @T("دالر", "USD")</td>
+                                }
                                 <td>
                                     <partial name="~/Views/Shared/Partials/_Capsule.cshtml" model="@((T("فروخته‌شده", "Sold"), (string?)"success"))" />
                                     <div class="ak-cell-note">@(item.IsDirectShipmentSale ? T("مستقیم از محموله", "Direct from shipment") : T("پس از ورود به مخزن", "After entering storage"))</div>

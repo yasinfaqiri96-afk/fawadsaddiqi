@@ -90,6 +90,8 @@ public sealed class ShipmentPnlSalesItemViewModel
     public decimal QuantityMt { get; init; }
     public decimal UnitPriceUsd { get; init; }
     public decimal TotalUsd { get; init; }
+    /// <summary>قیمت فروش هنوز تعیین نشده؛ مبلغ نامشخص است و در عاید محقق‌شده نیست.</summary>
+    public bool IsSalePricePending { get; init; }
     // true = فروش مستقیم از محموله (ShipmentId روی خود فروش)، false = فروش پس از ورود به مخزن که
     // Lineage آن به همین محموله می‌رسد. برای تفکیک نمایشی؛ هر فروش فقط یک بار در جمع می‌آید.
     public bool IsDirectShipmentSale { get; init; }

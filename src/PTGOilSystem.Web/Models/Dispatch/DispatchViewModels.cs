@@ -236,6 +236,10 @@ public sealed class DispatchDirectFromReceiptSaleCreateViewModel
     [Range(typeof(decimal), "0.0001", "79228162514264337593543950335", ErrorMessage = "Unit price must be greater than zero.")]
     public decimal UnitPriceInCurrency { get; set; }
 
+    /// <summary>قیمت فروش هنوز مشخص نیست؛ بار و موجودی ثبت می‌شود، سند مالی پس از تعیین قیمت.</summary>
+    [Display(Name = "قیمت فروش هنوز مشخص نیست")]
+    public bool IsSalePricePending { get; set; }
+
     [Display(Name = "فاکتور")]
     [Required(ErrorMessage = "Invoice number is required.")]
     [StringLength(50)]

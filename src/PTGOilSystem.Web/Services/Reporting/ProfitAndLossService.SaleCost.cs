@@ -36,7 +36,7 @@ public sealed partial class ProfitAndLossService
 
         var sales = await _db.SalesTransactions.AsNoTracking()
             .Where(s => !s.IsCancelled && ids.Contains(s.Id))
-            .Select(s => new SaleCostSale(s.Id, s.SaleDate, s.TotalUsd))
+            .Select(s => new SaleCostSale(s.Id, s.SaleDate, s.TotalUsd, s.IsSalePricePending))
             .ToDictionaryAsync(s => s.Id, ct);
         if (sales.Count == 0)
         {
@@ -109,6 +109,12 @@ public sealed partial class ProfitAndLossService
             }
 
             saleCount++;
+            // قیمت باز: نه عاید و نه بها؛ فروش «بی‌بها» شمرده می‌شود تا گزارش NeedsReview شود.
+            if (sale.IsSalePricePending)
+            {
+                continue;
+            }
+
             var shares = inputs.SharesBySale.GetValueOrDefault(saleId) ?? [];
             var scoped = scopePurchaseContractId is { } contractId
                 ? shares.Where(s => s.ContractId == contractId).ToList()
@@ -164,7 +170,7 @@ public sealed partial class ProfitAndLossService
                 : totals.ContractCostedCount > 0 ? PnlConfidence.Estimated : PnlConfidence.Verified);
     }
 
-    private sealed record SaleCostSale(int Id, DateTime SaleDate, decimal TotalUsd);
+    private sealed record SaleCostSale(int Id, DateTime SaleDate, decimal TotalUsd, bool IsSalePricePending);
 
     private sealed record SaleCostShare(int ContractId, decimal QuantityMt, decimal AmountUsd, decimal? UnitCostUsd);
 

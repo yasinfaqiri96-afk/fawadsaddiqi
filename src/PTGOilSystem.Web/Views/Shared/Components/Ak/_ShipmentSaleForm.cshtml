@@ -125,7 +125,7 @@
                 <div class="ak-field fec-span-4">
                     <label asp-for="UnitPriceInCurrency" class="ak-label"></label>
                     <div class="ak-input-unit">
-                        <input asp-for="UnitPriceInCurrency" class="ak-input ak-num" min="0.0001" step="0.0001" data-sale-unit-price />
+                        <input asp-for="UnitPriceInCurrency" class="ak-input ak-num" min="0.0001" step="0.0001" data-sale-unit-price data-sale-price-pending-target />
                         <span data-currency-unit>@Model.Currency</span>
                     </div>
                     <span asp-validation-for="UnitPriceInCurrency" class="field-validation-error"></span>
@@ -143,8 +143,16 @@
                 </div>
                 <div class="ak-field fec-span-4" data-fx-wrap @(string.Equals(Model.Currency, baseCurrency, StringComparison.OrdinalIgnoreCase) ? "hidden" : null)>
                     <label asp-for="AppliedFxRateToUsd" class="ak-label"></label>
-                    <input asp-for="AppliedFxRateToUsd" class="ak-input ak-num" min="0.000001" step="0.000001" data-sale-fx />
+                    <input asp-for="AppliedFxRateToUsd" class="ak-input ak-num" min="0.000001" step="0.000001" data-sale-fx data-sale-price-pending-target />
                     <span asp-validation-for="AppliedFxRateToUsd" class="field-validation-error"></span>
+                </div>
+                @* فروش با قیمت باز: بار ثبت می‌شود؛ قیمت بعداً از صفحهٔ همان فروش تعیین می‌شود. *@
+                <div class="ak-field ak-col-full">
+                    <div class="form-check">
+                        <input asp-for="IsSalePricePending" class="form-check-input" type="checkbox" data-sale-price-pending-toggle />
+                        <label asp-for="IsSalePricePending" class="form-check-label">@UiText.T(Context, "قیمت فروش هنوز مشخص نیست", "Sale price not yet known")</label>
+                    </div>
+                    <div class="form-text" data-sale-price-pending-hint hidden>@UiText.T(Context, "بار و موجودی همین حالا ثبت می‌شود؛ طلب مشتری، عاید و مفاد پس از تعیین قیمت از صفحهٔ همین فروش ثبت می‌شود.", "Delivery is recorded now; receivable, revenue and profit are posted once the price is set from the sale page.")</div>
                 </div>
 
                 <div class="ak-field fec-span-6">
@@ -258,4 +266,5 @@
             <a href="@(cancelUrl ?? "#")" class="ak-cancel">@UiText.T(Context, "انصراف", "Cancel")</a>
         </div>
     </form>
+    <script src="~/js/sale-price-pending.js" asp-append-version="true" defer></script>
 </div>

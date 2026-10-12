@@ -1,0 +1,66 @@
+@using PTGOilSystem.Web.Helpers
+@model PTGOilSystem.Web.Models.Sales.SalePriceFixViewModel
+@{
+    ViewData["Title"] = $"تعیین قیمت فروش {Model.InvoiceNumber}";
+    ViewData["HideSectionTabs"] = true;
+    var backUrl = !string.IsNullOrWhiteSpace(Model.ReturnUrl) && Url.IsLocalUrl(Model.ReturnUrl)
+        ? Model.ReturnUrl
+        : Url.Action("Details", "Sales", new { id = Model.Id }) ?? $"/Sales/Details/{Model.Id}";
+    var baseCurrencyCode = PTGOilSystem.Web.Services.SystemCurrency.BaseCurrencyCode;
+}
+
+<div class="ak-form-page">
+    <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+             model="@((UiText.T(Context, "تعیین قیمت فروش", "Set sale price"), false, (string?)null, (string?)null, (string?)null, (string?)null, UiText.T(Context, "بازگشت", "Back"), "bi-arrow-right", (string?)backUrl))" />
+
+    <form asp-action="SetPrice" asp-route-id="@Model.Id" method="post" class="ak-form">
+        @Html.AntiForgeryToken()
+        @Html.FormToken()
+        <input asp-for="Version" type="hidden" />
+        <input asp-for="ReturnUrl" type="hidden" />
+
+        <div asp-validation-summary="All" class="alert alert-danger ak-form-alert"></div>
+
+        <section class="ak-form-section">
+            <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                     model="@((UiText.T(Context, "فروش تحویل‌شده", "Delivered sale"), (string?)UiText.T(Context, "مقدار، خریدار، تاریخ و منبع همان سند اصلی است و این‌جا تغییر نمی‌کند.", "Quantity, buyer, date and source stay as recorded and are not changed here.")))" />
+            <dl class="ak-form-grid">
+                <div class="ak-field"><dt class="ak-label">@UiText.T(Context, "شماره فاکتور", "Invoice no.")</dt><dd>@Model.InvoiceNumber</dd></div>
+                <div class="ak-field"><dt class="ak-label">@UiText.T(Context, "تاریخ فروش", "Sale date")</dt><dd>@Model.SaleDate.ToDisplayDate()</dd></div>
+                <div class="ak-field"><dt class="ak-label">@UiText.T(Context, "خریدار", "Buyer")</dt><dd>@Model.CustomerName</dd></div>
+                <div class="ak-field"><dt class="ak-label">@UiText.T(Context, "کالا", "Product")</dt><dd>@Model.ProductName</dd></div>
+                <div class="ak-field"><dt class="ak-label">@UiText.T(Context, "مقدار", "Quantity")</dt><dd>@NumberDisplay.Quantity(Model.QuantityMt) MT</dd></div>
+            </dl>
+        </section>
+
+        <section class="ak-form-section">
+            <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                     model="@((UiText.T(Context, "قیمت قطعی", "Final price"), (string?)UiText.T(Context, "با ذخیره، طلب مشتری، عاید و بهای تمام‌شده به تاریخ همین فروش ثبت می‌شود؛ اگر دورهٔ آن تاریخ بسته باشد، به تاریخ امروز در دورهٔ باز. پس از ثبت، اصلاح قیمت فقط از «ابطال / اصلاح فروش» ممکن است.", "Saving posts the receivable, revenue and cost on this sale's date, or on today's date in the open period if that period is closed. After that, the price can only be corrected through Cancel / correct sale.")))" />
+            <div class="ak-form-grid">
+                <div class="ak-field">
+                    <label asp-for="Currency" class="ak-label">@UiText.T(Context, "ارز", "Currency") <span class="ak-req">*</span></label>
+                    <select asp-for="Currency" asp-items="ViewBag.Currencies" class="ak-input"></select>
+                    <span asp-validation-for="Currency" class="ak-field-error"></span>
+                </div>
+                <div class="ak-field">
+                    <label asp-for="UnitPriceInCurrency" class="ak-label">@UiText.T(Context, "قیمت فی تن", "Unit price / MT") <span class="ak-req">*</span></label>
+                    <input asp-for="UnitPriceInCurrency" class="ak-input text-end" />
+                    <span asp-validation-for="UnitPriceInCurrency" class="ak-field-error"></span>
+                </div>
+                <div class="ak-field">
+                    <label asp-for="AppliedFxRateToUsd" class="ak-label">@UiText.T(Context, "نرخ تبدیل به USD", "FX rate to USD")</label>
+                    <input asp-for="AppliedFxRateToUsd" class="ak-input text-end" />
+                    <div class="form-text">@UiText.T(Context, $"برای {baseCurrencyCode} خالی بماند؛ برای ارز دیگر خالی یعنی نرخ روزانهٔ ثبت‌شده برای تاریخ فروش.", $"Leave empty for {baseCurrencyCode}; for another currency, empty uses the recorded rate of the sale date.")</div>
+                    <span asp-validation-for="AppliedFxRateToUsd" class="ak-field-error"></span>
+                </div>
+            </div>
+        </section>
+
+        <partial name="~/Views/Shared/Components/Ak/_AkFooterActions.cshtml"
+                 model="@((UiText.T(Context, "ثبت قیمت فروش", "Save sale price"), backUrl, UiText.T(Context, "انصراف", "Cancel")))" />
+    </form>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

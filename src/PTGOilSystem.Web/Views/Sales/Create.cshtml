@@ -61,7 +61,7 @@
             <div class="ak-form-grid">
                 <div class="ak-field">
                     <label asp-for="BuyerKey" class="ak-label">@UiText.T(Context, "خریدار", "Buyer") <span class="ak-req">*</span></label>
-                    <select asp-for="BuyerKey" asp-items="ViewBag.Buyers" class="ak-input">
+                    <select asp-for="BuyerKey" asp-items="ViewBag.Buyers" class="ak-input" data-ak-entity-combobox>
                         <option value="">@UiText.T(Context, "انتخاب خریدار", "Select buyer")</option>
                     </select>
                     <span asp-validation-for="BuyerKey" class="ak-field-error"></span>
@@ -176,6 +176,14 @@
                         <td class="ak-col-num" data-sales-total-preview><strong data-sales-total-value>0.00</strong></td>
                     </tr></tbody>
                 </table>
+            </div>
+            @* فروش با قیمت باز: تحویل و موجودی ثبت می‌شود، سند مالی پس از «تعیین قیمت فروش». *@
+            <div class="ak-field ak-col-full">
+                <div class="form-check">
+                    <input asp-for="IsSalePricePending" class="form-check-input" type="checkbox" data-sales-price-pending disabled="@isEdit" />
+                    <label asp-for="IsSalePricePending" class="form-check-label">@UiText.T(Context, "قیمت فروش هنوز مشخص نیست", "Sale price not yet known")</label>
+                </div>
+                <div class="form-text">@UiText.T(Context, "بار و موجودی همین حالا ثبت می‌شود؛ طلب مشتری، عاید و مفاد پس از تعیین قیمت از صفحهٔ همین فروش ثبت می‌شود.", "Delivery and stock are recorded now; receivable, revenue and profit are posted once the price is set from this sale's page.")</div>
             </div>
             <div hidden>
                 <span id="suggestedPriceHint"></span><span id="suggestedPriceReason"></span><span id="suggestedPriceFallback"></span><span id="suggestedPriceFormula"></span>

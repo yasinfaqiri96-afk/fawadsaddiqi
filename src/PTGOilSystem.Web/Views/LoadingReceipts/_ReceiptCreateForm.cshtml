@@ -291,8 +291,16 @@
                 </div>
                 <div class="ak-field">
                     <label asp-for="SaleUnitPriceInCurrency">@T("قیمت واحد (هر تن)", "Unit price (per MT)")</label>
-                    <input asp-for="SaleUnitPriceInCurrency" type="number" step="0.0001" min="0" class="ak-input" />
+                    <input asp-for="SaleUnitPriceInCurrency" type="number" step="0.0001" min="0" class="ak-input" data-sale-price-pending-target />
                     <span asp-validation-for="SaleUnitPriceInCurrency" class="ak-field-error"></span>
+                </div>
+                @* فروش با قیمت باز: بار ثبت می‌شود؛ قیمت بعداً از صفحهٔ همان فروش تعیین می‌شود. *@
+                <div class="ak-field ak-col-full">
+                    <div class="form-check">
+                        <input asp-for="SaleIsPricePending" class="form-check-input" type="checkbox" data-sale-price-pending-toggle />
+                        <label asp-for="SaleIsPricePending" class="form-check-label">@UiText.T(Context, "قیمت فروش هنوز مشخص نیست", "Sale price not yet known")</label>
+                    </div>
+                    <div class="form-text" data-sale-price-pending-hint hidden>@UiText.T(Context, "بار و موجودی همین حالا ثبت می‌شود؛ طلب مشتری، عاید و مفاد پس از تعیین قیمت از صفحهٔ همین فروش ثبت می‌شود.", "Delivery is recorded now; receivable, revenue and profit are posted once the price is set from the sale page.")</div>
                 </div>
                 <div class="ak-field">
                     <label asp-for="SaleCurrency">@T("واحد پول", "Currency")</label>
@@ -313,7 +321,7 @@
                         </div>
                         <div class="ak-field">
                             <label asp-for="SaleAppliedFxRateToUsd">@T("نرخ تبدیل به دالر", "FX rate to USD")</label>
-                            <input asp-for="SaleAppliedFxRateToUsd" type="number" step="0.000001" min="0" class="ak-input" />
+                            <input asp-for="SaleAppliedFxRateToUsd" type="number" step="0.000001" min="0" class="ak-input" data-sale-price-pending-target />
                             <span class="ak-section-desc">@T("در صورت خالی بودن، نرخ روز استفاده می‌شود.", "The daily rate is used when left empty.")</span>
                             <span asp-validation-for="SaleAppliedFxRateToUsd" class="ak-field-error"></span>
                         </div>
@@ -521,3 +529,4 @@
         </button>
     </div>
 </form>
+<script src="~/js/sale-price-pending.js" asp-append-version="true" defer></script>

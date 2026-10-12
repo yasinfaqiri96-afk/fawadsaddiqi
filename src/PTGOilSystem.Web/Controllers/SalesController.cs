@@ -58,6 +58,18 @@ public partial class SalesController : Controller
         await _salesAccounting.TryPostCogsAsync(sale);
     }
 
+    // فروش با قیمت باز: فقط بهای کالای تحویل‌شده به میانگینِ همان روز از موجودی به حساب واسط
+    // «تحویل‌شده در انتظار قیمت» می‌رود؛ عاید و طلب تا تعیین قیمت ثبت نمی‌شود.
+    private async Task PostPendingSaleDeliveredCostAsync(SalesTransaction sale)
+    {
+        if (_salesAccounting is null)
+        {
+            return;
+        }
+
+        await _salesAccounting.TryPostCogsAsync(sale);
+    }
+
     // لغو فروش باید هر دو دفتر را با هم برگرداند. ردیف‌های Legacy همان‌جا معکوس می‌شوند و
     // ژورنال‌های دفتر کل جدید اینجا، از طریق سرویس مرکزی، برگشت رسمی و متوازن می‌گیرند.
     //
@@ -836,6 +848,15 @@ public partial class SalesController : Controller
         }
         if (filter.FromDate.HasValue) query = query.Where(s => s.SaleDate >= filter.FromDate.Value);
         if (filter.ToDate.HasValue) query = query.Where(s => s.SaleDate <= filter.ToDate.Value);
+        var priceStatus = filter.PriceStatus?.Trim().ToLowerInvariant();
+        if (priceStatus == "pending")
+        {
+            query = query.Where(s => s.IsSalePricePending);
+        }
+        else if (priceStatus == "final")
+        {
+            query = query.Where(s => !s.IsSalePricePending);
+        }
 
         var totalCount = await query.CountAsync();
         var pageCount = Math.Max(1, (int)Math.Ceiling((double)totalCount / pageSize));
@@ -873,13 +894,16 @@ public partial class SalesController : Controller
                 TotalInCurrency = s.TotalInCurrency,
                 AppliedFxRateToUsd = s.AppliedFxRateToUsd,
                 UnitPriceUsd = s.UnitPriceUsd,
-                TotalUsd = s.TotalUsd
+                TotalUsd = s.TotalUsd,
+                IsSalePricePending = s.IsSalePricePending
             })
             .ToListAsync();
 
         // آمار کامل روی همهٔ رکوردهای مطابق فیلتر (نه فقط این صفحه) برای کارت‌های آماری و ردیف جمع.
         ViewBag.SumQuantity = await query.SumAsync(s => s.QuantityMt);
-        ViewBag.SumTotalUsd = await query.SumAsync(s => s.TotalUsd);
+        // جمع مبلغ فقط فروش‌های قیمت‌قطعی است؛ فروش با قیمت باز جدا شمرده می‌شود و صفر حساب نمی‌شود.
+        ViewBag.SumTotalUsd = await query.Where(s => !s.IsSalePricePending).SumAsync(s => s.TotalUsd);
+        ViewBag.PendingPriceCount = await query.CountAsync(s => s.IsSalePricePending);
         ViewBag.CustomerCount = await query
             .Where(s => s.CustomerId != null)
             .Select(s => s.CustomerId)
@@ -935,6 +959,7 @@ public partial class SalesController : Controller
             Currency = sale.Currency,
             TotalInCurrency = sale.TotalInCurrency,
             TotalUsd = sale.TotalUsd,
+            IsSalePricePending = sale.IsSalePricePending,
             CreateReplacement = true,
             ReturnUrl = returnUrl
         });
@@ -1039,7 +1064,8 @@ public partial class SalesController : Controller
             .OrderByDescending(l => l.Id)
             .FirstOrDefaultAsync();
 
-        if (originalLedger is null)
+        // فروش با قیمت باز هرگز سطر دفتر نگرفته است؛ لغو آن فقط موجودی را برمی‌گرداند.
+        if (originalLedger is null && !sale.IsSalePricePending)
         {
             TempData["err"] = "سند مالی این فروش پیدا نشد؛ لغو انجام نشد.";
             if (!string.IsNullOrWhiteSpace(returnUrl) && Url?.IsLocalUrl(returnUrl) == true)
@@ -1069,6 +1095,19 @@ public partial class SalesController : Controller
                 TempData["ok"] = "این فروش قبلاً لغو شده است.";
                 return RedirectToAction(nameof(Details), new { id });
             }
+
+            // سند دفتر پس از قفل دوباره خوانده می‌شود: اگر هم‌زمان قیمتِ فروشِ قیمت‌باز ثبت شده باشد،
+            // سندِ تازه هم باید برگردد، نه این‌که لغو بی‌برگشتِ دفتر انجام شود.
+            originalLedger = await _db.LedgerEntries
+                .AsNoTracking()
+                .Where(l => l.SourceType == "Sale" && l.SourceId == sale.Id)
+                .OrderByDescending(l => l.Id)
+                .FirstOrDefaultAsync();
+            if (originalLedger is null && !sale.IsSalePricePending)
+            {
+                throw new BusinessRuleException("SALE_CANCEL_LEDGER_MISSING", "سند مالی این فروش پیدا نشد؛ لغو انجام نشد.");
+            }
+
             _db.UseExpectedVersion(sale, version);
             sale.IsCancelled = true;
             sale.CancelReason = reason;
@@ -1095,12 +1134,15 @@ public partial class SalesController : Controller
                     .FirstOrDefaultAsync();
             }
 
-            await LedgerReversalWriter.ReverseAsync(
-                _db,
-                originalLedger,
-                _businessClock.Today,
-                $"لغو فروش #{sale.Id} | {originalLedger.Description}",
-                sale.InvoiceNumber);
+            if (originalLedger is not null)
+            {
+                await LedgerReversalWriter.ReverseAsync(
+                    _db,
+                    originalLedger,
+                    _businessClock.Today,
+                    $"لغو فروش #{sale.Id} | {originalLedger.Description}",
+                    sale.InvoiceNumber);
+            }
 
             foreach (var stockOutMovement in stockOutMovements)
             {
@@ -1208,6 +1250,7 @@ public partial class SalesController : Controller
             model.Currency = original.Currency;
             model.UnitPriceInCurrency = original.UnitPriceInCurrency;
             model.AppliedFxRateToUsd = original.AppliedFxRateToUsd;
+            model.IsSalePricePending = original.IsSalePricePending;
             model.SaleDate = original.SaleDate;
             model.TicketSerialNumber = original.TicketSerialNumber;
             model.StockSourceType = original.StockSourceType;
@@ -1351,7 +1394,16 @@ public partial class SalesController : Controller
                 $"مقدار فروش نمی‌تواند از مقدار قابل فروش ({availableQuantityMt:N4} تن) بیشتر باشد.");
         }
 
-        if (model.UnitPriceInCurrency <= 0m)
+        if (model.IsSalePricePending)
+        {
+            // قیمت باز: قیمت و نرخ ارز بعداً از صفحهٔ همان فروش ثبت می‌شود.
+            ModelState.Remove(nameof(model.UnitPriceInCurrency));
+            ModelState.Remove(nameof(model.AppliedFxRateToUsd));
+            model.UnitPriceInCurrency = 0m;
+            model.AppliedFxRateToUsd = null;
+            model.PrintAfterSave = false;
+        }
+        else if (model.UnitPriceInCurrency <= 0m)
         {
             ModelState.AddModelError(nameof(model.UnitPriceInCurrency), "قیمت هر تن باید بزرگ‌تر از صفر باشد.");
         }
@@ -1397,10 +1449,12 @@ public partial class SalesController : Controller
         CurrencyConversionResult conversion;
         try
         {
-            conversion = await _currencyConversion.ResolveToBaseAsync(
-                model.Currency,
-                model.SaleDate.Date,
-                model.AppliedFxRateToUsd);
+            conversion = model.IsSalePricePending
+                ? SalePendingPricing.NeutralConversion(model.Currency, model.SaleDate)
+                : await _currencyConversion.ResolveToBaseAsync(
+                    model.Currency,
+                    model.SaleDate.Date,
+                    model.AppliedFxRateToUsd);
         }
         catch (BusinessRuleException ex)
         {
@@ -1464,11 +1518,17 @@ public partial class SalesController : Controller
                 TotalUsd = conversion.ConvertToBase(totalInCurrency),
                 Notes = model.Notes
             };
+            if (model.IsSalePricePending)
+            {
+                SalePendingPricing.MarkPending(sale, model.Currency);
+            }
+
             _db.SalesTransactions.Add(sale);
             await _db.SaveChangesAsync();
 
-            var ledgerEntry = Ledger.Post(
-                SaleLedgerFactory.BuildSaleLedgerEntry(sale, conversion, contractId: null));
+            var ledgerEntry = SalePendingPricing.ShouldPostLedger(sale)
+                ? Ledger.Post(SaleLedgerFactory.BuildSaleLedgerEntry(sale, conversion, contractId: null))
+                : null;
             await _db.SaveChangesAsync();
 
             await PostSaleAccountingAsync(sale);
@@ -1488,14 +1548,17 @@ public partial class SalesController : Controller
                     ("InvoiceNumber", sale.InvoiceNumber),
                     ("QuantityMt", sale.QuantityMt),
                     ("TotalUsd", sale.TotalUsd),
-                    ("LedgerReference", ledgerEntry.Reference)));
+                    ("IsSalePricePending", sale.IsSalePricePending),
+                    ("LedgerReference", ledgerEntry?.Reference)));
 
             if (transaction is not null)
             {
                 await transaction.CommitAsync();
             }
 
-            TempData["ok"] = "فروش از جریان حمل محموله با موفقیت ثبت شد.";
+            TempData["ok"] = sale.IsSalePricePending
+                ? "فروش از محموله با قیمت باز ثبت شد؛ سند مالی پس از تعیین قیمت ثبت می‌شود."
+                : "فروش از جریان حمل محموله با موفقیت ثبت شد.";
             if (model.PrintAfterSave)
             {
                 return RedirectToAction("Sale", "Invoices", new { id = sale.Id });
@@ -1570,6 +1633,7 @@ public partial class SalesController : Controller
             Currency = sale.Currency,
             UnitPriceInCurrency = sale.UnitPriceInCurrency,
             AppliedFxRateToUsd = sale.AppliedFxRateToUsd,
+            IsSalePricePending = sale.IsSalePricePending,
             InvoiceNumber = sale.InvoiceNumber,
             SaleDate = sale.SaleDate,
             Notes = sale.Notes,
@@ -1605,6 +1669,16 @@ public partial class SalesController : Controller
         if (sale.IsCancelled)
         {
             ModelState.AddModelError(string.Empty, "این فروش لغو شده است و قابل ویرایش نیست.");
+        }
+
+        // قیمت فروش باز از این فرم تعیین نمی‌شود (مسیر جدای SetPrice)؛ فیلد قیمت در فرم غیرفعال است.
+        if (sale.IsSalePricePending)
+        {
+            ModelState.Remove(nameof(model.UnitPriceInCurrency));
+            ModelState.Remove(nameof(model.UnitPriceUsd));
+            ModelState.Remove(nameof(model.AppliedFxRateToUsd));
+            model.UnitPriceInCurrency = sale.UnitPriceInCurrency;
+            model.AppliedFxRateToUsd = null;
         }
 
         if (model.CompanyId != sale.CompanyId
@@ -1730,6 +1804,12 @@ public partial class SalesController : Controller
             return "به این فروش پیش‌دریافت، Lot یا ضایعه وصل است." + useCorrection;
         }
 
+        // قیمت باز: مبلغی وجود ندارد که دریافت‌ها با آن مقایسه شوند؛ کنترل هنگام تعیین قیمت است.
+        if (sale.IsSalePricePending)
+        {
+            return null;
+        }
+
         var paidUsd = await _db.PaymentTransactions
             .Where(p => p.SalesTransactionId == sale.Id)
             .SumAsync(p => (decimal?)p.AmountUsd) ?? 0m;
@@ -1761,25 +1841,40 @@ public partial class SalesController : Controller
         var terminalId = oldOuts[0].TerminalId;
         var storageTankId = oldOuts[0].StorageTankId!.Value;
 
+        // فروش با قیمت باز سطر دفتر ندارد: فقط موجودی و تخصیص منبع با مقدار جدید بازسازی می‌شود.
+        var pricePending = sale.IsSalePricePending;
         var oldLedger = await _db.LedgerEntries
             .AsNoTracking()
             .Where(l => l.SourceType == "Sale" && l.SourceId == sale.Id)
             .OrderByDescending(l => l.Id)
-            .FirstOrDefaultAsync()
-            ?? throw new BusinessRuleException("SALE_EDIT_LEDGER_MISSING", "سند مالی این فروش پیدا نشد؛ ویرایش انجام نشد.");
-        if (Services.CompanyFlow.CompanyFlowSourceTypes.IsReversalReference(oldLedger.Reference))
+            .FirstOrDefaultAsync();
+        if (oldLedger is null && !pricePending)
+        {
+            throw new BusinessRuleException("SALE_EDIT_LEDGER_MISSING", "سند مالی این فروش پیدا نشد؛ ویرایش انجام نشد.");
+        }
+
+        if (pricePending && oldLedger is not null)
+        {
+            throw new BusinessRuleException("SALE_EDIT_PENDING_HAS_LEDGER", "فروش با قیمت باز نباید سند مالی داشته باشد؛ ویرایش انجام نشد.");
+        }
+
+        if (oldLedger is not null && Services.CompanyFlow.CompanyFlowSourceTypes.IsReversalReference(oldLedger.Reference))
         {
             throw new BusinessRuleException("SALE_EDIT_LEDGER_REVERSED", "سند مالی این فروش قبلاً برگشت خورده است؛ ویرایش انجام نشد.");
         }
 
-        var revision = await _db.LedgerEntries
-            .CountAsync(l => l.SourceType == "Sale" && l.SourceId == sale.Id && l.Id <= oldLedger.Id
-                && (l.Reference == null || !l.Reference.EndsWith(Services.CompanyFlow.CompanyFlowSourceTypes.ReversalReferenceSuffix)));
+        var revision = oldLedger is null
+            ? 0
+            : await _db.LedgerEntries
+                .CountAsync(l => l.SourceType == "Sale" && l.SourceId == sale.Id && l.Id <= oldLedger.Id
+                    && (l.Reference == null || !l.Reference.EndsWith(Services.CompanyFlow.CompanyFlowSourceTypes.ReversalReferenceSuffix)));
 
-        var conversion = await _currencyConversion.ResolveToBaseAsync(
-            sale.Currency,
-            sale.SaleDate.Date,
-            sale.AppliedFxRateToUsd);
+        var conversion = pricePending
+            ? null
+            : await _currencyConversion.ResolveToBaseAsync(
+                sale.Currency,
+                sale.SaleDate.Date,
+                sale.AppliedFxRateToUsd);
 
         var oldQuantityMt = sale.QuantityMt;
         var oldTotalUsd = sale.TotalUsd;
@@ -1814,18 +1909,24 @@ public partial class SalesController : Controller
             }
 
             // ۲) سطر دفترِ مقدار قبلی برگشت می‌خورد (همان تاریخ فروش).
-            await LedgerReversalWriter.ReverseAsync(
-                _db,
-                oldLedger,
-                oldLedger.EntryDate,
-                $"ویرایش مقدار فروش #{sale.Id} ({oldQuantityMt:0.####} → {newQuantityMt:0.####} MT) | {oldLedger.Description}",
-                sale.InvoiceNumber);
+            if (oldLedger is not null)
+            {
+                await LedgerReversalWriter.ReverseAsync(
+                    _db,
+                    oldLedger,
+                    oldLedger.EntryDate,
+                    $"ویرایش مقدار فروش #{sale.Id} ({oldQuantityMt:0.####} → {newQuantityMt:0.####} MT) | {oldLedger.Description}",
+                    sale.InvoiceNumber);
+            }
 
             // ۳) خود فروش با مقدار و مبالغ جدید؛ تخصیص منبعِ قبلی پاک و از خروج جدید دوباره ساخته می‌شود.
-            var totalInCurrency = decimal.Round(newQuantityMt * sale.UnitPriceInCurrency, 4, MidpointRounding.AwayFromZero);
             sale.QuantityMt = newQuantityMt;
-            sale.TotalInCurrency = totalInCurrency;
-            sale.TotalUsd = conversion.ConvertToBase(totalInCurrency);
+            if (conversion is not null)
+            {
+                var totalInCurrency = decimal.Round(newQuantityMt * sale.UnitPriceInCurrency, 4, MidpointRounding.AwayFromZero);
+                sale.TotalInCurrency = totalInCurrency;
+                sale.TotalUsd = conversion.ConvertToBase(totalInCurrency);
+            }
             sale.Notes = notes;
             _db.SalesTransactionSourceAllocations.RemoveRange(await _db.SalesTransactionSourceAllocations
                 .Where(a => a.SalesTransactionId == sale.Id)
@@ -1863,16 +1964,24 @@ public partial class SalesController : Controller
             _sourceAllocations.ApplyLegacyHeader(sale, saleSourcePlan);
             await _sourceAllocations.PersistSaleAsync(sale, saleSourcePlan);
             await _lineage.AllocateSaleAsync(sale, sale.SourcePurchaseContractId, terminalId, storageTankId);
+            if (pricePending)
+            {
+                await ClearPendingSaleLotAmountsAsync(sale.Id);
+            }
 
             // ۵) سطر دفتر تازه با مقدار جدید.
-            var ledgerEntry = Ledger.Post(SaleLedgerFactory.BuildSaleLedgerEntry(
-                    sale,
-                    conversion,
-                    contractId: sale.ContractId ?? sale.SourcePurchaseContractId)
-                with { Reference = $"{sale.InvoiceNumber}/E{revision}" });
-            await _db.SaveChangesAsync();
+            LedgerEntry? ledgerEntry = null;
+            if (conversion is not null)
+            {
+                ledgerEntry = Ledger.Post(SaleLedgerFactory.BuildSaleLedgerEntry(
+                        sale,
+                        conversion,
+                        contractId: sale.ContractId ?? sale.SourcePurchaseContractId)
+                    with { Reference = $"{sale.InvoiceNumber}/E{revision}" });
+                await _db.SaveChangesAsync();
 
-            await PostSaleAccountingAsync(sale);
+                await PostSaleAccountingAsync(sale);
+            }
 
             await _audit.LogAsync(
                 nameof(SalesTransaction),
@@ -1882,7 +1991,7 @@ public partial class SalesController : Controller
                     ("QuantityMt", oldQuantityMt, sale.QuantityMt),
                     ("TotalUsd", oldTotalUsd, sale.TotalUsd),
                     ("InventoryMovementIds", string.Join(",", oldMovementIds), string.Join(",", stockOutMovements.Select(m => m.Id))),
-                    ("LedgerReference", oldLedger.Reference, ledgerEntry.Reference)));
+                    ("LedgerReference", oldLedger?.Reference, ledgerEntry?.Reference)));
             await _db.SaveChangesAsync();
 
             if (transaction is not null)
@@ -2019,6 +2128,17 @@ public partial class SalesController : Controller
         var normalizedInvoice = model.InvoiceNumber?.Trim() ?? string.Empty;
         var normalizedNotes = string.IsNullOrWhiteSpace(model.Notes) ? null : model.Notes.Trim();
         var requiresTerminalStock = RequiresTerminalStock(model.SaleStage);
+        var salePricePending = model.IsSalePricePending;
+        if (salePricePending)
+        {
+            // قیمت باز: هر عددی که در فیلد قیمت مانده باشد نادیده گرفته می‌شود؛ قیمت فقط از فرم
+            // «تعیین قیمت فروش» وارد می‌شود. نرخ تبدیل هم همان‌جا و با همان قیمت تعیین می‌شود.
+            ModelState.Remove(nameof(model.UnitPriceInCurrency));
+            ModelState.Remove(nameof(model.UnitPriceUsd));
+            ModelState.Remove(nameof(model.AppliedFxRateToUsd));
+            model.UnitPriceInCurrency = 0m;
+            model.AppliedFxRateToUsd = null;
+        }
 
         Contract? sourcePurchaseContract = null;
         if (requiresTerminalStock && model.SourcePurchaseContractId is > 0)
@@ -2305,26 +2425,33 @@ public partial class SalesController : Controller
             return View(model);
         }
 
-        CurrencyConversionResult conversion;
-        try
+        CurrencyConversionResult? conversion = null;
+        if (!salePricePending)
         {
-            conversion = await _currencyConversion.ResolveToBaseAsync(
-                model.Currency,
-                model.SaleDate.Date,
-                model.AppliedFxRateToUsd);
-        }
-        catch (BusinessRuleException ex)
-        {
-            ModelState.AddModelError(nameof(model.AppliedFxRateToUsd), ex.Message);
-            model.InvoiceNumber = normalizedInvoice;
-            model.Notes = normalizedNotes;
-            await PopulateLookupsAsync(createModel: model);
-            return View(model);
+            try
+            {
+                conversion = await _currencyConversion.ResolveToBaseAsync(
+                    model.Currency,
+                    model.SaleDate.Date,
+                    model.AppliedFxRateToUsd);
+            }
+            catch (BusinessRuleException ex)
+            {
+                ModelState.AddModelError(nameof(model.AppliedFxRateToUsd), ex.Message);
+                model.InvoiceNumber = normalizedInvoice;
+                model.Notes = normalizedNotes;
+                await PopulateLookupsAsync(createModel: model);
+                return View(model);
+            }
         }
 
-        var totalInCurrency = decimal.Round(model.QuantityMt * model.UnitPriceInCurrency, 4, MidpointRounding.AwayFromZero);
-        var unitPriceUsd = conversion.ConvertToBase(model.UnitPriceInCurrency);
-        var totalUsd = conversion.ConvertToBase(totalInCurrency);
+        // قیمت باز: ستون‌های مبلغ صفر ذخیره می‌شوند ولی با IsSalePricePending «نامعتبر» علامت دارند
+        // و هیچ مسیری آن‌ها را به‌عنوان مبلغ نمی‌خواند (سطر دفتر و ژورنال اصلاً ساخته نمی‌شود).
+        var totalInCurrency = salePricePending
+            ? 0m
+            : decimal.Round(model.QuantityMt * model.UnitPriceInCurrency, 4, MidpointRounding.AwayFromZero);
+        var unitPriceUsd = conversion?.ConvertToBase(model.UnitPriceInCurrency) ?? 0m;
+        var totalUsd = conversion?.ConvertToBase(totalInCurrency) ?? 0m;
 
         var sale = new SalesTransaction
         {
@@ -2339,12 +2466,13 @@ public partial class SalesController : Controller
             InvoiceNumber = normalizedInvoice,
             SaleDate = model.SaleDate,
             QuantityMt = model.QuantityMt,
-            Currency = conversion.SourceCurrencyCode,
+            Currency = conversion?.SourceCurrencyCode ?? model.Currency,
             UnitPriceInCurrency = model.UnitPriceInCurrency,
-            AppliedFxRateToUsd = conversion.AppliedRateToBase,
+            AppliedFxRateToUsd = conversion?.AppliedRateToBase,
             UnitPriceUsd = unitPriceUsd,
             TotalInCurrency = totalInCurrency,
             TotalUsd = totalUsd,
+            IsSalePricePending = salePricePending,
             Notes = normalizedNotes,
             TicketSerialNumber = string.IsNullOrWhiteSpace(model.TicketSerialNumber) ? null : model.TicketSerialNumber.Trim(),
             StockSourceType = model.StockSourceType
@@ -2484,6 +2612,10 @@ public partial class SalesController : Controller
                         model.SourcePurchaseContractId,
                         model.SourceTerminalId!.Value,
                         model.SourceStorageTankId);
+                    if (salePricePending)
+                    {
+                        await ClearPendingSaleLotAmountsAsync(sale.Id);
+                    }
                 }
 
                 var hasEmbeddedLoss = model.Loss.Enabled && model.Loss.QuantityMt.GetValueOrDefault() > 0m;
@@ -2502,13 +2634,23 @@ public partial class SalesController : Controller
                 // اگر FIFO قرارداد دیگری را مصرف کرده باشد FIFO برنده است، و اگر فروش
                 // چند-قراردادی باشد هر دو سر عمداً null می‌مانند و سهم هر قرارداد فقط در
                 // allocations زندگی می‌کند. هیچ قراردادی حدس زده نمی‌شود.
-                var ledgerEntry = Ledger.Post(SaleLedgerFactory.BuildSaleLedgerEntry(
-                    sale,
-                    conversion,
-                    contractId: sale.ContractId ?? sale.SourcePurchaseContractId));
-                await _db.SaveChangesAsync();
+                // قیمت باز: نه طلب مشتری، نه عاید، نه بهای تمام‌شده. این‌ها فقط یک‌بار و هنگام
+                // تعیین قیمت (SetPrice) از همین مسیرها ساخته می‌شوند.
+                LedgerEntry? ledgerEntry = null;
+                if (!salePricePending)
+                {
+                    ledgerEntry = Ledger.Post(SaleLedgerFactory.BuildSaleLedgerEntry(
+                        sale,
+                        conversion!,
+                        contractId: sale.ContractId ?? sale.SourcePurchaseContractId));
+                    await _db.SaveChangesAsync();
 
-                await PostSaleAccountingAsync(sale);
+                    await PostSaleAccountingAsync(sale);
+                }
+                else
+                {
+                    await PostPendingSaleDeliveredCostAsync(sale);
+                }
 
                 await _audit.LogAsync(
                     nameof(SalesTransaction),
@@ -2532,13 +2674,14 @@ public partial class SalesController : Controller
                         ("UnitPriceUsd", sale.UnitPriceUsd),
                         ("TotalInCurrency", sale.TotalInCurrency),
                         ("TotalUsd", sale.TotalUsd),
+                        ("IsSalePricePending", sale.IsSalePricePending),
                         ("SourcePurchaseContractId", stockOutMovements.Count == 1 ? stockOutMovements[0].ContractId : null),
                         ("SourcePurchaseContractIds", string.Join(",", stockOutMovements.Select(m => m.ContractId))),
                         ("SourceTerminalId", stockOutMovements.FirstOrDefault()?.TerminalId),
                         ("SourceStorageTankId", stockOutMovements.FirstOrDefault()?.StorageTankId),
                         ("InventoryMovementId", stockOutMovements.Count == 1 ? stockOutMovements[0].Id : null),
                         ("InventoryMovementIds", string.Join(",", stockOutMovements.Select(m => m.Id))),
-                        ("LedgerReference", ledgerEntry.Reference)));
+                        ("LedgerReference", ledgerEntry?.Reference)));
 
                 foreach (var stockOutMovement in stockOutMovements)
                 {
@@ -2565,11 +2708,13 @@ public partial class SalesController : Controller
                     await transaction.CommitAsync();
                 }
 
-                TempData["ok"] = hasEmbeddedLoss
-                    ? "فروش و ضایعات این مرحله با موفقیت ثبت شد."
-                    : requiresTerminalStock
-                        ? "فروش و خروج موجودی با موفقیت ثبت شد."
-                        : "فروش با موفقیت ثبت شد.";
+                TempData["ok"] = salePricePending
+                    ? "فروش با قیمت باز ثبت شد. سند مالی پس از تعیین قیمت فروش ثبت می‌شود."
+                    : hasEmbeddedLoss
+                        ? "فروش و ضایعات این مرحله با موفقیت ثبت شد."
+                        : requiresTerminalStock
+                            ? "فروش و خروج موجودی با موفقیت ثبت شد."
+                            : "فروش با موفقیت ثبت شد.";
 
                 if (TryGetLocalReturnUrl(model.ReturnUrl, out var localReturnUrl))
                 {
@@ -2747,6 +2892,28 @@ public partial class SalesController : Controller
                 .Select(u => u.FullName)
                 .FirstOrDefaultAsync()
             : null;
+        var priceFixedByName = sale.SalePriceFixedByUserId.HasValue
+            ? await _db.Users.AsNoTracking()
+                .Where(u => u.Id == sale.SalePriceFixedByUserId.Value)
+                .Select(u => u.FullName)
+                .FirstOrDefaultAsync()
+            : null;
+
+        // قیمت خرید روی فروش ذخیره نمی‌شود؛ وضعیتش از قراردادهای خرید منبعِ همین فروش خوانده می‌شود.
+        var sourceContractIds = stockOutContractIds
+            .Concat(await _db.SalesTransactionSourceAllocations.AsNoTracking()
+                .Where(a => a.SalesTransactionId == sale.Id)
+                .Select(a => a.SourcePurchaseContractId)
+                .ToListAsync())
+            .Concat(new[]
+            {
+                sale.SourcePurchaseContractId,
+                receiptAllocation?.SourcePurchaseContractId,
+                inventoryTransportReceipt?.InventoryTransportLeg?.SourcePurchaseContractId
+            }.Where(id => id.HasValue).Select(id => id!.Value))
+            .Distinct()
+            .ToList();
+        var pendingPurchaseContracts = await LoadPendingPurchasePriceContractsAsync(sourceContractIds);
 
         ViewBag.ReturnUrl = TryGetLocalReturnUrl(returnUrl, out var localReturnUrl) ? localReturnUrl : null;
 
@@ -2780,9 +2947,10 @@ public partial class SalesController : Controller
             UnitPriceUsd = sale.UnitPriceUsd,
             TotalUsd = sale.TotalUsd,
             ReceivedUsd = receivedUsd,
-            ReceivableBalanceUsd = sale.IsCancelled ? 0m : Math.Max(openReceivableUsd, 0m),
+            // قیمت باز: طلبی هنوز وجود ندارد؛ مانده و اضافه‌پرداخت «نامشخص»اند، نه صفر.
+            ReceivableBalanceUsd = sale.IsCancelled || sale.IsSalePricePending ? 0m : Math.Max(openReceivableUsd, 0m),
             ApplicableReceipts = applicableReceipts,
-            OverpaymentUsd = sale.IsCancelled ? 0m : Math.Max(-openReceivableUsd, 0m),
+            OverpaymentUsd = sale.IsCancelled || sale.IsSalePricePending ? 0m : Math.Max(-openReceivableUsd, 0m),
             Payments = payments,
             Notes = sale.Notes,
             LedgerEntryId = ledgerEntry?.Id,
@@ -2816,7 +2984,14 @@ public partial class SalesController : Controller
                 ?? inventoryTransportReceipt?.InventoryTransportLeg?.SourceTerminal?.Name,
             SourceStorageTankCode = StorageTankDisplay.BuildOptional(stockOutMovement?.StorageTank)
                 ?? StorageTankDisplay.BuildOptional(receiptAllocation?.StorageTank)
-                ?? StorageTankDisplay.BuildOptional(inventoryTransportReceipt?.InventoryTransportLeg?.SourceStorageTank)
+                ?? StorageTankDisplay.BuildOptional(inventoryTransportReceipt?.InventoryTransportLeg?.SourceStorageTank),
+            IsSalePricePending = sale.IsSalePricePending,
+            IsPurchasePricePending = pendingPurchaseContracts.Count > 0,
+            PendingPurchaseContracts = pendingPurchaseContracts,
+            SalePriceFixedAtUtc = sale.SalePriceFixedAtUtc,
+            SalePriceAccountingDate = sale.SalePriceAccountingDate,
+            SalePriceFixedByName = priceFixedByName,
+            Version = sale.Version
         });
     }
 
@@ -2840,6 +3015,12 @@ public partial class SalesController : Controller
         if (sale is null)
         {
             return NotFound();
+        }
+
+        if (sale.IsSalePricePending)
+        {
+            TempData["err"] = "قیمت فروش هنوز تعیین نشده است؛ فاکتور پس از تعیین قیمت قابل چاپ است.";
+            return RedirectToAction(nameof(Details), new { id });
         }
 
         var borderOrLocation = await ResolveInvoiceBorderOrLocationAsync(sale);

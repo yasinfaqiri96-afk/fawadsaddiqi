@@ -464,6 +464,36 @@ public class InventoryTransportReceiptsControllerTests
     }
 
     [Fact]
+    public async Task Create_DirectSale_With_Pending_Price_Delivers_Without_Ledger()
+    {
+        await using var db = CreateDb();
+        await SeedReferenceDataAsync(db);
+        var leg = await SeedLoadedLegAsync(db, quantityMt: 30m);
+
+        var result = await BuildController(db).Create(new InventoryTransportReceiptCreateViewModel
+        {
+            InventoryTransportLegId = leg.Id,
+            ReceiptDestination = InventoryTransportReceiptDestination.DirectSale,
+            ReceiptDate = new DateTime(2026, 5, 5),
+            ReceivedQuantityMt = 30m,
+            SaleCustomerId = 1,
+            SaleInvoiceNumber = "INV-TRANSPORT-PENDING",
+            SaleDate = new DateTime(2026, 5, 6),
+            SaleCurrency = "USD",
+            SaleIsPricePending = true
+        });
+
+        Assert.IsType<RedirectToActionResult>(result);
+        var sale = await db.SalesTransactions.SingleAsync();
+        Assert.True(sale.IsSalePricePending);
+        Assert.Equal(30m, sale.QuantityMt);
+        Assert.Equal(0m, sale.TotalUsd);
+        Assert.Empty(await db.LedgerEntries.Where(l => l.SourceType == "Sale").ToListAsync());
+        Assert.Equal(sale.Id, (await db.InventoryTransportReceipts.SingleAsync()).SalesTransactionId);
+        Assert.Equal(InventoryTransportLegStatus.Received, (await db.InventoryTransportLegs.SingleAsync(l => l.Id == leg.Id)).Status);
+    }
+
+    [Fact]
     public async Task Create_DirectSale_Propagates_TransportLeg_Shipment_To_Sale_Ledger_And_Loss()
     {
         await using var db = CreateDb();

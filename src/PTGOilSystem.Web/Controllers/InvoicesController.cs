@@ -54,6 +54,13 @@ public class InvoicesController : Controller
             return NotFound();
         }
 
+        // فاکتور بدون قیمت چاپ نمی‌شود؛ پس از «تعیین قیمت فروش» در دسترس است.
+        if (sale.IsSalePricePending)
+        {
+            TempData["err"] = "قیمت فروش هنوز تعیین نشده است؛ فاکتور پس از تعیین قیمت قابل چاپ است.";
+            return RedirectToAction("Details", "Sales", new { id });
+        }
+
         return View("Document", BuildSaleInvoice(sale));
     }
 
