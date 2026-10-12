@@ -226,7 +226,19 @@ public sealed class CustodySaleForm
     public DateTime Date { get; set; }
 
     public decimal? QuantityMt { get; set; }
+    /// <summary>قیمت فی تُن به ارز فروش.</summary>
     public decimal? UnitPriceUsd { get; set; }
+    /// <summary>ارز فروش به مشتری (USD یا AFN).</summary>
+    public string Currency { get; set; } = "USD";
+    public decimal? AgreedCurrencyPerUsd { get; set; }
+    [MaxLength(300)] public string? RateReference { get; set; }
+    /// <summary>ارز تعهد به مالک؛ خالی = همان ارز فروش.</summary>
+    public string? OwnerCurrency { get; set; }
+    public decimal? OwnerAgreedPerUsd { get; set; }
+    [MaxLength(300)] public string? OwnerRateReference { get; set; }
+    public CustodyFxResponsibility? FxResponsibility { get; set; }
+    public decimal? FxOwnerSharePercent { get; set; }
+    [MaxLength(300)] public string? FxAgreementReference { get; set; }
     public CustodyCommissionMethod CommissionMethod { get; set; } = CustodyCommissionMethod.PercentOfSale;
     public decimal? CommissionRate { get; set; }
     public CustodyCommissionRecognition CommissionRecognition { get; set; } = CustodyCommissionRecognition.OnCollection;
@@ -281,7 +293,12 @@ public sealed class CustodyFinanceForm
     [DataType(DataType.Date)]
     public DateTime Date { get; set; }
 
+    /// <summary>مبلغ به ارز سند.</summary>
     public decimal? AmountUsd { get; set; }
+    /// <summary>ارز سند؛ برای وصول همان ارز فروش و برای پرداخت به خدمات‌دهنده همان ارز مصرف (خالی = همان).</summary>
+    public string? Currency { get; set; }
+    public decimal? AgreedCurrencyPerUsd { get; set; }
+    [MaxLength(300)] public string? RateReference { get; set; }
     public int? CashAccountId { get; set; }
     public int? ExpenseTypeId { get; set; }
     [MaxLength(200)] public string? PayeeName { get; set; }
@@ -327,6 +344,17 @@ public sealed class CustodyFinanceViewModel
     public IReadOnlyList<(int Id, string Name)> ServiceProviders { get; init; } = [];
     public CustodyFinanceRow? ProviderCharge { get; init; }
 }
+
+public sealed class CustodyFxAgreementForm
+{
+    public int SaleId { get; set; }
+    public string? OwnerKey { get; set; }
+    public CustodyFxResponsibility? Responsibility { get; set; }
+    public decimal? OwnerSharePercent { get; set; }
+    [MaxLength(300)] public string? Reference { get; set; }
+}
+
+public sealed record CustodyFxAgreementViewModel(CustodyFxAgreementForm Form, CustodySaleRow Sale);
 
 public sealed class CustodySaleReturnForm
 {

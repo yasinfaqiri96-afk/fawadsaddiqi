@@ -17,8 +17,8 @@ public sealed record CustodyGlOwnerPosition(CustodyOwner Owner, string Name, dec
     public decimal DifferenceUsd => FundsNetCreditUsd - OperationalFundsUsd;
 }
 
-/// <summary>مصرف نسیهٔ امانیِ هنوز پرداخت‌نشده به یک خدمات‌دهنده (بدهی واقعی شرکت).</summary>
-public sealed record CustodyOpenProviderCharge(int ServiceProviderId, string Name, int Charges, decimal UnpaidUsd);
+/// <summary>مصرف نسیهٔ امانیِ هنوز پرداخت‌نشده به یک خدمات‌دهنده (بدهی واقعی شرکت)؛ مبلغ به ارز همان مصرف.</summary>
+public sealed record CustodyOpenProviderCharge(int ServiceProviderId, string Name, int Charges, decimal UnpaidUsd, string Currency = "USD");
 
 /// <summary>تبدیل‌های فعالِ امانی به خرید قطعی تا تاریخ راپور (مقدار و بهای قرارداد خرید canonical).</summary>
 public sealed record CustodyConversionTotals(int Count, decimal QuantityMt, decimal PurchaseValueUsd);
@@ -120,15 +120,17 @@ public sealed class CustodyGlReadService(ApplicationDbContext db, ISystemCompany
                 && e.EntryDate < cutoff && e.ServiceProviderId != null)
             .Select(e => new
             {
-                e.Id, ProviderId = e.ServiceProviderId!.Value, ProviderName = e.ServiceProvider!.Name, e.AmountUsd,
+                e.Id, ProviderId = e.ServiceProviderId!.Value, ProviderName = e.ServiceProvider!.Name, e.Currency,
+                Amount = e.Amount ?? e.AmountUsd,
                 Paid = db.CustodyFinanceEntries.Where(p => p.SettlesFinanceEntryId == e.Id && p.Kind == CustodyFinanceKind.ProviderPayment
-                    && p.Status == CustodyDocumentStatus.Posted && p.EntryDate < cutoff).Sum(p => (decimal?)p.AmountUsd) ?? 0m
+                    && p.Status == CustodyDocumentStatus.Posted && p.EntryDate < cutoff).Sum(p => (decimal?)(p.Amount ?? p.AmountUsd)) ?? 0m
             })
             .ToListAsync(ct);
-        return charges.Where(c => c.AmountUsd - c.Paid != 0m)
-            .GroupBy(c => new { c.ProviderId, c.ProviderName })
-            .Select(g => new CustodyOpenProviderCharge(g.Key.ProviderId, g.Key.ProviderName, g.Count(), g.Sum(c => c.AmountUsd - c.Paid)))
-            .OrderBy(x => x.Name).ToList();
+        // به ارزِ خودِ مصرف: پرداختِ افغانی به نرخ روزِ دیگر، ماندهٔ افغانی را درست کم می‌کند.
+        return charges.Where(c => c.Amount - c.Paid != 0m)
+            .GroupBy(c => new { c.ProviderId, c.ProviderName, c.Currency })
+            .Select(g => new CustodyOpenProviderCharge(g.Key.ProviderId, g.Key.ProviderName, g.Count(), g.Sum(c => c.Amount - c.Paid), g.Key.Currency))
+            .OrderBy(x => x.Name).ThenBy(x => x.Currency).ToList();
     }
 
     private async Task<CustodyConversionTotals> ConversionTotalsAsync(DateTime cutoff, CancellationToken ct)

@@ -1,0 +1,59 @@
+@model PTGOilSystem.Web.Models.Custody.CustodyFxAgreementViewModel
+@using PTGOilSystem.Web.Models.Entities
+@{
+    var form = Model.Form;
+    var sale = Model.Sale;
+    var title = UiText.T(Context, "توافق تفاوت نرخ", "FX difference agreement") + " — " + sale.SaleNumber;
+    ViewData["Title"] = title;
+    var backUrl = Url.Action("Owner", new { key = form.OwnerKey });
+}
+
+<div class="ak-form-page">
+    <div class="ak-form-page-content">
+        <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+                 model="@((title, true,
+                           (string?)null, (string?)null, (string?)null, (string?)null,
+                           UiText.T(Context, "بازگشت", "Back"), "bi-arrow-right",
+                           (string?)backUrl))" />
+
+        <form asp-action="FxAgreement" method="post" class="ak-form">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="SaleId" value="@form.SaleId" />
+            <input type="hidden" name="OwnerKey" value="@form.OwnerKey" />
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger ak-form-alert"></div>
+
+            <div class="alert alert-info ak-form-alert">
+                <i class="bi bi-info-circle" aria-hidden="true"></i>
+                @UiText.T(Context,
+                    "این فروش به " + sale.Currency + " است و تعهد به مالک به " + sale.OwnerCurrency + " با نرخ قفل‌شدهٔ " + sale.OwnerAgreedPerUsd?.ToString("0.####") + " افغانی در برابر ۱ دالر. وقتی ارزشِ پولِ وصول یا استرداد به نرخ روز با این نرخ فرق کند، تفاوت طبق همین توافق تقسیم می‌شود. این توافق فقط یک بار ثبت می‌شود.",
+                    "This sale is in " + sale.Currency + " and owed to the owner in " + sale.OwnerCurrency + " at a locked rate. The FX difference is split per this agreement, recorded once.")
+            </div>
+
+            <section class="ak-form-section">
+                <div class="ak-form-grid">
+                    <div class="ak-field">
+                        <label for="Responsibility" class="ak-label">@UiText.T(Context, "مسئول تفاوت نرخ", "Borne by") <span class="ak-req">*</span></label>
+                        <select id="Responsibility" name="Responsibility" class="ak-input">
+                            <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                            <option value="@CustodyFxResponsibility.Owner" selected="@(form.Responsibility == CustodyFxResponsibility.Owner)">@UiText.T(Context, "مالک", "Owner")</option>
+                            <option value="@CustodyFxResponsibility.Company" selected="@(form.Responsibility == CustodyFxResponsibility.Company)">@UiText.T(Context, "شرکت", "Company")</option>
+                            <option value="@CustodyFxResponsibility.Split" selected="@(form.Responsibility == CustodyFxResponsibility.Split)">@UiText.T(Context, "تقسیم طبق توافق", "Split per agreement")</option>
+                        </select>
+                        <span class="ak-field-error">@Html.ValidationMessage("Responsibility")</span>
+                    </div>
+                    <div class="ak-field">
+                        <label for="OwnerSharePercent" class="ak-label">@UiText.T(Context, "سهم مالک (٪، فقط برای تقسیم)", "Owner share % (split only)")</label>
+                        <input id="OwnerSharePercent" name="OwnerSharePercent" type="number" step="0.0001" min="0" max="100" class="ak-input" value="@form.OwnerSharePercent" />
+                    </div>
+                    <div class="ak-field ak-col-full">
+                        <label for="Reference" class="ak-label">@UiText.T(Context, "مرجع توافق مالک", "Owner agreement reference") <span class="ak-req">*</span></label>
+                        <input id="Reference" name="Reference" class="ak-input" maxlength="300" value="@form.Reference" />
+                    </div>
+                </div>
+            </section>
+
+            <partial name="~/Views/Shared/Components/Ak/_AkFooterActions.cshtml"
+                     model="@((UiText.T(Context, "ثبت توافق", "Save agreement"), backUrl ?? "/", UiText.T(Context, "انصراف", "Cancel")))" />
+        </form>
+    </div>
+</div>

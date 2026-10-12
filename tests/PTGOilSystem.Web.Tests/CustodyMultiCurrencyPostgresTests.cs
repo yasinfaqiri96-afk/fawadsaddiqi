@@ -4,12 +4,14 @@ using Microsoft.Extensions.Options;
 using PTGOilSystem.Web.Configuration;
 using PTGOilSystem.Web.Data;
 using PTGOilSystem.Web.Models.Entities;
+using PTGOilSystem.Web.Models.Reports;
 using PTGOilSystem.Web.Services;
 using PTGOilSystem.Web.Services.Accounting;
 using PTGOilSystem.Web.Services.Custody;
 using PTGOilSystem.Web.Services.Exceptions;
 using PTGOilSystem.Web.Services.Ledger;
 using PTGOilSystem.Web.Services.Parties;
+using PTGOilSystem.Web.Services.Reporting;
 using Xunit;
 
 namespace PTGOilSystem.Web.Tests;
@@ -582,6 +584,67 @@ public sealed class CustodyMultiCurrencyPostgresTests(ConcurrencyVersionPostgres
             var totals = await CustodySaleService.ReturnTotalsAsync(db, saleId, CancellationToken.None);
             Assert.Equal(0m, totals.Amount);
         }
+        await AssertJournalsBalancedAsync();
+    }
+
+    // ---------------------------------------------------------------- راپور حساب مالک و مفاد
+
+    [Fact]
+    public async Task Owner_Account_Shows_Each_Currency_Separately_And_Pnl_Counts_The_Company_Fx_Share()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        var day = Day.AddDays(12);
+        await RateAsync(Day, 70m);
+        await RateAsync(day, 80m);
+
+        var afnSale = await SellAsync(Sale(w, "AFN", 35_000m));
+        var crossSale = await SellAsync(Sale(w, "AFN", 35_000m, ownerCurrency: "USD", ownerAgreed: 70m, ownerReference: "Deal P",
+            responsibility: CustodyFxResponsibility.Company));
+        ManagementReportFilterViewModel Filter() => new() { FromDate = day, ToDate = day };
+        decimal lossBefore;
+        await using (var db = fixture.CreateDbContext())
+            lossBefore = (await new ProfitAndLossService(db).BuildCompanyPeriodAsync(Filter(), day)).ExchangeLossUsd;
+
+        await CollectAsync(w, afnSale, 70_000m, day);
+        var cross = await CollectAsync(w, crossSale, 80_000m, day);
+        await FinanceAsync(new CustodyFinanceInput
+        {
+            Kind = CustodyFinanceKind.ServiceFee, Owner = new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId),
+            EntryDate = day, AmountUsd = 10m, Currency = "USD"
+        });
+
+        await using (var db = fixture.CreateDbContext())
+        {
+            var entry = await db.CustodyFinanceEntries.SingleAsync(e => e.Id == cross);
+            Assert.Equal(1_000m, entry.AmountUsd);                     // ۸۰٬۰۰۰ ÷ ۸۰
+            Assert.Equal(1_142.8571m, entry.OwnerAmount);              // ۸۰٬۰۰۰ ÷ ۷۰ (نرخ قفل)
+            Assert.Equal(-142.8571m, entry.FxCompanyUsd);
+            var period = await new ProfitAndLossService(db).BuildCompanyPeriodAsync(Filter(), day);
+            Assert.Equal(142.8571m, period.ExchangeLossUsd - lossBefore);
+
+            var account = await new CustodyReadService(db, new StockService(db), new PartyDirectory(db))
+                .GetOwnerAccountAsync(new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId));
+            Assert.Equal(new[] { "USD", "AFN" }, account.Summaries.Select(x => x.Currency).ToArray());
+            var afn = account.Summary("AFN");
+            Assert.Equal(700_000m, afn.SalesTotal);                    // هر دو فروش به افغانی
+            Assert.Equal(700_000m - 150_000m, afn.Outstanding);
+            Assert.Equal(70_000m, afn.CollectedByCompany);
+            Assert.Equal(2_100m, afn.CommissionRecognized);
+            Assert.Equal(67_900m, afn.Balance);
+            var usd = account.Summary("USD");
+            Assert.Equal(1_142.8571m, usd.CollectedByCompany);
+            Assert.Equal(34.2857m, usd.CommissionRecognized);          // ۲٬۴۰۰ افغانی ÷ ۷۰
+            Assert.Equal(10m, usd.ServiceFees);
+            Assert.Equal(1_142.8571m - 34.2857m - 10m, usd.Balance);
+            Assert.Equal(-142.8571m, account.FxCompanyUsd);
+            var row = account.Sales.Single(x => x.Id == crossSale);
+            Assert.True(row.IsCrossCurrency);
+            Assert.False(row.NeedsFxAgreement);
+            Assert.Equal("AFN", row.Currency);
+            Assert.Equal(270_000m, row.OutstandingUsd);
+        }
+        await AssertOwnerGlMatchesStatementAsync(w);
         await AssertJournalsBalancedAsync();
     }
 }

@@ -13,7 +13,11 @@
         or CustodyFinanceKind.ProviderPayment;
     var isCharge = kind is CustodyFinanceKind.ReimbursableExpense or CustodyFinanceKind.ServiceFee or CustodyFinanceKind.ProviderCharge;
     var charge = Model.ProviderCharge;
-    var balance = account.FundsBalanceUsd;
+    // وصول همان ارز فروش و پرداخت به خدمات‌دهنده همان ارز مصرف است؛ برای بقیه ارز انتخابی.
+    var fixedCurrency = collects || kind == CustodyFinanceKind.ProviderPayment;
+    var currency = string.IsNullOrWhiteSpace(form.Currency) ? "USD" : form.Currency;
+    var balanceText = string.Join(" · ", account.Summaries.Select(x =>
+        (x.Balance >= 0m ? UiText.T(Context, "قابل پرداخت", "Payable") : UiText.T(Context, "بدهکار", "Owes")) + " " + Math.Abs(x.Balance).ToString("N2") + " " + x.Currency));
 }
 
 <div class="ak-form-page">
@@ -42,9 +46,7 @@
 
             <section class="ak-form-section">
                 <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
-                         model="@((account.OwnerName,
-                                   (string?)((balance >= 0m ? UiText.T(Context, "مانده قابل پرداخت به مالک", "Payable to owner") : UiText.T(Context, "مالک به شرکت بدهکار است", "Owner owes company"))
-                                             + ": " + Math.Abs(balance).ToString("N2") + " USD")))" />
+                         model="@((account.OwnerName, (string?)(UiText.T(Context, "حساب مالک", "Owner account") + ": " + balanceText)))" />
                 <div class="ak-form-grid">
                     @if (collects)
                     {
@@ -55,7 +57,7 @@
                                 @foreach (var s in Model.OpenSales)
                                 {
                                     <option value="@s.Id" selected="@(s.Id == form.SaleId)">
-                                        @s.SaleNumber — @s.CustomerName — @UiText.T(Context, "وصول‌نشده", "outstanding") @s.OutstandingUsd.ToString("N2") USD
+                                        @s.SaleNumber — @s.CustomerName — @UiText.T(Context, "وصول‌نشده", "outstanding") @s.OutstandingUsd.ToString("N2") @s.Currency
                                     </option>
                                 }
                             </select>
@@ -68,7 +70,7 @@
                             <span class="ak-label">@UiText.T(Context, "مصرف نسیه", "Unpaid charge")</span>
                             <div>
                                 AF-@charge.Id.ToString("D5") · @charge.ServiceProviderName · @charge.ExpenseTypeName ·
-                                @UiText.T(Context, "پرداخت‌نشده", "unpaid") @charge.ProviderUnpaidUsd.ToString("N2") USD
+                                @UiText.T(Context, "پرداخت‌نشده", "unpaid") @charge.ProviderUnpaidUsd.ToString("N2") @charge.Currency
                             </div>
                         </div>
                     }
@@ -85,8 +87,22 @@
                             </select>
                         </div>
                     }
+                    @if (fixedCurrency)
+                    {
+                        <input type="hidden" name="Currency" value="@form.Currency" />
+                    }
+                    else
+                    {
+                        <div class="ak-field">
+                            <label for="Currency" class="ak-label">@UiText.T(Context, "ارز", "Currency")</label>
+                            <select id="Currency" name="Currency" class="ak-input">
+                                <option value="USD" selected="@(currency == "USD")">@UiText.T(Context, "دالر (USD)", "USD")</option>
+                                <option value="AFN" selected="@(currency == "AFN")">@UiText.T(Context, "افغانی (AFN)", "AFN")</option>
+                            </select>
+                        </div>
+                    }
                     <div class="ak-field">
-                        <label for="AmountUsd" class="ak-label">@UiText.T(Context, "مبلغ (دالر)", "Amount (USD)") <span class="ak-req">*</span></label>
+                        <label for="AmountUsd" class="ak-label">@UiText.T(Context, "مبلغ", "Amount")@(fixedCurrency && !string.IsNullOrWhiteSpace(form.Currency) ? " (" + form.Currency + ")" : "") <span class="ak-req">*</span></label>
                         <input id="AmountUsd" name="AmountUsd" type="number" step="0.01" min="0" class="ak-input" value="@form.AmountUsd" />
                         <span class="ak-field-error">@Html.ValidationMessage("AmountUsd")</span>
                     </div>
@@ -151,6 +167,19 @@
                         <label for="Description" class="ak-label">@UiText.T(Context, "توضیحات (اختیاری)", "Notes (optional)")</label>
                         <textarea id="Description" name="Description" class="ak-input" rows="2" maxlength="1000">@form.Description</textarea>
                     </div>
+                    <details class="ak-advanced ak-col-full" open="@form.AgreedCurrencyPerUsd.HasValue">
+                        <summary class="ak-advanced-summary">@UiText.T(Context, "نرخ توافقیِ همین سند (اختیاری؛ وگرنه نرخ روزانهٔ سیستم)", "Agreed rate for this document (optional)")</summary>
+                        <div class="ak-form-grid">
+                            <div class="ak-field">
+                                <label for="AgreedCurrencyPerUsd" class="ak-label">@UiText.T(Context, "۱ دالر = ؟ افغانی", "AFN per USD")</label>
+                                <input id="AgreedCurrencyPerUsd" name="AgreedCurrencyPerUsd" type="number" step="0.000001" min="0" class="ak-input" value="@form.AgreedCurrencyPerUsd" />
+                            </div>
+                            <div class="ak-field">
+                                <label for="RateReference" class="ak-label">@UiText.T(Context, "مرجع تأیید نرخ", "Rate reference")</label>
+                                <input id="RateReference" name="RateReference" class="ak-input" maxlength="300" value="@form.RateReference" />
+                            </div>
+                        </div>
+                    </details>
                 </div>
             </section>
 

@@ -334,16 +334,19 @@ public sealed class PartyStatementReadService : IPartyStatementReadService
         foreach (var sale in sales)
         {
             var ownerKey = new PartyKey(sale.OwnerPartyType == AccountingPartyType.Customer ? PartyStatementPartyType.Customer : PartyStatementPartyType.Supplier, sale.OwnerPartyId);
+            // به ارز فروش (اسناد قدیمی دالری‌اند).
+            var unit = CurrencyLabel(sale.Currency);
             var paid = finance.Where(e => e.CustodySaleId == sale.Id && e.Status == CustodyDocumentStatus.Posted)
-                    .Sum(e => e.Kind is CustodyFinanceKind.CustomerRefund or CustodyFinanceKind.OwnerDirectRefund ? -e.AmountUsd : e.AmountUsd)
-                + returns.Where(r => r.CustodySaleId == sale.Id && r.Status == CustodyDocumentStatus.Posted).Sum(r => r.AmountUsd);
+                    .Sum(e => e.Kind is CustodyFinanceKind.CustomerRefund or CustodyFinanceKind.OwnerDirectRefund ? -e.EffectiveAmount : e.EffectiveAmount)
+                + returns.Where(r => r.CustodySaleId == sale.Id && r.Status == CustodyDocumentStatus.Posted).Sum(r => r.EffectiveAmount);
+            var outstanding = sale.Status == CustodyDocumentStatus.Cancelled ? 0m : sale.EffectiveAmount - paid;
             rows.Add(new PartyStatementRow
             {
                 Date = sale.SaleDate, CreatedAtUtc = sale.CreatedAtUtc, SourceType = "CustodyCustomerSale", SourceId = sale.Id,
                 Reference = sale.SaleNumber, OriginalCurrency = sale.Currency,
                 Title = sale.Status == CustodyDocumentStatus.Cancelled ? "فروش امانی لغو شده" : "فروش امانی به نمایندگی مالک",
-                Description = $"فروش امانی {sale.SaleNumber} · مالک: {names.GetValueOrDefault(ownerKey, "—")} · {sale.QuantityMt:N4} تُن × {sale.UnitPriceUsd:N4} دالر · مبلغ {sale.AmountUsd:N2} دالر · وصول‌نشده {(sale.Status == CustodyDocumentStatus.Cancelled ? 0m : sale.AmountUsd - paid):N2} دالر؛ این طلب مربوط به مالک است.",
-                Detail = $"مبلغ {sale.AmountUsd:N2} دالر · وصول‌نشده {(sale.Status == CustodyDocumentStatus.Cancelled ? 0m : sale.AmountUsd - paid):N2} دالر · مالک: {names.GetValueOrDefault(ownerKey, "—")}",
+                Description = $"فروش امانی {sale.SaleNumber} · مالک: {names.GetValueOrDefault(ownerKey, "—")} · {sale.QuantityMt:N4} تُن × {sale.EffectiveUnitPrice:N4} {unit} · مبلغ {sale.EffectiveAmount:N2} {unit} · وصول‌نشده {outstanding:N2} {unit}؛ این طلب مربوط به مالک است.",
+                Detail = $"مبلغ {sale.EffectiveAmount:N2} {unit} · وصول‌نشده {outstanding:N2} {unit} · مالک: {names.GetValueOrDefault(ownerKey, "—")}",
                 IsCancelled = sale.Status == CustodyDocumentStatus.Cancelled
             });
         }
@@ -362,20 +365,21 @@ public sealed class PartyStatementReadService : IPartyStatementReadService
             {
                 Date = entry.EntryDate, CreatedAtUtc = entry.CreatedAtUtc, SourceType = "CustodyCustomerFinance", SourceId = entry.Id,
                 Reference = reference, OriginalCurrency = entry.Currency, Title = title,
-                Description = $"{title} · {reference} · {entry.AmountUsd:N2} دالر؛ مربوط به حساب امانی مالک.",
-                Detail = $"{entry.AmountUsd:N2} دالر · فروش {reference}", IsCancelled = entry.Status == CustodyDocumentStatus.Cancelled
+                Description = $"{title} · {reference} · {entry.EffectiveAmount:N2} {CurrencyLabel(entry.Currency)}؛ مربوط به حساب امانی مالک.",
+                Detail = $"{entry.EffectiveAmount:N2} {CurrencyLabel(entry.Currency)} · فروش {reference}", IsCancelled = entry.Status == CustodyDocumentStatus.Cancelled
             });
         }
         foreach (var saleReturn in returns)
         {
             var reference = sales.FirstOrDefault(s => s.Id == saleReturn.CustodySaleId)?.SaleNumber ?? saleReturn.ReturnNumber;
             var title = saleReturn.Status == CustodyDocumentStatus.Cancelled ? "برگشت فروش امانی — لغو شده" : "برگشت فروش امانی";
+            var currency = sales.FirstOrDefault(s => s.Id == saleReturn.CustodySaleId)?.Currency ?? "USD";
             rows.Add(new PartyStatementRow
             {
                 Date = saleReturn.ReturnDate, CreatedAtUtc = saleReturn.CreatedAtUtc, SourceType = "CustodyCustomerReturn", SourceId = saleReturn.Id,
-                Reference = saleReturn.ReturnNumber, OriginalCurrency = "USD", Title = title,
-                Description = $"{title} {saleReturn.ReturnNumber} · فروش {reference} · {saleReturn.QuantityMt:N4} تُن · {saleReturn.AmountUsd:N2} دالر از طلب کم شد؛ مربوط به حساب امانی مالک.",
-                Detail = $"{saleReturn.QuantityMt:N4} تُن · {saleReturn.AmountUsd:N2} دالر · فروش {reference}",
+                Reference = saleReturn.ReturnNumber, OriginalCurrency = currency, Title = title,
+                Description = $"{title} {saleReturn.ReturnNumber} · فروش {reference} · {saleReturn.QuantityMt:N4} تُن · {saleReturn.EffectiveAmount:N2} {CurrencyLabel(currency)} از طلب کم شد؛ مربوط به حساب امانی مالک.",
+                Detail = $"{saleReturn.QuantityMt:N4} تُن · {saleReturn.EffectiveAmount:N2} {CurrencyLabel(currency)} · فروش {reference}",
                 IsCancelled = saleReturn.Status == CustodyDocumentStatus.Cancelled
             });
         }
@@ -386,6 +390,10 @@ public sealed class PartyStatementReadService : IPartyStatementReadService
                 || (r.Reference?.Contains(filter.Search.Trim(), StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
         return rows;
     }
+
+    private static string CurrencyLabel(string? currency)
+        => string.Equals(currency, "AFN", StringComparison.OrdinalIgnoreCase) ? "افغانی"
+            : string.IsNullOrWhiteSpace(currency) || string.Equals(currency, "USD", StringComparison.OrdinalIgnoreCase) ? "دالر" : currency;
 
     private const string SaleSourceType = "Sale";
 

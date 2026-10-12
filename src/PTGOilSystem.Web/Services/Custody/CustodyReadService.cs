@@ -111,6 +111,10 @@ public sealed record CompanyStockAtThirdParty(
 
 public sealed record CustodyOwnerOption(AccountingPartyType PartyType, int PartyId, string Name);
 
+/// <summary>
+/// یک فروش امانی. همهٔ مبالغِ این سطر (نام‌های *Usd برای سازگاری مانده‌اند) به ارز فروش
+/// (<see cref="Currency"/>) هستند؛ ارز تعهد به مالک جدا (<see cref="OwnerCurrency"/>).
+/// </summary>
 public sealed record CustodySaleRow(
     int Id,
     string SaleNumber,
@@ -137,14 +141,26 @@ public sealed record CustodySaleRow(
     decimal ReturnedQuantityMt = 0m,
     decimal ReturnedAmountUsd = 0m,
     decimal ReturnedCommissionUsd = 0m,
-    string? SourceLots = null)
+    string? SourceLots = null,
+    string Currency = "USD",
+    string OwnerCurrency = "USD",
+    decimal? OwnerAgreedPerUsd = null,
+    CustodyFxResponsibility? FxResponsibility = null,
+    decimal? FxOwnerSharePercent = null,
+    string? FxAgreementReference = null,
+    decimal CommissionAtSaleOwner = 0m,
+    decimal ReturnedCommissionOwner = 0m)
 {
+    public bool IsCrossCurrency => !string.Equals(Currency, OwnerCurrency, StringComparison.OrdinalIgnoreCase);
+    /// <summary>فروشِ دوارزی که هنوز مسئول تفاوت نرخ در توافق مالک ثبت نشده.</summary>
+    public bool NeedsFxAgreement => IsCrossCurrency && FxResponsibility is null && Status == CustodyDocumentStatus.Posted;
     public decimal NetQuantityMt => QuantityMt - ReturnedQuantityMt;
     public decimal NetAmountUsd => AmountUsd - ReturnedAmountUsd;
     public decimal NetCommissionUsd => CommissionUsd - ReturnedCommissionUsd;
     public decimal OutstandingUsd => Status == CustodyDocumentStatus.Posted ? NetAmountUsd - CollectedByCompanyUsd - CollectedByOwnerUsd : 0m;
 }
 
+/// <summary>برگشت فروش؛ مبالغ به ارز فروش (<see cref="Currency"/>).</summary>
 public sealed record CustodySaleReturnRow(
     int Id,
     string ReturnNumber,
@@ -157,8 +173,13 @@ public sealed record CustodySaleReturnRow(
     decimal RecognizedCommissionReversedUsd,
     string? DocumentNumber,
     CustodyDocumentStatus Status,
-    string? CancellationReason);
+    string? CancellationReason,
+    string Currency = "USD");
 
+/// <summary>
+/// سند مالی امانی. <see cref="AmountUsd"/> و <see cref="ProviderPaidUsd"/> به ارز خودِ سند (<see cref="Currency"/>)
+/// و <see cref="CommissionUsd"/> به ارز فروش‌اند؛ اثر بر حساب مالک به ارز مالک (<see cref="OwnerCurrency"/>).
+/// </summary>
 public sealed record CustodyFinanceRow(
     int Id,
     CustodyFinanceKind Kind,
@@ -176,7 +197,15 @@ public sealed record CustodyFinanceRow(
     string? CancellationReason,
     string? ServiceProviderName = null,
     int? SettlesFinanceEntryId = null,
-    decimal ProviderPaidUsd = 0m)
+    decimal ProviderPaidUsd = 0m,
+    string Currency = "USD",
+    string OwnerCurrency = "USD",
+    decimal OwnerAmount = 0m,
+    decimal OwnerCommission = 0m,
+    decimal? FxDifference = null,
+    decimal? FxOwnerShare = null,
+    decimal? FxCompanyUsd = null,
+    string? RateSource = null)
 {
     public decimal ProviderUnpaidUsd => Kind == CustodyFinanceKind.ProviderCharge && Status == CustodyDocumentStatus.Posted
         ? AmountUsd - ProviderPaidUsd : 0m;
@@ -194,22 +223,70 @@ public sealed record CustodyOwnerAccount(
     IReadOnlyList<CustodyFinanceRow> Entries,
     decimal FundsBalanceUsd,
     IReadOnlyList<CustodySaleReturnRow>? Returns = null,
-    CustodyOwner? FinancialOwner = null)
+    CustodyOwner? FinancialOwner = null,
+    IReadOnlyDictionary<string, decimal>? Balances = null)
 {
     public IReadOnlyList<CustodySaleReturnRow> SaleReturns => Returns ?? [];
     private IEnumerable<CustodySaleRow> Posted => Sales.Where(s => s.Status == CustodyDocumentStatus.Posted);
-    private decimal Sum(CustodyFinanceKind kind) => Entries.Where(e => e.Kind == kind && e.Status == CustodyDocumentStatus.Posted).Sum(e => e.AmountUsd);
+    private IEnumerable<CustodyFinanceRow> PostedEntries => Entries.Where(e => e.Status == CustodyDocumentStatus.Posted);
 
-    public decimal SalesTotalUsd => Posted.Sum(s => s.NetAmountUsd);
-    public decimal CollectedByCompanyUsd => Posted.Sum(s => s.CollectedByCompanyUsd);
-    public decimal CollectedByOwnerUsd => Posted.Sum(s => s.CollectedByOwnerUsd);
-    public decimal OutstandingUsd => Posted.Sum(s => s.OutstandingUsd);
-    public decimal CommissionRecognizedUsd => Posted.Sum(s => s.CommissionRecognizedUsd);
-    public decimal CommissionPendingUsd => Posted.Sum(s => Math.Max(s.NetCommissionUsd - s.CommissionRecognizedUsd, 0m));
-    public decimal ExpensesUsd => Sum(CustodyFinanceKind.ReimbursableExpense) + Sum(CustodyFinanceKind.ProviderCharge);
-    public decimal ProviderUnpaidUsd => Entries.Sum(e => e.ProviderUnpaidUsd);
-    public decimal ServiceFeesUsd => Sum(CustodyFinanceKind.ServiceFee);
-    public decimal PayoutsUsd => Sum(CustodyFinanceKind.OwnerPayout);
+    /// <summary>ماندهٔ مالک به هر ارز؛ ارزها با هم جمع یا تهاتر نمی‌شوند.</summary>
+    public IReadOnlyDictionary<string, decimal> FundsBalances => Balances ?? new Dictionary<string, decimal> { ["USD"] = FundsBalanceUsd };
+    public decimal FundsBalance(string currency) => FundsBalances.TryGetValue(currency, out var value) ? value : 0m;
+
+    /// <summary>ارزهایی که این حساب در آن‌ها سند دارد (دالر همیشه).</summary>
+    public IReadOnlyList<string> Currencies => new[] { "USD" }
+        .Concat(FundsBalances.Keys).Concat(Posted.Select(s => s.Currency)).Concat(Posted.Select(s => s.OwnerCurrency))
+        .Concat(PostedEntries.Select(e => e.OwnerCurrency))
+        .Select(x => x.ToUpperInvariant()).Distinct()
+        .OrderBy(x => x == "USD" ? 0 : 1).ThenBy(x => x).ToList();
+
+    public CustodyOwnerCurrencySummary Summary(string currency)
+    {
+        bool Mine(CustodyFinanceRow e) => string.Equals(e.OwnerCurrency, currency, StringComparison.OrdinalIgnoreCase);
+        decimal Owner(CustodyFinanceKind kind) => PostedEntries.Where(e => e.Kind == kind && Mine(e)).Sum(e => e.OwnerAmount);
+        var sales = Posted.Where(s => string.Equals(s.Currency, currency, StringComparison.OrdinalIgnoreCase)).ToList();
+        var ownerSales = Posted.Where(s => string.Equals(s.OwnerCurrency, currency, StringComparison.OrdinalIgnoreCase)).ToList();
+        return new CustodyOwnerCurrencySummary(
+            currency,
+            sales.Sum(s => s.NetAmountUsd),
+            sales.Sum(s => s.OutstandingUsd),
+            Owner(CustodyFinanceKind.Collection),
+            Owner(CustodyFinanceKind.DirectToOwner) - Owner(CustodyFinanceKind.OwnerDirectRefund),
+            Owner(CustodyFinanceKind.CustomerRefund),
+            PostedEntries.Where(Mine).Sum(e => e.OwnerCommission) + ownerSales.Sum(s => s.CommissionAtSaleOwner - s.ReturnedCommissionOwner),
+            Owner(CustodyFinanceKind.ReimbursableExpense) + Owner(CustodyFinanceKind.ProviderCharge),
+            PostedEntries.Where(e => string.Equals(e.Currency, currency, StringComparison.OrdinalIgnoreCase)).Sum(e => e.ProviderUnpaidUsd),
+            Owner(CustodyFinanceKind.ServiceFee),
+            Owner(CustodyFinanceKind.OwnerPayout),
+            PostedEntries.Where(Mine).Sum(e => e.FxOwnerShare ?? 0m),
+            FundsBalance(currency));
+    }
+
+    public IReadOnlyList<CustodyOwnerCurrencySummary> Summaries => Currencies.Select(Summary)
+        .Where(x => x.Currency == "USD" || x.HasActivity).ToList();
+
+    public decimal FxCompanyUsd => PostedEntries.Sum(e => e.FxCompanyUsd ?? 0m);
+}
+
+/// <summary>خلاصهٔ حساب مالک به یک ارز. فروش و وصول‌نشده به ارز فروش؛ بقیه به ارز تعهد به مالک.</summary>
+public sealed record CustodyOwnerCurrencySummary(
+    string Currency,
+    decimal SalesTotal,
+    decimal Outstanding,
+    decimal CollectedByCompany,
+    decimal PaidDirectlyToOwner,
+    decimal Refunds,
+    decimal CommissionRecognized,
+    decimal Expenses,
+    decimal ProviderUnpaid,
+    decimal ServiceFees,
+    decimal Payouts,
+    decimal FxOwnerShare,
+    decimal Balance)
+{
+    public bool HasActivity => SalesTotal != 0m || Outstanding != 0m || CollectedByCompany != 0m || PaidDirectlyToOwner != 0m
+        || Refunds != 0m || CommissionRecognized != 0m || Expenses != 0m || ServiceFees != 0m || Payouts != 0m || Balance != 0m;
 }
 
 /// <summary>
@@ -502,7 +579,7 @@ public sealed class CustodyReadService(
             .Where(e => e.OwnerPartyType == owner.PartyType && e.OwnerPartyId == owner.PartyId)
             .OrderByDescending(e => e.EntryDate).ThenByDescending(e => e.Id)
             .Select(e => new CustodyFinanceRow(
-                e.Id, e.Kind, e.EntryDate, e.AmountUsd, e.CommissionUsd,
+                e.Id, e.Kind, e.EntryDate, e.Amount ?? e.AmountUsd, e.Commission ?? e.CommissionUsd,
                 e.CustodySale != null ? e.CustodySale.SaleNumber : null, e.CustodySaleId,
                 e.CashAccount != null ? e.CashAccount.Name : null,
                 e.ExpenseType != null ? (e.ExpenseType.NamePersian ?? e.ExpenseType.Name) : null,
@@ -510,13 +587,17 @@ public sealed class CustodyReadService(
                 e.ServiceProvider != null ? e.ServiceProvider.Name : null,
                 e.SettlesFinanceEntryId,
                 db.CustodyFinanceEntries.Where(p => p.SettlesFinanceEntryId == e.Id && p.Kind == CustodyFinanceKind.ProviderPayment
-                    && p.Status == CustodyDocumentStatus.Posted).Sum(p => (decimal?)p.AmountUsd) ?? 0m))
+                    && p.Status == CustodyDocumentStatus.Posted).Sum(p => (decimal?)(p.Amount ?? p.AmountUsd)) ?? 0m,
+                e.Currency, e.OwnerCurrency ?? "USD", e.OwnerAmount ?? e.AmountUsd, e.OwnerCommission ?? e.CommissionUsd,
+                e.FxDifference, e.FxOwnerShare, e.FxCompanyUsd, e.RateSource))
             .ToListAsync(ct);
         var returns = await db.CustodySaleReturns.AsNoTracking()
             .Where(r => r.OwnerPartyType == owner.PartyType && r.OwnerPartyId == owner.PartyId)
             .OrderByDescending(r => r.ReturnDate).ThenByDescending(r => r.Id)
             .Select(r => new CustodySaleReturnRow(r.Id, r.ReturnNumber, r.CustodySaleId, r.CustodySale!.SaleNumber, r.ReturnDate,
-                r.QuantityMt, r.AmountUsd, r.CommissionUsd, r.RecognizedCommissionReversedUsd, r.DocumentNumber, r.Status, r.CancellationReason))
+                r.QuantityMt, r.Amount ?? r.AmountUsd, r.Commission ?? r.CommissionUsd,
+                r.RecognizedCommissionReversed ?? r.RecognizedCommissionReversedUsd, r.DocumentNumber, r.Status, r.CancellationReason,
+                r.CustodySale.Currency))
             .ToListAsync(ct);
         return new CustodyOwnerAccount(
             owner,
@@ -526,7 +607,8 @@ public sealed class CustodyReadService(
             entries,
             await CustodySaleService.OwnerFundsBalanceAsync(db, owner, ct),
             returns,
-            await CustodySaleService.ResolveFinancialOwnerAsync(db, owner, ct));
+            await CustodySaleService.ResolveFinancialOwnerAsync(db, owner, ct),
+            await CustodySaleService.OwnerFundsBalancesAsync(db, owner, ct));
     }
 
     public async Task<CustodySaleRow?> GetSaleAsync(int saleId, CancellationToken ct = default)
@@ -541,16 +623,21 @@ public sealed class CustodyReadService(
                 s.Id, s.SaleNumber, s.CustodyLotId, LotNumber = s.CustodyLot!.LotNumber, s.OwnerPartyType, s.OwnerPartyId,
                 s.SaleDate, s.CustomerId, CustomerName = s.Customer!.NamePersian ?? s.Customer.Name,
                 ProductName = db.Products.Where(p => p.Id == s.ProductId).Select(p => p.NamePersian ?? p.Name).FirstOrDefault(),
-                s.QuantityMt, s.UnitPriceUsd, s.AmountUsd, s.CommissionMethod, s.CommissionRate, s.CommissionUsd,
-                s.CommissionRecognizedAtSaleUsd, s.CommissionRecognition, s.Status, s.CancellationReason
+                s.QuantityMt, UnitPrice = s.UnitPrice ?? s.UnitPriceUsd, Amount = s.SaleAmount ?? s.AmountUsd, s.CommissionMethod, s.CommissionRate,
+                Commission = s.SaleCommission ?? s.CommissionUsd,
+                AtSale = s.CommissionRecognition == CustodyCommissionRecognition.OnSale ? s.SaleCommission ?? s.CommissionRecognizedAtSaleUsd : 0m,
+                AtSaleOwner = s.CommissionRecognizedAtSaleOwner ?? s.CommissionRecognizedAtSaleUsd,
+                s.CommissionRecognition, s.Status, s.CancellationReason,
+                s.Currency, OwnerCurrency = s.OwnerCurrency ?? "USD", s.OwnerAgreedPerUsd, s.FxResponsibility, s.FxOwnerSharePercent, s.FxAgreementReference
             })
             .ToListAsync(ct);
         var ids = rows.Select(r => r.Id).ToArray();
         var returned = await db.CustodySaleReturns.AsNoTracking()
             .Where(r => ids.Contains(r.CustodySaleId) && r.Status == CustodyDocumentStatus.Posted)
             .GroupBy(r => r.CustodySaleId)
-            .Select(g => new { SaleId = g.Key, Qty = g.Sum(r => r.QuantityMt), Amount = g.Sum(r => r.AmountUsd),
-                Commission = g.Sum(r => r.CommissionUsd), Reversed = g.Sum(r => r.RecognizedCommissionReversedUsd) })
+            .Select(g => new { SaleId = g.Key, Qty = g.Sum(r => r.QuantityMt), Amount = g.Sum(r => r.Amount ?? r.AmountUsd),
+                Commission = g.Sum(r => r.Commission ?? r.CommissionUsd), Reversed = g.Sum(r => r.RecognizedCommissionReversed ?? r.RecognizedCommissionReversedUsd),
+                ReversedOwner = g.Sum(r => r.OwnerCommissionReversed ?? r.RecognizedCommissionReversedUsd) })
             .ToListAsync(ct);
         var operationKeys = await query.Select(s => new { s.Id, s.StockOperationKey }).ToListAsync(ct);
         var keys = operationKeys.Select(x => x.StockOperationKey).ToArray();
@@ -564,7 +651,7 @@ public sealed class CustodyReadService(
         var collected = await db.CustodyFinanceEntries.AsNoTracking()
             .Where(e => e.CustodySaleId != null && ids.Contains(e.CustodySaleId.Value) && e.Status == CustodyDocumentStatus.Posted)
             .GroupBy(e => new { SaleId = e.CustodySaleId!.Value, e.Kind })
-            .Select(g => new { g.Key.SaleId, g.Key.Kind, Amount = g.Sum(e => e.AmountUsd), Commission = g.Sum(e => e.CommissionUsd) })
+            .Select(g => new { g.Key.SaleId, g.Key.Kind, Amount = g.Sum(e => e.Amount ?? e.AmountUsd), Commission = g.Sum(e => e.Commission ?? e.CommissionUsd) })
             .ToListAsync(ct);
 
         return rows.Select(r =>
@@ -574,16 +661,18 @@ public sealed class CustodyReadService(
             var back = returned.SingleOrDefault(x => x.SaleId == r.Id);
             return new CustodySaleRow(
                 r.Id, r.SaleNumber, r.CustodyLotId, r.LotNumber, r.OwnerPartyType, r.OwnerPartyId, r.SaleDate,
-                r.CustomerId, r.CustomerName, r.ProductName ?? "-", r.QuantityMt, r.UnitPriceUsd, r.AmountUsd,
+                r.CustomerId, r.CustomerName, r.ProductName ?? "-", r.QuantityMt, r.UnitPrice, r.Amount,
                 mine.Where(c => c.Kind == CustodyFinanceKind.Collection).Sum(c => c.Amount)
                     - mine.Where(c => c.Kind == CustodyFinanceKind.CustomerRefund).Sum(c => c.Amount),
                 mine.Where(c => c.Kind == CustodyFinanceKind.DirectToOwner).Sum(c => c.Amount)
                     - mine.Where(c => c.Kind == CustodyFinanceKind.OwnerDirectRefund).Sum(c => c.Amount),
-                r.CommissionMethod, r.CommissionRate, r.CommissionUsd,
-                r.CommissionRecognizedAtSaleUsd - (back?.Reversed ?? 0m) + mine.Sum(c => c.Commission),
+                r.CommissionMethod, r.CommissionRate, r.Commission,
+                r.AtSale - (back?.Reversed ?? 0m) + mine.Sum(c => c.Commission),
                 r.CommissionRecognition, r.Status, r.CancellationReason,
                 back?.Qty ?? 0m, back?.Amount ?? 0m, back?.Commission ?? 0m,
-                lotsBySale.GetValueOrDefault(r.Id));
+                lotsBySale.GetValueOrDefault(r.Id),
+                r.Currency, r.OwnerCurrency, r.OwnerAgreedPerUsd, r.FxResponsibility, r.FxOwnerSharePercent, r.FxAgreementReference,
+                r.AtSaleOwner, back?.ReversedOwner ?? 0m);
         }).ToList();
     }
 

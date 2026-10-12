@@ -79,6 +79,7 @@ public sealed partial class ProfitAndLossService
                 && (!filter.ContractId.HasValue || l.ContractId == filter.ContractId.Value))
             .Sum(l => l.PeriodExpenseUsd);
 
+        var custodyFx = await CustodyExchangeAsync(filter, ct);
         return new CompanyPeriodPerformanceSnapshot(
             company.Sales.RevenueUsd,
             company.Sales.SaleCount,
@@ -87,9 +88,28 @@ public sealed partial class ProfitAndLossService
             contractCostedSaleCount,
             company.OperatingExpenseUsd,
             loadingPeriodExpenseUsd,
-            company.ExchangeGainUsd,
-            company.ExchangeLossUsd,
+            company.ExchangeGainUsd + custodyFx.GainUsd,
+            company.ExchangeLossUsd + custodyFx.LossUsd,
             await CustodyIncomeAsync(filter, ct));
+    }
+
+    /// <summary>
+    /// سهمِ شرکت از تفاوت نرخِ اسناد امانیِ دوارزی (طبق توافقِ مالک) — همان مبلغی که در ژورنال به
+    /// حساب‌های سود/زیان تسعیر رفته؛ جزوِ نتیجهٔ ارزی است، نه کمیشن. سند لغوشده حساب نمی‌شود.
+    /// </summary>
+    private async Task<(decimal GainUsd, decimal LossUsd)> CustodyExchangeAsync(ManagementReportFilterViewModel filter, CancellationToken ct)
+    {
+        if (filter.ContractId.HasValue || filter.CustomerId.HasValue)
+            return (0m, 0m);
+        var entries = _db.CustodyFinanceEntries.AsNoTracking()
+            .Where(e => e.Status == CustodyDocumentStatus.Posted && e.FxCompanyUsd != null && e.FxCompanyUsd != 0m);
+        if (filter.FromDate.HasValue) entries = entries.Where(e => e.EntryDate >= filter.FromDate.Value.Date);
+        if (filter.ToDate.HasValue) entries = entries.Where(e => e.EntryDate < filter.ToDate.Value.Date.AddDays(1));
+        if (filter.ProductId.HasValue)
+            entries = entries.Where(e => e.CustodyLot != null && e.CustodyLot.ProductId == filter.ProductId.Value);
+        var gain = await entries.Where(e => e.FxCompanyUsd > 0m).SumAsync(e => e.FxCompanyUsd!.Value, ct);
+        var loss = await entries.Where(e => e.FxCompanyUsd < 0m).SumAsync(e => -e.FxCompanyUsd!.Value, ct);
+        return (gain, loss);
     }
 
     /// <summary>

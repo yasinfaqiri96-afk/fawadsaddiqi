@@ -477,6 +477,15 @@ public class CustodyController(
                 SaleDate = form.Date,
                 QuantityMt = form.Measure.IsLiters ? 0m : form.QuantityMt!.Value,
                 UnitPriceUsd = form.UnitPriceUsd!.Value,
+                Currency = form.Currency,
+                AgreedCurrencyPerUsd = form.AgreedCurrencyPerUsd,
+                RateReference = form.RateReference,
+                OwnerCurrency = string.IsNullOrWhiteSpace(form.OwnerCurrency) ? null : form.OwnerCurrency,
+                OwnerAgreedPerUsd = form.OwnerAgreedPerUsd,
+                OwnerRateReference = form.OwnerRateReference,
+                FxResponsibility = form.FxResponsibility,
+                FxOwnerSharePercent = form.FxOwnerSharePercent,
+                FxAgreementReference = form.FxAgreementReference,
                 CommissionMethod = form.CommissionMethod,
                 CommissionRate = form.CommissionRate ?? 0m,
                 CommissionRecognition = form.CommissionRecognition,
@@ -555,6 +564,7 @@ public class CustodyController(
             && kind is CustodyFinanceKind.Collection or CustodyFinanceKind.DirectToOwner)
         {
             form.AmountUsd = sale.OutstandingUsd;
+            form.Currency = sale.Currency;
         }
         else if (kind == CustodyFinanceKind.ProviderPayment)
         {
@@ -565,10 +575,17 @@ public class CustodyController(
                 return RedirectToAction(nameof(Owner), new { key });
             }
             form.AmountUsd = charge.ProviderUnpaidUsd;
+            form.Currency = charge.Currency;
         }
-        else if (kind == CustodyFinanceKind.OwnerPayout && account.FundsBalanceUsd > 0m)
+        else if (kind == CustodyFinanceKind.OwnerPayout)
         {
-            form.AmountUsd = account.FundsBalanceUsd;
+            // پیش‌فرض: اولین ارزی که مانده مثبت دارد؛ ارزها با هم جمع نمی‌شوند.
+            var positive = account.FundsBalances.Where(x => x.Value > 0m).OrderBy(x => x.Key == "USD" ? 0 : 1).FirstOrDefault();
+            if (positive.Value > 0m)
+            {
+                form.Currency = positive.Key;
+                form.AmountUsd = positive.Value;
+            }
         }
         return View(await BuildFinanceViewModelAsync(form, account));
     }
@@ -605,6 +622,9 @@ public class CustodyController(
                     Owner = owner,
                     EntryDate = form.Date,
                     AmountUsd = form.AmountUsd!.Value,
+                    Currency = string.IsNullOrWhiteSpace(form.Currency) ? null : form.Currency,
+                    AgreedCurrencyPerUsd = form.AgreedCurrencyPerUsd,
+                    RateReference = form.RateReference,
                     CashAccountId = form.CashAccountId,
                     ExpenseTypeId = form.ExpenseTypeId,
                     PayeeName = form.PayeeName,
@@ -629,6 +649,43 @@ public class CustodyController(
         }
 
         return View(await BuildFinanceViewModelAsync(form, await reader.GetOwnerAccountAsync(owner)));
+    }
+
+    /// <summary>ثبتِ بعدیِ مسئول تفاوت نرخ برای فروشِ دوارزی (فقط یک بار، با مرجع توافق مالک).</summary>
+    [Authorize(Policy = AuthPolicies.ManageData)]
+    public async Task<IActionResult> FxAgreement(int id, string key)
+    {
+        var sale = await reader.GetSaleAsync(id);
+        if (sale is null) return NotFound();
+        if (!sale.NeedsFxAgreement)
+        {
+            TempData["err"] = "این فروش توافق تفاوت نرخ لازم ندارد یا قبلاً ثبت شده است.";
+            return RedirectToAction(nameof(Owner), new { key });
+        }
+        return View(new CustodyFxAgreementViewModel(new CustodyFxAgreementForm { SaleId = id, OwnerKey = key }, sale));
+    }
+
+    [Authorize(Policy = AuthPolicies.ManageData)]
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> FxAgreement(CustodyFxAgreementForm form)
+    {
+        var sale = await reader.GetSaleAsync(form.SaleId);
+        if (sale is null) return NotFound();
+        if (form.Responsibility is null) ModelState.AddModelError(nameof(form.Responsibility), "مسئول تفاوت نرخ را انتخاب کنید.");
+        if (ModelState.IsValid)
+        {
+            try
+            {
+                await sales.SetFxAgreementAsync(form.SaleId, form.Responsibility!.Value, form.OwnerSharePercent, form.Reference ?? "");
+                TempData["ok"] = "توافق تفاوت نرخ ثبت شد.";
+                return RedirectToAction(nameof(Owner), new { key = form.OwnerKey });
+            }
+            catch (BusinessRuleException ex)
+            {
+                ModelState.AddModelError(string.Empty, ex.Message);
+            }
+        }
+        return View(new CustodyFxAgreementViewModel(form, sale));
     }
 
     [Authorize(Policy = AuthPolicies.ManageData)]
@@ -780,7 +837,7 @@ public class CustodyController(
         return new CustodySaleReturnViewModel
         {
             Form = form, Sale = sale, Sources = sources,
-            CashAccounts = sale.CollectedByCompanyUsd > 0m ? await UsdCashAccountsAsync() : []
+            CashAccounts = sale.CollectedByCompanyUsd > 0m ? await CashAccountsAsync(sale.Currency) : []
         };
     }
 
@@ -842,7 +899,7 @@ public class CustodyController(
                     .Select(c => new { c.Id, Name = c.NamePersian ?? c.Name })
                     .ToListAsync())
                 .Select(c => (c.Id, c.Name)).ToList(),
-            CashAccounts = await UsdCashAccountsAsync()
+            CashAccounts = await CashAccountsAsync()
         };
     }
 
@@ -852,7 +909,7 @@ public class CustodyController(
             Form = form,
             Account = account,
             OpenSales = account.Sales.Where(s => s.OutstandingUsd > 0m).ToList(),
-            CashAccounts = await UsdCashAccountsAsync(),
+            CashAccounts = await CashAccountsAsync(),
             ExpenseTypes = (await db.ExpenseTypes.AsNoTracking()
                     .Where(t => t.IsActive)
                     .OrderBy(t => t.Name)
@@ -870,14 +927,15 @@ public class CustodyController(
             ProviderCharge = form.ProviderChargeId is { } chargeId ? account.Entries.FirstOrDefault(e => e.Id == chargeId) : null
         };
 
-    /// <summary>سند امانی فعلاً دالری است؛ فقط صندوق/بانکِ دالری یا مختلط.</summary>
-    private async Task<IReadOnlyList<(int Id, string Name)>> UsdCashAccountsAsync()
+    /// <summary>صندوق/بانکِ دالری، افغانی یا مختلط (ارز در نام دیده می‌شود؛ سرویس هم‌ارزی را کنترل می‌کند).</summary>
+    private async Task<IReadOnlyList<(int Id, string Name)>> CashAccountsAsync(string? currency = null)
         => (await db.CashAccounts.AsNoTracking()
-                .Where(a => a.IsActive && (a.Currency == "USD" || a.AccountType == CashAccountType.Mixed))
-                .OrderBy(a => a.Name)
-                .Select(a => new { a.Id, a.Name, a.Code })
+                .Where(a => a.IsActive && (a.AccountType == CashAccountType.Mixed
+                    || (currency == null ? (a.Currency == "USD" || a.Currency == "AFN") : a.Currency == currency)))
+                .OrderBy(a => a.Currency).ThenBy(a => a.Name)
+                .Select(a => new { a.Id, a.Name, a.Code, a.Currency, a.AccountType })
                 .ToListAsync())
-            .Select(a => (a.Id, $"{a.Name} ({a.Code})")).ToList();
+            .Select(a => (a.Id, $"{a.Name} ({a.Code}) · {(a.AccountType == CashAccountType.Mixed ? "مختلط" : a.Currency)}")).ToList();
 
     private async Task<CustodyReceiveViewModel> BuildReceiveViewModelAsync(CustodyReceiveForm form, CustodyLotSummary? transitLot)
         => new()

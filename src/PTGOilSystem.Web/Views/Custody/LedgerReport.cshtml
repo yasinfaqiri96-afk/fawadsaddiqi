@@ -46,16 +46,16 @@
             <dt class="col-sm-6">تبدیل‌های فعال به خرید قطعی</dt>
             <dd class="col-sm-6 ak-num">@(Model.Conversions?.Count ?? 0) · @NumberDisplay.Quantity(Model.Conversions?.QuantityMt ?? 0m, "MT") · @((Model.Conversions?.PurchaseValueUsd ?? 0m).ToString("N2")) USD</dd>
             <dt class="col-sm-6">مصرف نسیهٔ پرداخت‌نشده به خدمات‌دهندگان</dt>
-            <dd class="col-sm-6 ak-num">@Model.ProviderCharges.Sum(x => x.UnpaidUsd).ToString("N2") USD</dd>
+            <dd class="col-sm-6 ak-num">@(Model.ProviderCharges.Any() ? string.Join(" · ", Model.ProviderCharges.GroupBy(x => x.Currency).Select(g => g.Sum(x => x.UnpaidUsd).ToString("N2") + " " + g.Key)) : "0.00 USD")</dd>
         </dl>
         @if (Model.ProviderCharges.Any())
         {
             <div class="ak-table-wrap"><table class="ak-table ak-detail-table">
-                <thead><tr><th>خدمات‌دهنده</th><th>تعداد سند</th><th>پرداخت‌نشده (USD)</th></tr></thead>
+                <thead><tr><th>خدمات‌دهنده</th><th>تعداد سند</th><th>پرداخت‌نشده</th></tr></thead>
                 <tbody>
                     @foreach (var row in Model.ProviderCharges)
                     {
-                        <tr><td>@row.Name</td><td class="ak-num">@row.Charges</td><td class="ak-num">@row.UnpaidUsd.ToString("N2")</td></tr>
+                        <tr><td>@row.Name</td><td class="ak-num">@row.Charges</td><td class="ak-num">@row.UnpaidUsd.ToString("N2") @row.Currency</td></tr>
                     }
                 </tbody>
             </table></div>

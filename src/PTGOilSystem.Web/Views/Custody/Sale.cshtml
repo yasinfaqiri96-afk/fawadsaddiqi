@@ -11,10 +11,13 @@
     var methods = new[]
     {
         (CustodyCommissionMethod.PercentOfSale, UiText.T(Context, "فیصدی از مبلغ فروش", "Percent of sale")),
-        (CustodyCommissionMethod.PerMt, UiText.T(Context, "مبلغ ثابت فی تُن (دالر)", "Fixed per MT (USD)")),
-        (CustodyCommissionMethod.FixedPerSale, UiText.T(Context, "مبلغ ثابت برای همین فروش (دالر)", "Fixed for this sale (USD)")),
+        (CustodyCommissionMethod.PerMt, UiText.T(Context, "مبلغ ثابت فی تُن (به ارز فروش)", "Fixed per MT (sale currency)")),
+        (CustodyCommissionMethod.FixedPerSale, UiText.T(Context, "مبلغ ثابت برای همین فروش (به ارز فروش)", "Fixed for this sale (sale currency)")),
         (CustodyCommissionMethod.None, UiText.T(Context, "بدون کمیشن", "No commission"))
     };
+    var currencies = new[] { ("USD", UiText.T(Context, "دالر (USD)", "US dollar (USD)")), ("AFN", UiText.T(Context, "افغانی (AFN)", "Afghani (AFN)")) };
+    var fxOpen = !string.IsNullOrWhiteSpace(form.OwnerCurrency) && form.OwnerCurrency != form.Currency
+        || form.AgreedCurrencyPerUsd.HasValue || form.FxResponsibility.HasValue;
     var settlements = new[]
     {
         (CustodySaleSettlement.Credit, UiText.T(Context, "نسیه — بعداً وصول می‌شود", "Credit — collected later")),
@@ -77,7 +80,16 @@
                     </div>
                     <partial name="_CustodyMeasureFields" model="@(new CustodyMeasureFieldsModel("Measure", form.Measure, "QuantityMt", form.QuantityMt, UiText.T(Context, "مقدار از همین بار (MT)", "Quantity from this lot (MT)")))" />
                     <div class="ak-field">
-                        <label for="UnitPriceUsd" class="ak-label">@UiText.T(Context, "قیمت فی تُن (دالر)", "Price per MT (USD)") <span class="ak-req">*</span></label>
+                        <label for="Currency" class="ak-label">@UiText.T(Context, "ارز فروش به مشتری", "Sale currency")</label>
+                        <select id="Currency" name="Currency" class="ak-input">
+                            @foreach (var (code, label) in currencies)
+                            {
+                                <option value="@code" selected="@(code == form.Currency)">@label</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="ak-field">
+                        <label for="UnitPriceUsd" class="ak-label">@UiText.T(Context, "قیمت فی تُن (به ارز فروش)", "Price per MT (sale currency)") <span class="ak-req">*</span></label>
                         <input id="UnitPriceUsd" name="UnitPriceUsd" type="number" step="0.0001" min="0" class="ak-input" value="@form.UnitPriceUsd" />
                         <span class="ak-field-error">@Html.ValidationMessage("UnitPriceUsd")</span>
                     </div>
@@ -114,6 +126,61 @@
                 </details>
             }
 
+            <details class="ak-advanced" open="@fxOpen">
+                <summary class="ak-advanced-summary fw-bold">@UiText.T(Context, "نرخ ارز و ارز تعهد به مالک (اختیاری)", "Exchange rate and owner currency (optional)")</summary>
+                <p class="text-muted small mb-2">
+                    @UiText.T(Context,
+                        "نرخ از «نرخ روزانهٔ ارز» همان تاریخ گرفته می‌شود؛ نرخ توافقی فقط با مرجعِ تأییدشده. اگر مالک پولش را به ارز دیگری می‌خواهد، نرخِ توافق او قفل می‌شود و مسئول تفاوت نرخ باید صریحاً تعیین شود؛ تا تعیین نشود، وصولی که تفاوت نرخ دارد ثبت نمی‌شود.",
+                        "Rates come from the daily FX table, or an agreed rate with a reference. A different owner currency locks the owner's agreed rate; collections with an FX difference wait until the responsibility is recorded.")
+                </p>
+                <div class="ak-form-grid">
+                    <div class="ak-field">
+                        <label for="AgreedCurrencyPerUsd" class="ak-label">@UiText.T(Context, "نرخ توافقیِ فروش (۱ دالر = ؟ افغانی)", "Agreed sale rate (AFN per USD)")</label>
+                        <input id="AgreedCurrencyPerUsd" name="AgreedCurrencyPerUsd" type="number" step="0.000001" min="0" class="ak-input" value="@form.AgreedCurrencyPerUsd" />
+                    </div>
+                    <div class="ak-field">
+                        <label for="RateReference" class="ak-label">@UiText.T(Context, "مرجع تأیید نرخ توافقی", "Agreed rate reference")</label>
+                        <input id="RateReference" name="RateReference" class="ak-input" maxlength="300" value="@form.RateReference" />
+                    </div>
+                    <div class="ak-field">
+                        <label for="OwnerCurrency" class="ak-label">@UiText.T(Context, "ارز تعهد به مالک", "Owner currency")</label>
+                        <select id="OwnerCurrency" name="OwnerCurrency" class="ak-input">
+                            <option value="">@UiText.T(Context, "همان ارز فروش", "Same as sale")</option>
+                            @foreach (var (code, label) in currencies)
+                            {
+                                <option value="@code" selected="@(code == form.OwnerCurrency)">@label</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="ak-field">
+                        <label for="OwnerAgreedPerUsd" class="ak-label">@UiText.T(Context, "نرخ قفل‌شدهٔ توافق مالک (۱ دالر = ؟ افغانی)", "Owner's locked rate (AFN per USD)")</label>
+                        <input id="OwnerAgreedPerUsd" name="OwnerAgreedPerUsd" type="number" step="0.000001" min="0" class="ak-input" value="@form.OwnerAgreedPerUsd"
+                               placeholder="@UiText.T(Context, "خالی = نرخ روزانهٔ تاریخ فروش", "Empty = daily rate of sale date")" />
+                    </div>
+                    <div class="ak-field">
+                        <label for="OwnerRateReference" class="ak-label">@UiText.T(Context, "مرجع نرخ توافق مالک", "Owner rate reference")</label>
+                        <input id="OwnerRateReference" name="OwnerRateReference" class="ak-input" maxlength="300" value="@form.OwnerRateReference" />
+                    </div>
+                    <div class="ak-field">
+                        <label for="FxResponsibility" class="ak-label">@UiText.T(Context, "مسئول تفاوت نرخ طبق توافق", "FX difference borne by")</label>
+                        <select id="FxResponsibility" name="FxResponsibility" class="ak-input">
+                            <option value="">@UiText.T(Context, "هنوز تعیین نشده", "Not agreed yet")</option>
+                            <option value="@CustodyFxResponsibility.Owner" selected="@(form.FxResponsibility == CustodyFxResponsibility.Owner)">@UiText.T(Context, "مالک", "Owner")</option>
+                            <option value="@CustodyFxResponsibility.Company" selected="@(form.FxResponsibility == CustodyFxResponsibility.Company)">@UiText.T(Context, "شرکت", "Company")</option>
+                            <option value="@CustodyFxResponsibility.Split" selected="@(form.FxResponsibility == CustodyFxResponsibility.Split)">@UiText.T(Context, "تقسیم طبق توافق", "Split per agreement")</option>
+                        </select>
+                    </div>
+                    <div class="ak-field">
+                        <label for="FxOwnerSharePercent" class="ak-label">@UiText.T(Context, "سهم مالک از تفاوت (٪، فقط برای تقسیم)", "Owner share % (split only)")</label>
+                        <input id="FxOwnerSharePercent" name="FxOwnerSharePercent" type="number" step="0.0001" min="0" max="100" class="ak-input" value="@form.FxOwnerSharePercent" />
+                    </div>
+                    <div class="ak-field ak-col-full">
+                        <label for="FxAgreementReference" class="ak-label">@UiText.T(Context, "مرجع توافق مالک دربارهٔ تفاوت نرخ", "Owner FX agreement reference")</label>
+                        <input id="FxAgreementReference" name="FxAgreementReference" class="ak-input" maxlength="300" value="@form.FxAgreementReference" />
+                    </div>
+                </div>
+            </details>
+
             <section class="ak-form-section">
                 <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
                          model="@((UiText.T(Context, "کمیشن شرکت", "Company commission"),
@@ -129,7 +196,7 @@
                         </select>
                     </div>
                     <div class="ak-field">
-                        <label for="CommissionRate" class="ak-label">@UiText.T(Context, "مقدار کمیشن (فیصد یا دالر)", "Rate (percent or USD)")</label>
+                        <label for="CommissionRate" class="ak-label">@UiText.T(Context, "مقدار کمیشن (فیصد یا مبلغ به ارز فروش)", "Rate (percent or sale-currency amount)")</label>
                         <input id="CommissionRate" name="CommissionRate" type="number" step="0.000001" min="0" class="ak-input" value="@form.CommissionRate" />
                         <span class="ak-field-error">@Html.ValidationMessage("CommissionRate")</span>
                     </div>
