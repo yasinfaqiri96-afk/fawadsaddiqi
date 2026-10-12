@@ -125,6 +125,12 @@ Viewها: `Custody/Sale`، `Custody/SaleReturn` (تازه)، `Custody/Finance`،
 
 پیش‌نمایش تطبیق اکنون مصرف نسیه‌ای را که نوعِ مصرفش «حساب پرداختنی» ندارد مانع اعلام می‌کند (به‌جای شکست هنگام Apply)؛ یک تست تازه. تست‌های Custody پس از آن: **110 Passed / 0 Failed**.
 
+## Suite کامل (پس از آخرین تغییر کد)
+
+- `20ec005`: 4181 Passed / 18 Failed / 0 Skipped / 4199.
+- **`9b4d2cf` (آخرین Commit کد): 4182 Passed / 18 Failed / 0 Skipped / 4200**، مدت ۱۱ دقیقه و ۲۱ ثانیه.
+- هر ۱۸ شکست فقط `PartnerSettlementImportTests` و `FileNotFoundException: Payment.xlsx` است. فایل مرجع اصلی با نام دقیق `Payment.xlsx` باید در ریشهٔ مخزن یا `docs/exel/Payment.xlsx` قرار گیرد ([payment-source-fixture.md](payment-source-fixture.md)). فایل جعلی ساخته نشد، تستی حذف/Skip/ضعیف نشد.
+
 ## گام بعدی
 
 اجرای Suite کامل روی head، ثبت نتیجه و PR به شاخهٔ Work بدون Merge. سپس، با پاسخ تصمیم‌های بالا، چندارزی و قرض جنسی.

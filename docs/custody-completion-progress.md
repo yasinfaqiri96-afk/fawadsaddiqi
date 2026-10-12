@@ -148,3 +148,5 @@
 - Suite کامل مبنا در این محیط: 4160 Passed / 18 Failed (همه `Payment.xlsx`) / 0 Skipped.
 - مرحلهٔ ۱ (فروش چندباره، برگشت قسمی، مصرف نسیهٔ خدمات‌دهنده با پرداخت قسمی، گارد ویرایش تبدیل، هویت شریکِ پیوندشده): Migration افزایشی `20261011231526_AddCustodySaleReturnsAndProviderCharges`؛ 107 تست Custody و 385 تست مرتبط موفق.
 - استردادِ پولِ وصول‌شده هنگام برگشت فروش، چندارزی و ارزش‌گذاری قرض جنسی همچنان نیازمند تصمیم قراردادی‌اند.
+- مرحلهٔ ۲ (لیتر در سایر عملیات، اقلام باز GL، یادداشت بیلانس، E2E): Migration افزایشی `20261011233927_AddCustodyLoadedMeasurements`؛ E2E Chromium موفق.
+- Suite کامل روی آخرین Commit کد `9b4d2cf`: 4182 Passed / 18 Failed (همه `Payment.xlsx`) / 0 Skipped / 4200.
