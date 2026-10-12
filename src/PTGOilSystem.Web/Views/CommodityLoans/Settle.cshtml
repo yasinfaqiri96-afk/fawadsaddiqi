@@ -1,0 +1,95 @@
+@model PTGOilSystem.Web.Models.CommodityLoans.CommodityLoanSettlementViewModel
+@using PTGOilSystem.Web.Models.CommodityLoans
+@using PTGOilSystem.Web.Models.Entities
+@{
+    var form = Model.Form;
+    var loan = Model.Detail.Loan;
+    var row = Model.Detail.Row;
+    var title = CommodityLoanSettlementForm.Title(form.Kind) + " — " + loan.LoanNumber;
+    ViewData["Title"] = title;
+    var backUrl = Url.Action("Details", new { id = loan.Id });
+    var borrow = loan.Direction == CommodityLoanDirection.Borrow;
+}
+
+<div class="ak-form-page">
+    <div class="ak-form-page-content">
+        <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+                 model="@((title, true, (string?)null, (string?)null, (string?)null, (string?)null,
+                           UiText.T(Context, "بازگشت", "Back"), "bi-arrow-right", (string?)backUrl))" />
+
+        <form asp-action="Settle" method="post" class="ak-form">
+            @Html.AntiForgeryToken()
+            @Html.FormToken()
+            <input type="hidden" name="LoanId" value="@loan.Id" />
+            <input type="hidden" name="Kind" value="@form.Kind" />
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger ak-form-alert"></div>
+
+            <div class="alert alert-info ak-form-alert">
+                <i class="bi bi-info-circle" aria-hidden="true"></i>
+                @(form.Kind switch
+                {
+                    CommodityLoanSettlementKind.InKindReturn => borrow
+                        ? UiText.T(Context, "شرکت جنس را از موجودی همین محل به طرف برمی‌گرداند؛ تفاوتِ بهای موجودی با ارزش دفتری بدهی به حساب تفاوتِ قرارداد می‌رود.", "Company returns stock from this location.")
+                        : UiText.T(Context, "طرف جنس را برمی‌گرداند و با همان ارزش دفتری به موجودی همین محل می‌آید.", "Counterparty returns stock at the carried value."),
+                    CommodityLoanSettlementKind.CashSettlement => UiText.T(Context, "به قیمتِ تسویهٔ نقدیِ قرارداد؛ تفاوت با ارزش دفتری به حساب تفاوت می‌رود.", "At the contract cash price."),
+                    _ => UiText.T(Context, "فقط کلِ ماندهٔ باقی و فقط در حدِ تلورانس قرارداد، با سند تأیید.", "Closes the whole remaining quantity within tolerance.")
+                })
+            </div>
+
+            <section class="ak-form-section">
+                <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                         model="@((row.CounterpartyName + " · " + row.ProductName,
+                                   (string?)(UiText.T(Context, "باز", "Open") + ": " + NumberDisplay.Quantity(row.OutstandingMt, "MT"))))" />
+                <div class="ak-form-grid">
+                    <div class="ak-field">
+                        <label for="QuantityMt" class="ak-label">@UiText.T(Context, "مقدار (MT)", "Quantity (MT)") <span class="ak-req">*</span></label>
+                        <input id="QuantityMt" name="QuantityMt" type="number" step="0.0001" min="0" class="ak-input" value="@form.QuantityMt" />
+                        <span class="ak-field-error">@Html.ValidationMessage("QuantityMt")</span>
+                    </div>
+                    <div class="ak-field">
+                        <label for="Date" class="ak-label">@UiText.T(Context, "تاریخ", "Date") <span class="ak-req">*</span></label>
+                        <input id="Date" name="Date" type="date" class="ak-input" value="@form.Date.ToString("yyyy-MM-dd")" />
+                    </div>
+                    @if (form.Kind == CommodityLoanSettlementKind.InKindReturn)
+                    {
+                        <div class="ak-field">
+                            <label for="LocationKey" class="ak-label">@(borrow ? UiText.T(Context, "از محل", "From") : UiText.T(Context, "به محل", "Into")) <span class="ak-req">*</span></label>
+                            <select id="LocationKey" name="LocationKey" class="ak-input">
+                                @foreach (var l in Model.Locations)
+                                {
+                                    <option value="@l.Key" selected="@(l.Key == form.LocationKey)">@l.Label</option>
+                                }
+                            </select>
+                            <span class="ak-field-error">@Html.ValidationMessage("LocationKey")</span>
+                        </div>
+                    }
+                    @if (form.Kind == CommodityLoanSettlementKind.CashSettlement)
+                    {
+                        <div class="ak-field">
+                            <label for="CashAccountId" class="ak-label">@UiText.T(Context, "صندوق / بانک (دالری)", "Till / bank (USD)") <span class="ak-req">*</span></label>
+                            <select id="CashAccountId" name="CashAccountId" class="ak-input">
+                                <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                                @foreach (var a in Model.CashAccounts)
+                                {
+                                    <option value="@a.Id" selected="@(a.Id == form.CashAccountId)">@a.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <p class="ak-col-full text-muted small mb-0">@UiText.T(Context, "قیمت قرارداد", "Contract price"): @loan.CashSettlementUnitPriceUsd?.ToString("N4") USD/MT · @loan.CashSettlementReference</p>
+                    }
+                    <div class="ak-field">
+                        <label for="DocumentNumber" class="ak-label">@UiText.T(Context, "شماره سند", "Document no.")</label>
+                        <input id="DocumentNumber" name="DocumentNumber" class="ak-input" maxlength="100" value="@form.DocumentNumber" />
+                    </div>
+                    <div class="ak-field ak-col-full">
+                        <label for="Notes" class="ak-label">@UiText.T(Context, "توضیحات", "Notes")</label>
+                        <textarea id="Notes" name="Notes" class="ak-input" rows="2" maxlength="1000">@form.Notes</textarea>
+                    </div>
+                </div>
+            </section>
+
+            <partial name="~/Views/Shared/Components/Ak/_AkFooterActions.cshtml"
+                     model="@((UiText.T(Context, "ثبت", "Save"), backUrl ?? "/", UiText.T(Context, "انصراف", "Cancel")))" />
+        </form>
+    </div>
+</div>

@@ -1,0 +1,109 @@
+@model PTGOilSystem.Web.Models.CommodityLoans.CommodityLoanIndexViewModel
+@using PTGOilSystem.Web.Models.CommodityLoans
+@using PTGOilSystem.Web.Models.Entities
+@using PTGOilSystem.Web.Models.StatCards
+@{
+    ViewData["Title"] = UiText.T(Context, "قرض جنسی", "Commodity loans");
+    var canManage = PTGOilSystem.Web.Security.RoleAccessRules.CanManageData(User);
+    var open = Model.Loans.Where(l => l.OutstandingMt > 0m).ToList();
+    var tabs = new (CommodityLoanDirection? Value, string Label)[]
+    {
+        (null, UiText.T(Context, "همه", "All")),
+        (CommodityLoanDirection.Lend, UiText.T(Context, "قرض‌داده (طلب جنسی)", "Lent")),
+        (CommodityLoanDirection.Borrow, UiText.T(Context, "قرض‌گرفته (بدهی جنسی)", "Borrowed"))
+    };
+}
+
+<div class="ak-list-page">
+    <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+             model="@((UiText.T(Context, "قرض جنسی", "Commodity loans"), true,
+                       canManage ? UiText.T(Context, "قرض‌دادن", "Lend") : (string?)null, "bi-box-arrow-up",
+                       canManage ? (string?)Url.Action("Create", new { direction = CommodityLoanDirection.Lend }) : (string?)null, (string?)null,
+                       canManage ? UiText.T(Context, "قرض‌گرفتن", "Borrow") : (string?)null, "bi-box-arrow-in-down",
+                       canManage ? (string?)Url.Action("Create", new { direction = CommodityLoanDirection.Borrow }) : (string?)null))" />
+
+    <p class="text-muted small">
+        @UiText.T(Context,
+            "تیلِ شرکت که به دیگری قرض داده شده (از موجودی ملکی کم می‌شود و طلب جنسی می‌سازد) یا تیلی که شرکت قرض گرفته (به موجودی قابل مصرف اضافه می‌شود و بدهی جنسی می‌سازد). جدا از امانی است.",
+            "Company stock lent out, or stock borrowed with an in-kind return obligation. Separate from custody.")
+        <a asp-action="Report">@UiText.T(Context, "راپور طلب و بدهی جنسی", "In-kind receivables & payables")</a>
+    </p>
+
+    <section class="ak-stat-grid" aria-label="@UiText.T(Context, "خلاصه قرض جنسی", "Loan summary")">
+        <vc:stat-card title="@UiText.T(Context, "طلب جنسی باز", "Lent outstanding")"
+                      value="@StatCardFormatter.Number(open.Where(l => l.Direction == CommodityLoanDirection.Lend).Sum(l => l.OutstandingMt), 2)"
+                      unit="MT"></vc:stat-card>
+        <vc:stat-card title="@UiText.T(Context, "بدهی جنسی باز", "Borrowed outstanding")"
+                      value="@StatCardFormatter.Number(open.Where(l => l.Direction == CommodityLoanDirection.Borrow).Sum(l => l.OutstandingMt), 2)"
+                      unit="MT"></vc:stat-card>
+        <vc:stat-card title="@UiText.T(Context, "سررسیدگذشته", "Overdue")"
+                      value="@StatCardFormatter.Count(open.Count(l => l.IsOverdue(Model.Today)))"
+                      unit="@UiText.T(Context, "قرض", "loans")"></vc:stat-card>
+    </section>
+
+    <nav class="ptg-tabs-rail" role="tablist" aria-label="@UiText.T(Context, "نوع قرض", "Loan direction")">
+        @foreach (var tab in tabs)
+        {
+            var isActive = Model.Direction == tab.Value;
+            <a class="ptg-tab-item @(isActive ? "is-active" : null)" asp-action="Index" asp-route-direction="@tab.Value"
+               aria-current="@(isActive ? "page" : null)"><span>@tab.Label</span></a>
+        }
+    </nav>
+
+    <div class="ak-list">
+        <div class="ak-table-wrap">
+            <table class="ak-table" aria-label="@UiText.T(Context, "قرض‌های جنسی", "Commodity loans")">
+                <thead><tr>
+                    <th>@UiText.T(Context, "قرض", "Loan")</th>
+                    <th class="ak-col-grow">@UiText.T(Context, "طرف / جنس", "Counterparty / product")</th>
+                    <th class="text-end">@UiText.T(Context, "مقدار (MT)", "Qty (MT)")</th>
+                    <th class="text-end">@UiText.T(Context, "باز (MT)", "Open (MT)")</th>
+                    <th>@UiText.T(Context, "سررسید", "Due")</th>
+                </tr></thead>
+                <tbody>
+                    @foreach (var l in Model.Loans)
+                    {
+                        <tr class="@(l.Status == CommodityLoanStatus.Cancelled ? "text-muted" : null)">
+                            <td>
+                                <a asp-action="Details" asp-route-id="@l.Id"><strong>@l.LoanNumber</strong></a>
+                                <div class="small">@CommodityLoanLabels.Direction(l.Direction)</div>
+                            </td>
+                            <td class="ak-col-grow">@l.CounterpartyName <small class="text-muted">· @l.ProductName · @l.QualitySpec</small></td>
+                            <td class="text-end ak-num">@NumberDisplay.Quantity(l.QuantityMt)</td>
+                            <td class="text-end ak-num">@NumberDisplay.Quantity(l.OutstandingMt)</td>
+                            <td>
+                                @l.DueDate.ToDisplayDate()
+                                @if (l.Status == CommodityLoanStatus.Cancelled)
+                                {
+                                    <span class="ak-status is-inactive">@UiText.T(Context, "لغو شده", "Cancelled")</span>
+                                }
+                                else if (l.IsOverdue(Model.Today))
+                                {
+                                    <span class="ak-status is-danger">@UiText.T(Context, "سررسیدگذشته", "Overdue")</span>
+                                }
+                                else if (l.IsSettled)
+                                {
+                                    <span class="ak-status is-active">@UiText.T(Context, "تسویه شده", "Settled")</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    @if (!Model.Loans.Any())
+                    {
+                        <tr><td colspan="5"><div class="ak-empty">@UiText.T(Context, "قرض جنسی ثبت نشده است.", "No commodity loans.")</div></td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="small mt-2">
+            @if (Model.IncludeCancelled)
+            {
+                <a asp-action="Index" asp-route-direction="@Model.Direction">@UiText.T(Context, "پنهان‌کردن لغوشده‌ها", "Hide cancelled")</a>
+            }
+            else
+            {
+                <a asp-action="Index" asp-route-direction="@Model.Direction" asp-route-cancelled="true">@UiText.T(Context, "نمایش لغوشده‌ها", "Show cancelled")</a>
+            }
+        </p>
+    </div>
+</div>
