@@ -26,7 +26,7 @@
             <dt class="col-sm-4">@UiText.T(Context, "طرف", "Counterparty")</dt><dd class="col-sm-8">@row.CounterpartyName</dd>
             <dt class="col-sm-4">@UiText.T(Context, "جنس و کیفیت", "Product & quality")</dt><dd class="col-sm-8">@row.ProductName · @loan.QualitySpec</dd>
             <dt class="col-sm-4">@UiText.T(Context, "مقدار / باز", "Quantity / open")</dt>
-            <dd class="col-sm-8 ak-num">@NumberDisplay.Quantity(loan.QuantityMt, "MT") / @NumberDisplay.Quantity(row.OutstandingMt, "MT")</dd>
+            <dd class="col-sm-8">@NumberDisplay.Quantity(loan.QuantityMt, "MT") / @NumberDisplay.Quantity(row.OutstandingMt, "MT")</dd>
             <dt class="col-sm-4">@UiText.T(Context, "تاریخ / سررسید", "Date / due")</dt>
             <dd class="col-sm-8">@loan.LoanDate.ToDisplayDate() / @loan.DueDate.ToDisplayDate()</dd>
             <dt class="col-sm-4">@UiText.T(Context, "محل", "Location")</dt><dd class="col-sm-8">@row.Location</dd>
@@ -37,7 +37,7 @@
                 <dd class="col-sm-8">@(basis == CommodityLoanBorrowBasis.RightOfUse ? UiText.T(Context, "حق مصرف", "Right of use") : UiText.T(Context, "مالکیت قراردادی", "Contractual ownership"))</dd>
             }
             <dt class="col-sm-4">@UiText.T(Context, "ارزش دفتری / باز", "Carrying / open value")</dt>
-            <dd class="col-sm-8 ak-num">
+            <dd class="col-sm-8">
                 @(loan.CarryingValueUsd is { } carrying ? carrying.ToString("N2") + " USD / " + (row.OutstandingValueUsd ?? 0m).ToString("N2") + " USD" : UiText.T(Context, "ارزش‌گذاری نشده (دفتر کل خاموش)", "Not valued (GL off)"))
                 @if (loan.AgreedUnitValueUsd is { } agreed)
                 {

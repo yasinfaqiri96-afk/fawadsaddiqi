@@ -80,7 +80,7 @@ async function submit(page, urlGlob) {
         await page.locator('#QuantityMt').fill('20');
         await page.locator('#UnitPriceUsd').fill('500');
         await page.locator('#CommissionRate').fill('3');
-        await page.locator('details.ak-advanced summary').click();
+        await page.locator('details.ak-advanced summary').first().click();
         await page.locator(`input[name="Extra[0].Key"][value^="${lotB}:"]`).waitFor({ state: 'attached' });
         await page.locator('#Extra_0_QuantityMt').fill('25');
         await noHorizontalOverflow(page, 'sale', layouts);

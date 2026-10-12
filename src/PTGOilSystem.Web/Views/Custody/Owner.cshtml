@@ -38,7 +38,9 @@
     {
         if (sum.Outstanding != 0m)
             kpis.Add(new() { Title = UiText.T(Context, "وصول‌نشده از مشتری", "Not yet collected"), Value = sum.Outstanding.ToString("N2"), Unit = sum.Currency, State = "warning" });
-        kpis.Add(new() { Title = sum.Balance >= 0m ? UiText.T(Context, "قابل پرداخت به مالک", "Payable to owner") : UiText.T(Context, "طلب شرکت از مالک", "Owner owes company"),
+        // ارزی که فقط فروش دارد و مالک در آن ارز حسابی ندارد، کارت «قابل پرداخت صفر» نمی‌گیرد.
+        if (sum.Balance != 0m || sum.Currency == "USD" && summaries.All(x => x.Balance == 0m))
+            kpis.Add(new() { Title = sum.Balance >= 0m ? UiText.T(Context, "قابل پرداخت به مالک", "Payable to owner") : UiText.T(Context, "طلب شرکت از مالک", "Owner owes company"),
                 Value = Math.Abs(sum.Balance).ToString("N2"), Unit = sum.Currency, State = sum.Balance >= 0m ? "success" : "danger" });
     }
 
