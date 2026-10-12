@@ -132,10 +132,10 @@ public sealed class CustodySaleService(
     {
         if (FinancialOwnerTypes.Contains(owner.PartyType))
             return owner;
-        if (owner.PartyType != AccountingPartyType.Partner)
+        if (owner.PartyType is not (AccountingPartyType.Partner or AccountingPartyType.Company))
             return null;
         var supplierId = await db.CustodySupplierIdentityLinks.AsNoTracking()
-            .Where(x => x.PartnerId == owner.PartyId)
+            .Where(x => owner.PartyType == AccountingPartyType.Partner ? x.PartnerId == owner.PartyId : x.CompanyId == owner.PartyId)
             .Select(x => (int?)x.SupplierId)
             .SingleOrDefaultAsync(ct);
         return supplierId is null ? null : new CustodyOwner(AccountingPartyType.Supplier, supplierId.Value);
@@ -143,8 +143,8 @@ public sealed class CustodySaleService(
 
     private async Task<CustodyOwner> RequireFinancialOwnerAsync(CustodyOwner owner, CancellationToken ct)
         => await ResolveFinancialOwnerAsync(db, owner, ct)
-            ?? throw Rule("CUSTODY_OWNER_FINANCE_UNSUPPORTED", owner.PartyType == AccountingPartyType.Partner
-                ? "حساب مالی این شریک فقط پس از پیوند تأییدشده با نقش فروشندهٔ موجودِ همان شخص ممکن است."
+            ?? throw Rule("CUSTODY_OWNER_FINANCE_UNSUPPORTED", owner.PartyType is AccountingPartyType.Partner or AccountingPartyType.Company
+                ? "حساب مالی این مالک فقط پس از پیوند تأییدشده با نقش فروشندهٔ موجودِ همان شخص ممکن است (صفحهٔ «خرید قطعی» همین بار)."
                 : "فروش و حساب مالی امانی فقط برای مالکی است که مشتری یا فروشنده (یا شریکِ پیوندشده) باشد.");
 
     public Task<int> CreateSaleAsync(CustodySaleInput input, CancellationToken ct = default)
@@ -561,7 +561,16 @@ public sealed class CustodySaleService(
         {
             if (input.Lines is null || input.Lines.Count == 0)
                 throw Rule("CUSTODY_RETURN_LINES", "مقدار برگشت را وارد کنید.");
-            foreach (var line in input.Lines)
+            // سطرِ لیتری: MT یک‌بار با همان قاعدهٔ اندازه‌گیری محاسبه می‌شود.
+            var lines = input.Lines.Select(l =>
+            {
+                if (l.Measurement is null) return l;
+                var mt = l.Measurement.ToMt();
+                if (l.QuantityMt != 0m && l.QuantityMt != mt)
+                    throw Rule("CUSTODY_MEASUREMENT_MISMATCH", "مقدار MT با لیتر و چگالی سند یکسان نیست.");
+                return l with { QuantityMt = mt };
+            }).ToList();
+            foreach (var line in lines)
                 RequirePositive(line.QuantityMt, "مقدار برگشت", 4);
             var sale = await db.CustodySales.FirstOrDefaultAsync(s => s.Id == input.SaleId, ct)
                 ?? throw Rule("CUSTODY_SALE_NOT_FOUND", "فروش امانی پیدا نشد.");
@@ -578,11 +587,14 @@ public sealed class CustodySaleService(
 
             // هر سطر باید به همان بار و همان محلی برگردد که این فروش از آن خارج کرده بود.
             var returnable = await ReturnableBySourceAsync(sale, ct);
-            var requested = input.Lines
+            var requested = lines
                 .GroupBy(l => (l.LotId, l.Location.TerminalId, l.Location.StorageTankId))
-                .Select(g => (Key: g.Key, Quantity: g.Sum(x => x.QuantityMt)))
+                .Select(g => (Key: g.Key, Quantity: g.Sum(x => x.QuantityMt),
+                    Measurement: g.Count() == 1 ? g.Single().Measurement : null))
                 .ToList();
-            foreach (var (key, lineQuantity) in requested)
+            if (lines.Any(l => l.Measurement is not null) && requested.Count != lines.Count)
+                throw Rule("CUSTODY_MEASUREMENT_DUPLICATE", "برای یک بار و محل فقط یک سطرِ اندازه‌گیری‌شده به لیتر مجاز است.");
+            foreach (var (key, lineQuantity, _) in requested)
             {
                 if (!returnable.TryGetValue(key, out var available))
                     throw Rule("CUSTODY_RETURN_SOURCE", "برگشت فقط به بار و محلی ممکن است که همین فروش از آن خارج شده است.");
@@ -634,7 +646,7 @@ public sealed class CustodySaleService(
             }
 
             var stockKey = await custody.RecordSaleReturnInAsync(
-                requested.Select(r => new CustodySaleSource(r.Key.LotId, new CustodyLocation(r.Key.TerminalId, r.Key.StorageTankId), r.Quantity)).ToList(),
+                requested.Select(r => new CustodySaleSource(r.Key.LotId, new CustodyLocation(r.Key.TerminalId, r.Key.StorageTankId), r.Quantity, r.Measurement)).ToList(),
                 returnDate, input.DocumentNumber, ct);
 
             var saleReturn = new CustodySaleReturn

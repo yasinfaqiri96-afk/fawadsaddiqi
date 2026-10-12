@@ -64,6 +64,9 @@ public class MasterDataDeleteSafetyService
     {
         var usageAreas = new List<string>();
 
+        if (await _db.CustodySupplierIdentityLinks.AnyAsync(x => x.CompanyId == companyId))
+            usageAreas.Add("پیوند هویت امانی");
+
         if (await _db.CustodyLots.AnyAsync(l => l.OwnerPartyType == AccountingPartyType.Company && l.OwnerPartyId == companyId)
             || await _db.Terminals.AnyAsync(t => t.CustodianPartyType == AccountingPartyType.Company && t.CustodianPartyId == companyId))
             usageAreas.Add("امانی");
@@ -103,7 +106,8 @@ public class MasterDataDeleteSafetyService
             usageAreas.Add("پیوند هویت امانی");
 
         if (await _db.CustodyLots.AnyAsync(l => l.OwnerPartyType == AccountingPartyType.Customer && l.OwnerPartyId == customerId)
-            || await _db.Terminals.AnyAsync(t => t.CustodianPartyType == AccountingPartyType.Customer && t.CustodianPartyId == customerId))
+            || await _db.Terminals.AnyAsync(t => t.CustodianPartyType == AccountingPartyType.Customer && t.CustodianPartyId == customerId)
+            || await _db.CustodySales.AnyAsync(s => s.CustomerId == customerId))
             usageAreas.Add("امانی");
 
         if (await _db.Contracts.AnyAsync(c => c.CustomerId == customerId))
@@ -174,6 +178,8 @@ public class MasterDataDeleteSafetyService
             usageAreas.Add("قواعد هزینه");
         if (await _db.ExpenseTransactions.AnyAsync(t => t.ExpenseTypeId == expenseTypeId))
             usageAreas.Add("تراکنش‌های هزینه");
+        if (await _db.CustodyFinanceEntries.AnyAsync(e => e.ExpenseTypeId == expenseTypeId))
+            usageAreas.Add("اسناد مالی امانی");
 
         return BuildArchivableResult(usageAreas);
     }

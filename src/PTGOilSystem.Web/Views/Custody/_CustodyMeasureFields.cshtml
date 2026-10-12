@@ -1,7 +1,9 @@
 @model PTGOilSystem.Web.Models.Custody.CustodyMeasureFieldsModel
 @{
     var p = Model.Prefix;
-    var id = p.Replace(".", "_");
+    static string Id(string name) => name.Replace(".", "_").Replace("[", "_").Replace("]", "_");
+    var id = Id(p);
+    var mtId = Id(Model.MtName);
     var m = Model.Form;
 }
 @* واحد اندازه‌گیری: MT یا لیتر با چگالی و دمای مستند. فقط فیلدهای واحدِ انتخاب‌شده فعال‌اند. *@
@@ -15,8 +17,8 @@
             </select>
         </div>
         <div class="ak-field" data-custody-measurement="MT">
-            <label for="@Model.MtName.Replace(".", "_")" class="ak-label">@Model.MtLabel <span class="ak-req">*</span></label>
-            <input id="@Model.MtName.Replace(".", "_")" name="@Model.MtName" type="number" step="0.0001" min="0" class="ak-input" value="@Model.MtValue" />
+            <label for="@mtId" class="ak-label">@Model.MtLabel <span class="ak-req">*</span></label>
+            <input id="@mtId" name="@Model.MtName" type="number" step="0.0001" min="0" class="ak-input" value="@Model.MtValue" />
             <span class="ak-field-error">@Html.ValidationMessage(Model.MtName)</span>
         </div>
         <div class="ak-col-full" data-custody-measurement="L" hidden="@(!m.IsLiters)">

@@ -20,6 +20,7 @@ public interface ICustodyService
     Task<int> TransferOwnershipAsync(CustodyOwnershipTransferInput input, CancellationToken ct = default);
     Task<Guid> AdjustAsync(CustodyAdjustmentInput input, CancellationToken ct = default);
     Task<int> PlaceHoldAsync(int lotId, decimal quantityMt, string reason, string? formToken, CancellationToken ct = default);
+    Task<int> PlaceHoldAsync(int lotId, decimal quantityMt, CustodyMeasurement? measurement, string reason, string? formToken, CancellationToken ct = default);
     Task ReleaseHoldAsync(int holdId, string? note, CancellationToken ct = default);
     Task SetTransitLossResponsibilityAsync(int lotId, CustodyLossResponsibility responsibility, CancellationToken ct = default);
     Task ReverseOperationAsync(Guid operationKey, string reason, CancellationToken ct = default);
@@ -28,7 +29,7 @@ public interface ICustodyService
     Task<Guid> RecordSaleReturnInAsync(IReadOnlyList<CustodySaleSource> lines, DateTime returnDate, string? documentNumber, CancellationToken ct = default);
     Task ReverseSaleReturnInAsync(Guid operationKey, string reason, CancellationToken ct = default);
     Task ReverseSaleOutAsync(Guid operationKey, string reason, CancellationToken ct = default);
-    Task<Guid> RecordConversionOutAsync(int lotId, CustodyLocation location, DateTime date, decimal quantityMt, string reference, CancellationToken ct = default);
+    Task<Guid> RecordConversionOutAsync(int lotId, CustodyLocation location, DateTime date, decimal quantityMt, string reference, CancellationToken ct = default, CustodyMeasurement? measurement = null);
     Task ReverseConversionOutAsync(Guid operationKey, DateTime date, string reason, CancellationToken ct = default);
 }
 
@@ -366,9 +367,12 @@ public sealed class CustodyService(
         }, ct);
 
     public Task<int> PlaceHoldAsync(int lotId, decimal quantityMt, string reason, string? formToken, CancellationToken ct = default)
+        => PlaceHoldAsync(lotId, quantityMt, null, reason, formToken, ct);
+
+    public Task<int> PlaceHoldAsync(int lotId, decimal requestedMt, CustodyMeasurement? measurement, string reason, string? formToken, CancellationToken ct = default)
         => InTransactionAsync(async () =>
         {
-            RequirePositive(quantityMt, "مقدار مسدود");
+            var quantityMt = ResolveQuantity(requestedMt, measurement, "مقدار مسدود");
             if (string.IsNullOrWhiteSpace(reason))
                 throw Rule("CUSTODY_HOLD_REASON", "دلیل مسدودیت را بنویسید.");
 
@@ -383,6 +387,11 @@ public sealed class CustodyService(
             {
                 CustodyLotId = lot.Id,
                 QuantityMt = quantityMt,
+                SourceLiters = measurement?.Liters,
+                DensityKgPerM3 = measurement?.DensityKgPerM3,
+                MeasurementTemperatureC = measurement?.VolumeTemperatureC,
+                DensityTemperatureC = measurement?.DensityTemperatureC,
+                MeasurementReference = measurement?.Reference.Trim(),
                 Reason = reason.Trim(),
                 CreatedByUserId = currentUser?.UserId
             };
@@ -390,7 +399,7 @@ public sealed class CustodyService(
             formTokens.Stamp(formToken, "Custody.Hold", HoldEntity);
             await db.SaveChangesAsync(ct);
             await audit.LogAsync(HoldEntity, hold.Id, AuditAction.Insert,
-                diff: Describe(new { lot.LotNumber, hold.QuantityMt, hold.Reason }), ct: ct);
+                diff: Describe(new { lot.LotNumber, hold.QuantityMt, hold.Reason, hold.SourceLiters, hold.DensityKgPerM3, hold.MeasurementReference }), ct: ct);
             await db.SaveChangesAsync(ct);
             return hold.Id;
         }, ct);
@@ -535,6 +544,7 @@ public sealed class CustodyService(
                 var lot = lots[line.LotId];
                 var movement = NewMovement(lot, CustodyMovementKind.SaleReturn, CustodyDirection.In, line.Location,
                     returnDate, line.QuantityMt, operationKey);
+                ApplyMeasurement(movement, line.Measurement);
                 movement.DocumentNumber = Clean(documentNumber);
                 movements.Add((movement, lot));
             }
@@ -575,7 +585,7 @@ public sealed class CustodyService(
     }
 
     public Task<Guid> RecordConversionOutAsync(int lotId, CustodyLocation location, DateTime date,
-        decimal quantityMt, string reference, CancellationToken ct = default)
+        decimal quantityMt, string reference, CancellationToken ct = default, CustodyMeasurement? measurement = null)
         => InTransactionAsync(async () =>
         {
             RequirePositive(quantityMt, "مقدار خرید");
@@ -588,6 +598,7 @@ public sealed class CustodyService(
             var key = Guid.NewGuid();
             var movement = NewMovement(lot, CustodyMovementKind.ConvertedToCompany, CustodyDirection.Out,
                 location, date, quantityMt, key);
+            ApplyMeasurement(movement, measurement);
             movement.DocumentNumber = Clean(reference);
             await db.SaveChangesAsync(ct);
             await LogMovementAsync(movement, lot, ct);

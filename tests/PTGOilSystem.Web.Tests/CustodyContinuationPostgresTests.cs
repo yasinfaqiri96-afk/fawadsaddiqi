@@ -884,4 +884,97 @@ public sealed class CustodyContinuationPostgresTests(ConcurrencyVersionPostgresF
             new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId), preview.Fingerprint, true, "try"));
         Assert.Equal(journals, await check.JournalEntries.CountAsync());
     }
+
+    // ---------------------------------------------------------------- مرحلهٔ ۳: لیتر در مسدودی و برگشت، مالکِ شرکت
+
+    [Fact]
+    public async Task Hold_And_Single_Source_Return_Accept_Certified_Liters()
+    {
+        RequirePostgres();
+        var w = await SeedAsync(lotA: 40m, lotB: 10m);
+        int holdId;
+        await using (var db = fixture.CreateDbContext())
+            holdId = await Custody(db).PlaceHoldAsync(w.LotA, 0m, Liters(6_250m), "Quality dispute", null);
+        await using (var db = fixture.CreateDbContext())
+        {
+            var hold = await db.CustodyHolds.SingleAsync(h => h.Id == holdId);
+            Assert.Equal(5m, hold.QuantityMt);
+            Assert.Equal(6_250m, hold.SourceLiters);
+            var ex = await Assert.ThrowsAsync<BusinessRuleException>(() => Sales(db).CreateSaleAsync(SaleInput(w, 35.0001m, 0m)));
+            Assert.Equal("CUSTODY_HELD", ex.Code);
+        }
+        var saleId = await SellAsync(w, fromA: 20m, fromB: 0m);
+        int returnId;
+        await using (var db = fixture.CreateDbContext())
+        {
+            returnId = await Sales(db).RecordReturnAsync(new CustodySaleReturnInput
+            {
+                SaleId = saleId, ReturnDate = Day.AddDays(1),
+                Lines = [new CustodySaleSource(w.LotA, new CustodyLocation(w.TerminalId, w.TankA), 0m, Liters(3_750m))]
+            });
+        }
+        await using (var db = fixture.CreateDbContext())
+        {
+            var r = await db.CustodySaleReturns.SingleAsync(x => x.Id == returnId);
+            Assert.Equal(3m, r.QuantityMt);
+            Assert.Equal(1_500m, r.AmountUsd);
+            var movement = await db.CustodyMovements.SingleAsync(m => m.OperationKey == r.StockOperationKey);
+            Assert.Equal(3_750m, movement.SourceLiters);
+        }
+        Assert.Equal(23m, await LotBalanceAsync(w.LotA));
+    }
+
+    [Fact]
+    public async Task Other_Company_Owner_Uses_Its_Linked_Supplier_Role_Without_A_New_Identity()
+    {
+        RequirePostgres();
+        var w = await SeedAsync(lotA: 1m, lotB: 1m);
+        int companyId, lotId;
+        await using (var db = fixture.CreateDbContext())
+        {
+            var company = new Company { Code = "OC-" + Guid.NewGuid().ToString("N")[..6], Name = "Other trading co", Country = "AF" };
+            db.Companies.Add(company);
+            await db.SaveChangesAsync();
+            companyId = company.Id;
+            lotId = await Custody(db).ReceiveAsync(new CustodyReceiptInput
+            {
+                Owner = new CustodyOwner(AccountingPartyType.Company, companyId), ProductId = w.ProductId,
+                Location = new CustodyLocation(w.TerminalId, w.TankA), ReceiptDate = Day.AddDays(-3), QuantityMt = 30m
+            });
+        }
+        var input = new CustodySaleInput
+        {
+            LotId = lotId, Location = new CustodyLocation(w.TerminalId, w.TankA), QuantityMt = 10m, CustomerId = w.CustomerId,
+            SaleDate = Day, UnitPriceUsd = 400m, CommissionMethod = CustodyCommissionMethod.None
+        };
+        await using (var db = fixture.CreateDbContext())
+        {
+            var ex = await Assert.ThrowsAsync<BusinessRuleException>(() => Sales(db).CreateSaleAsync(input));
+            Assert.Equal("CUSTODY_OWNER_FINANCE_UNSUPPORTED", ex.Code);
+        }
+        var options = Options.Create(new AccountingOptions { Enabled = false });
+        await using (var db = fixture.CreateDbContext())
+        {
+            var conversions = new CustodyConversionService(db, Custody(db), null!, new FormTokenGuard(db), new AuditService(db), options, new StockService(db));
+            await conversions.LinkSupplierIdentityAsync(new CustodyOwner(AccountingPartyType.Company, companyId), w.OwnerId, "Registration certificate", true);
+            await conversions.LinkSupplierIdentityAsync(new CustodyOwner(AccountingPartyType.Company, companyId), w.OwnerId, "again", true);
+            var conflict = await Assert.ThrowsAsync<BusinessRuleException>(() => conversions.LinkSupplierIdentityAsync(
+                new CustodyOwner(AccountingPartyType.Company, companyId), w.OwnerId + 1_000_000, "other", true));
+            Assert.Equal("CUSTODY_IDENTITY_NOT_FOUND", conflict.Code);
+        }
+        int saleId;
+        await using (var db = fixture.CreateDbContext())
+            saleId = await Sales(db).CreateSaleAsync(input);
+        await using (var db = fixture.CreateDbContext())
+        {
+            var sale = await db.CustodySales.SingleAsync(s => s.Id == saleId);
+            Assert.Equal(AccountingPartyType.Supplier, sale.OwnerPartyType);
+            Assert.Equal(w.OwnerId, sale.OwnerPartyId);
+            Assert.Equal(1, await db.CustodySupplierIdentityLinks.CountAsync(x => x.CompanyId == companyId));
+            var safety = await new PTGOilSystem.Web.Services.DeleteSafety.MasterDataDeleteSafetyService(db).EvaluateCompanyAsync(companyId);
+            Assert.Contains("پیوند هویت امانی", safety.UsageAreas);
+            var customerSafety = await new PTGOilSystem.Web.Services.DeleteSafety.MasterDataDeleteSafetyService(db).EvaluateCustomerAsync(w.CustomerId);
+            Assert.Contains("امانی", customerSafety.UsageAreas);
+        }
+    }
 }

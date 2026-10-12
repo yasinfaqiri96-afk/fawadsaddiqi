@@ -387,4 +387,21 @@ public sealed class CustodyConversionPostgresTests(AccountingPostgreSqlFixture f
         db.ChangeTracker.Clear();
         Assert.Equal(1, await db.CustodySupplierIdentityLinks.CountAsync(x => x.SupplierId == s.Supplier.Id && x.CustomerId != null));
     }
+
+    [Fact]
+    public async Task Conversion_In_Certified_Liters_Uses_The_Same_Rule_And_Keeps_The_Source()
+    {
+        var (s, lot) = await SeedAsync();
+        await using var db = fixture.CreateDbContext();
+        var id = await Service(db).ConvertAsync(Input(lot, s.Tank.Id, 0m) with
+        {
+            Measurement = new CustodyMeasurement(50_000m, 800m, 15m, 15m, "Synthetic certificate")
+        });
+        var c = await db.CustodyConversions.Include(x => x.Contract).SingleAsync(x => x.Id == id);
+        Assert.Equal(40m, c.QuantityMt);
+        Assert.Equal(40m, c.Contract!.QuantityMt);
+        var movement = await db.CustodyMovements.SingleAsync(x => x.OperationKey == c.StockOperationKey);
+        Assert.Equal(50_000m, movement.SourceLiters);
+        Assert.Equal(60m, await CustodyBalance(db, lot));
+    }
 }

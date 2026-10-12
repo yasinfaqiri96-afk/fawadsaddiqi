@@ -36,15 +36,25 @@
                                    (string?)(UiText.T(Context, "وصول‌نشده", "Outstanding") + ": " + sale.OutstandingUsd.ToString("N2") + " USD · "
                                              + UiText.T(Context, "قیمت فی تُن", "Price/MT") + ": " + sale.UnitPriceUsd.ToString("N4"))))" />
                 <div class="ak-form-grid">
-                    @for (var i = 0; i < Model.Sources.Count; i++)
+                    @if (Model.Sources.Count == 1)
                     {
-                        var option = Model.Sources[i];
-                        var value = form.Lines.FirstOrDefault(x => x.Key == option.Key)?.QuantityMt;
-                        <div class="ak-field">
-                            <input type="hidden" name="Lines[@i].Key" value="@option.Key" />
-                            <label for="Lines_@(i)_QuantityMt" class="ak-label">@option.LotNumber · @option.Location <small class="text-muted">(@UiText.T(Context, "قابل برگشت", "returnable") @NumberDisplay.Quantity(option.AvailableMt, "MT"))</small></label>
-                            <input id="Lines_@(i)_QuantityMt" name="Lines[@i].QuantityMt" type="number" step="0.0001" min="0" class="ak-input" value="@value" />
-                        </div>
+                        var only = Model.Sources[0];
+                        <input type="hidden" name="Lines[0].Key" value="@only.Key" />
+                        <p class="ak-col-full text-muted small mb-0">@only.LotNumber · @only.Location — @UiText.T(Context, "قابل برگشت", "returnable") @NumberDisplay.Quantity(only.AvailableMt, "MT")</p>
+                        <partial name="_CustodyMeasureFields" model="@(new CustodyMeasureFieldsModel("Measure", form.Measure, "Lines[0].QuantityMt", form.Lines.FirstOrDefault()?.QuantityMt, UiText.T(Context, "مقدار برگشت (MT)", "Return quantity (MT)")))" />
+                    }
+                    else
+                    {
+                        @for (var i = 0; i < Model.Sources.Count; i++)
+                        {
+                            var option = Model.Sources[i];
+                            var value = form.Lines.FirstOrDefault(x => x.Key == option.Key)?.QuantityMt;
+                            <div class="ak-field">
+                                <input type="hidden" name="Lines[@i].Key" value="@option.Key" />
+                                <label for="Lines_@(i)_QuantityMt" class="ak-label">@option.LotNumber · @option.Location <small class="text-muted">(@UiText.T(Context, "قابل برگشت", "returnable") @NumberDisplay.Quantity(option.AvailableMt, "MT"))</small></label>
+                                <input id="Lines_@(i)_QuantityMt" name="Lines[@i].QuantityMt" type="number" step="0.0001" min="0" class="ak-input" value="@value" />
+                            </div>
+                        }
                     }
                     <div class="ak-field">
                         <label for="Date" class="ak-label">@UiText.T(Context, "تاریخ برگشت", "Return date") <span class="ak-req">*</span></label>
@@ -67,3 +77,7 @@
         </form>
     </div>
 </div>
+
+@section Scripts {
+    <script src="~/js/custody-measurement.js" asp-append-version="true" defer></script>
+}

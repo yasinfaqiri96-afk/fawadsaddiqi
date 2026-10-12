@@ -329,6 +329,8 @@ public sealed class CustodyFinanceViewModel
 public sealed class CustodySaleReturnForm
 {
     public int SaleId { get; set; }
+    /// <summary>فقط وقتی فروش یک بار/محل دارد: برگشت به لیتر با چگالی و دمای مستند.</summary>
+    public CustodyMeasureForm Measure { get; set; } = new();
     public string? OwnerKey { get; set; }
     [DataType(DataType.Date)] public DateTime Date { get; set; }
     public List<CustodySourceQuantity> Lines { get; set; } = [];
@@ -346,6 +348,7 @@ public sealed class CustodySaleReturnViewModel
 public sealed class CustodyConversionForm
 {
     public int LotId { get; set; }
+    public CustodyMeasureForm Measure { get; set; } = new();
     public int StorageTankId { get; set; }
     [DataType(DataType.Date)] public DateTime Date { get; set; }
     public decimal QuantityMt { get; set; }

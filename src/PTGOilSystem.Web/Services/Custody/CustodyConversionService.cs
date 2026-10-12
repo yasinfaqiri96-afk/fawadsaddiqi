@@ -10,7 +10,8 @@ using PTGOilSystem.Web.Services.Time;
 namespace PTGOilSystem.Web.Services.Custody;
 
 public sealed record CustodyConversionInput(int LotId, int StorageTankId, DateTime Date,
-    decimal QuantityMt, decimal UnitPriceUsd, string AgreementReference, string? FormToken);
+    decimal QuantityMt, decimal UnitPriceUsd, string AgreementReference, string? FormToken,
+    CustodyMeasurement? Measurement = null);
 
 /// <summary>Uses the existing purchase workflow for inventory, cost, payable and GL; no automatic offset.</summary>
 public sealed class CustodyConversionService(ApplicationDbContext db, ICustodyService custody,
@@ -22,24 +23,31 @@ public sealed class CustodyConversionService(ApplicationDbContext db, ICustodySe
     {
         if (!confirmed || string.IsNullOrWhiteSpace(evidence) || evidence.Trim().Length > 500)
             throw Rule("CUSTODY_IDENTITY_EVIDENCE", "تأیید صریح هویت یکسان و مرجع معتبر آن الزامی است.");
-        if (owner.PartyType is not (AccountingPartyType.Customer or AccountingPartyType.Partner))
-            throw Rule("CUSTODY_IDENTITY_ROLE", "این پیوند فقط برای مشتری یا شریک موجود است.");
+        if (owner.PartyType is not (AccountingPartyType.Customer or AccountingPartyType.Partner or AccountingPartyType.Company))
+            throw Rule("CUSTODY_IDENTITY_ROLE", "این پیوند فقط برای مشتری، شریک یا شرکتِ دیگرِ موجود است.");
         await using var tx = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(ct) : null;
         // Serialize confirmation on the existing identity, including before the first link exists.
         if (owner.PartyType == AccountingPartyType.Customer)
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Customers\" WHERE \"Id\" = {owner.PartyId} FOR UPDATE", ct);
-        else
+        else if (owner.PartyType == AccountingPartyType.Partner)
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Partners\" WHERE \"Id\" = {owner.PartyId} FOR UPDATE", ct);
+        else
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Companies\" WHERE \"Id\" = {owner.PartyId} FOR UPDATE", ct);
         // The supplier side is serialized too: two different customer (or partner) records must
         // never both claim the same supplier person.
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Suppliers\" WHERE \"Id\" = {supplierId} FOR UPDATE", ct);
-        var exists = owner.PartyType == AccountingPartyType.Customer
-            ? await db.Customers.AnyAsync(x => x.Id == owner.PartyId && x.IsActive, ct)
-            : await db.Partners.AnyAsync(x => x.Id == owner.PartyId && x.IsActive, ct);
+        var exists = owner.PartyType switch
+        {
+            AccountingPartyType.Customer => await db.Customers.AnyAsync(x => x.Id == owner.PartyId && x.IsActive, ct),
+            AccountingPartyType.Partner => await db.Partners.AnyAsync(x => x.Id == owner.PartyId && x.IsActive, ct),
+            _ => await db.Companies.AnyAsync(x => x.Id == owner.PartyId && x.IsActive && !x.IsSystemOwner, ct)
+        };
         if (!exists || !await db.Suppliers.AnyAsync(x => x.Id == supplierId && x.IsActive, ct))
             throw Rule("CUSTODY_IDENTITY_NOT_FOUND", "مالک و نقش فروشنده باید موجود و فعال باشند؛ شخص تازه ساخته نمی‌شود.");
         var existing = await db.CustodySupplierIdentityLinks.SingleOrDefaultAsync(x =>
-            owner.PartyType == AccountingPartyType.Customer ? x.CustomerId == owner.PartyId : x.PartnerId == owner.PartyId, ct);
+            owner.PartyType == AccountingPartyType.Customer ? x.CustomerId == owner.PartyId
+            : owner.PartyType == AccountingPartyType.Partner ? x.PartnerId == owner.PartyId
+            : x.CompanyId == owner.PartyId, ct);
         if (existing is not null)
         {
             if (existing.SupplierId != supplierId)
@@ -48,12 +56,15 @@ public sealed class CustodyConversionService(ApplicationDbContext db, ICustodySe
             return;
         }
         if (await db.CustodySupplierIdentityLinks.AnyAsync(x => x.SupplierId == supplierId
-                && (owner.PartyType == AccountingPartyType.Customer ? x.CustomerId != null : x.PartnerId != null), ct))
+                && (owner.PartyType == AccountingPartyType.Customer ? x.CustomerId != null
+                    : owner.PartyType == AccountingPartyType.Partner ? x.PartnerId != null
+                    : x.CompanyId != null), ct))
             throw Rule("CUSTODY_IDENTITY_CONFLICT", "این فروشنده قبلاً با شخص دیگری در همین نقش پیوند خورده است؛ دو شخص را یکی نکنید.");
         var link = new CustodySupplierIdentityLink
         {
             CustomerId = owner.PartyType == AccountingPartyType.Customer ? owner.PartyId : null,
             PartnerId = owner.PartyType == AccountingPartyType.Partner ? owner.PartyId : null,
+            CompanyId = owner.PartyType == AccountingPartyType.Company ? owner.PartyId : null,
             SupplierId = supplierId, Evidence = evidence.Trim(), CreatedByUserId = user?.UserId
         };
         db.CustodySupplierIdentityLinks.Add(link);
@@ -80,6 +91,8 @@ public sealed class CustodyConversionService(ApplicationDbContext db, ICustodySe
                 .Select(x => (int?)x.SupplierId).SingleOrDefaultAsync(ct),
             AccountingPartyType.Partner => await db.CustodySupplierIdentityLinks.Where(x => x.PartnerId == owner.PartyId)
                 .Select(x => (int?)x.SupplierId).SingleOrDefaultAsync(ct),
+            AccountingPartyType.Company => await db.CustodySupplierIdentityLinks.Where(x => x.CompanyId == owner.PartyId)
+                .Select(x => (int?)x.SupplierId).SingleOrDefaultAsync(ct),
             _ => null
         };
 
@@ -89,6 +102,10 @@ public sealed class CustodyConversionService(ApplicationDbContext db, ICustodySe
         await LockLotAsync(input.LotId, ct);
         var lot = await db.CustodyLots.AsNoTracking().SingleOrDefaultAsync(x => x.Id == input.LotId, ct)
             ?? throw Rule("CUSTODY_LOT_NOT_FOUND", "بار امانی پیدا نشد.");
+        // لیتر با چگالی و دمای مستند، همان قاعدهٔ همهٔ عملیات امانی؛ قرارداد خرید MT است.
+        var quantityMt = input.Measurement?.ToMt() ?? input.QuantityMt;
+        if (input.Measurement is not null && input.QuantityMt != 0m && input.QuantityMt != quantityMt)
+            throw Rule("CUSTODY_MEASUREMENT_MISMATCH", "مقدار MT با لیتر و چگالی سند یکسان نیست.");
         if (input.UnitPriceUsd <= 0 || decimal.Round(input.UnitPriceUsd, 4) != input.UnitPriceUsd)
             throw Rule("CUSTODY_CONVERSION_PRICE", "قیمت توافقی خرید به دالر باید مثبت و حداکثر چهار رقم اعشار باشد.");
         if (string.IsNullOrWhiteSpace(input.AgreementReference) || input.AgreementReference.Trim().Length > 500)
@@ -107,13 +124,13 @@ public sealed class CustodyConversionService(ApplicationDbContext db, ICustodySe
             throw Rule("CUSTODY_PURCHASE_GL_NOT_READY", "ثبت خرید و رسید در دفتر کل فعال نیست؛ تنظیمات حسابداری را تکمیل کنید.");
 
         var key = await custody.RecordConversionOutAsync(lot.Id, new(tank.TerminalId, tank.Id),
-            input.Date, input.QuantityMt, lot.LotNumber, ct);
+            input.Date, quantityMt, lot.LotNumber, ct, input.Measurement);
         var contract = new Contract
         {
             ContractNumber = "CP-" + key.ToString("N"), ContractName = "خرید قطعی از بار " + lot.LotNumber,
             CompanyId = companyId, ProductId = lot.ProductId, SupplierId = supplierId,
             ContractType = ContractType.Purchase, Status = ContractStatus.Draft, ContractDate = Utc(input.Date.Date),
-            QuantityMt = input.QuantityMt, PricingMethod = PricingMethod.Fixed, Currency = "USD",
+            QuantityMt = quantityMt, PricingMethod = PricingMethod.Fixed, Currency = "USD",
             UnitPriceInCurrency = input.UnitPriceUsd, UnitPriceUsd = input.UnitPriceUsd, AppliedFxRateToUsd = 1m,
             DestinationStorageTankId = tank.Id, Notes = input.AgreementReference.Trim()
         };
@@ -133,14 +150,15 @@ public sealed class CustodyConversionService(ApplicationDbContext db, ICustodySe
         var conversion = new CustodyConversion
         {
             CustodyLotId = lot.Id, ContractId = contract.Id, StockOperationKey = key,
-            ConversionDate = Utc(input.Date.Date), QuantityMt = input.QuantityMt,
+            ConversionDate = Utc(input.Date.Date), QuantityMt = quantityMt,
             AgreementReference = input.AgreementReference.Trim(), CreatedByUserId = user?.UserId
         };
         db.CustodyConversions.Add(conversion);
         await db.SaveChangesAsync(ct);
         await audit.LogAsync(nameof(CustodyConversion), conversion.Id, AuditAction.Insert,
             diff: System.Text.Json.JsonSerializer.Serialize(new { lot.LotNumber, conversion.ContractId,
-                conversion.QuantityMt, input.UnitPriceUsd, conversion.AgreementReference, key }), ct: ct);
+                conversion.QuantityMt, input.UnitPriceUsd, conversion.AgreementReference, key,
+                Liters = input.Measurement?.Liters, input.Measurement?.DensityKgPerM3 }), ct: ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return conversion.Id;

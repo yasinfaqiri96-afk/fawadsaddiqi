@@ -1,5 +1,6 @@
 @model PTGOilSystem.Web.Models.Custody.CustodyConversionViewModel
 @using PTGOilSystem.Web.Models.Entities
+@using PTGOilSystem.Web.Models.Custody
 @{
     ViewData["Title"] = "تبدیل به خرید قطعی";
     var form = Model.Form;
@@ -26,7 +27,7 @@
                             { <option value="@p.StorageTankId" selected="@(form.StorageTankId == p.StorageTankId)">@p.TerminalName / @p.TankCode — @NumberDisplay.Quantity(p.QuantityMt, "MT")</option> }
                         </select></div>
                     <div class="ak-field"><label for="Date" class="ak-label">تاریخ خرید</label><input id="Date" name="Date" type="date" class="ak-input" value="@form.Date.ToString("yyyy-MM-dd")" required /></div>
-                    <div class="ak-field"><label for="QuantityMt" class="ak-label">مقدار خرید (MT)</label><input id="QuantityMt" name="QuantityMt" type="number" step="0.0001" min="0.0001" class="ak-input" value="@form.QuantityMt" required /></div>
+                    <partial name="_CustodyMeasureFields" model="@(new CustodyMeasureFieldsModel("Measure", form.Measure, "QuantityMt", form.QuantityMt == 0m ? null : form.QuantityMt, "مقدار خرید (MT)"))" />
                     <div class="ak-field"><label for="UnitPriceUsd" class="ak-label">قیمت توافقی هر تُن (دالر)</label><input id="UnitPriceUsd" name="UnitPriceUsd" type="number" step="0.0001" min="0.0001" class="ak-input" value="@form.UnitPriceUsd" required /></div>
                     <div class="ak-field"><label for="AgreementReference" class="ak-label">مرجع توافق خرید</label><input id="AgreementReference" name="AgreementReference" class="ak-input" maxlength="500" value="@form.AgreementReference" required /></div>
                 </div>
@@ -70,3 +71,7 @@
         }
     </div>
 </div>
+
+@section Scripts {
+    <script src="~/js/custody-measurement.js" asp-append-version="true" defer></script>
+}

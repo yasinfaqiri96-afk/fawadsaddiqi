@@ -141,6 +141,12 @@ public class CustodyHold : BaseEntity
     public int CustodyLotId { get; set; }
     public CustodyLot? CustodyLot { get; set; }
     public decimal QuantityMt { get; set; }
+    /// <summary>اندازه‌گیریِ مستندِ مقدارِ مسدود به لیتر (اختیاری)؛ QuantityMt یک‌بار از آن محاسبه شده است.</summary>
+    public decimal? SourceLiters { get; set; }
+    public decimal? DensityKgPerM3 { get; set; }
+    public decimal? MeasurementTemperatureC { get; set; }
+    public decimal? DensityTemperatureC { get; set; }
+    [MaxLength(500)] public string? MeasurementReference { get; set; }
     [Required, MaxLength(500)] public string Reason { get; set; } = "";
     public DateTime? ReleasedAtUtc { get; set; }
     public int? ReleasedByUserId { get; set; }

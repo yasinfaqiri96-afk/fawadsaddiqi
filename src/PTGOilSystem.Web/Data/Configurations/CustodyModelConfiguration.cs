@@ -9,9 +9,13 @@ public static class CustodyModelConfiguration
     {
         var identity = modelBuilder.Entity<CustodySupplierIdentityLink>();
         identity.ToTable("CustodySupplierIdentityLinks", t => t.HasCheckConstraint("CK_CustodyIdentity_OneRole",
-            "(\"CustomerId\" IS NOT NULL AND \"PartnerId\" IS NULL) OR (\"PartnerId\" IS NOT NULL AND \"CustomerId\" IS NULL)"));
+            "(\"CustomerId\" IS NOT NULL AND \"PartnerId\" IS NULL AND \"CompanyId\" IS NULL)"
+            + " OR (\"PartnerId\" IS NOT NULL AND \"CustomerId\" IS NULL AND \"CompanyId\" IS NULL)"
+            + " OR (\"CompanyId\" IS NOT NULL AND \"CustomerId\" IS NULL AND \"PartnerId\" IS NULL)"));
         identity.HasIndex(x => x.CustomerId).IsUnique();
         identity.HasIndex(x => x.PartnerId).IsUnique();
+        identity.HasIndex(x => x.CompanyId).IsUnique();
+        identity.HasOne<Company>().WithMany().HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
         identity.HasOne<Customer>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
         identity.HasOne<Partner>().WithMany().HasForeignKey(x => x.PartnerId).OnDelete(DeleteBehavior.Restrict);
         identity.HasOne<Supplier>().WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Restrict);
@@ -73,8 +77,13 @@ public static class CustodyModelConfiguration
         hold.ToTable("CustodyHolds", table =>
         {
             table.HasCheckConstraint("CK_CustodyHolds_PositiveQuantity", "\"QuantityMt\" > 0");
+            table.HasCheckConstraint("CK_CustodyHolds_Measurement", "(\"SourceLiters\" IS NULL AND \"DensityKgPerM3\" IS NULL AND \"MeasurementTemperatureC\" IS NULL AND \"DensityTemperatureC\" IS NULL AND \"MeasurementReference\" IS NULL) OR (\"SourceLiters\" IS NOT NULL AND \"SourceLiters\" > 0 AND \"DensityKgPerM3\" IS NOT NULL AND \"DensityKgPerM3\" > 0 AND \"MeasurementTemperatureC\" IS NOT NULL AND \"DensityTemperatureC\" IS NOT NULL AND \"MeasurementTemperatureC\" = \"DensityTemperatureC\" AND \"MeasurementReference\" IS NOT NULL AND length(trim(\"MeasurementReference\")) > 0 AND round(\"SourceLiters\" * \"DensityKgPerM3\" / 1000000, 4) = \"QuantityMt\")");
         });
         hold.Property(x => x.QuantityMt).HasColumnType("numeric(18,4)");
+        hold.Property(x => x.SourceLiters).HasColumnType("numeric(18,4)");
+        hold.Property(x => x.DensityKgPerM3).HasColumnType("numeric(18,6)");
+        hold.Property(x => x.MeasurementTemperatureC).HasColumnType("numeric(8,3)");
+        hold.Property(x => x.DensityTemperatureC).HasColumnType("numeric(8,3)");
         hold.HasIndex(x => x.CustodyLotId);
         hold.HasOne(x => x.CustodyLot).WithMany(x => x.Holds).HasForeignKey(x => x.CustodyLotId)
             .OnDelete(DeleteBehavior.Restrict);

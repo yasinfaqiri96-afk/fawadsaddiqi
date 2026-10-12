@@ -57,8 +57,11 @@ public class CustodyController(
                         throw new BusinessRuleException("CUSTODY_IDENTITY_ADMIN", "تأیید پیوند هویت فقط توسط مدیر مجاز است.");
                     await conversions.LinkSupplierIdentityAsync(owner, form.SupplierId ?? 0, form.IdentityEvidence ?? "", true);
                 }
+                if (!form.Measure.IsValidUnit || (form.Measure.IsLiters && !form.Measure.IsComplete))
+                    throw new BusinessRuleException("CUSTODY_MEASUREMENT_INCOMPLETE", CustodyMeasureForm.IncompleteMessage);
+                var measurement = form.Measure.ToMeasurement();
                 await conversions.ConvertAsync(new(form.LotId, form.StorageTankId, form.Date,
-                    form.QuantityMt, form.UnitPriceUsd, form.AgreementReference, formToken));
+                    measurement is null ? form.QuantityMt : 0m, form.UnitPriceUsd, form.AgreementReference, formToken, measurement));
                 TempData["ok"] = "خرید قطعی ثبت شد؛ مقدار فزیکی مخزن ثابت ماند و حساب امانی تهاتر نشد.";
                 return RedirectToAction(nameof(ConvertPurchase), new { id = form.LotId });
             }
@@ -269,15 +272,7 @@ public class CustodyController(
         if (lot is null) return NotFound();
 
         var location = CustodyLocationKey.Parse(form.LocationKey);
-        if (form.Operation == CustodyOperation.Hold)
-        {
-            if (form.QuantityMt is not > 0m)
-                ModelState.AddModelError(nameof(form.QuantityMt), "مقدار را وارد کنید.");
-        }
-        else
-        {
-            ValidateMeasure(form.Measure, form.QuantityMt, "Measure", nameof(form.QuantityMt), "مقدار را وارد کنید.");
-        }
+        ValidateMeasure(form.Measure, form.QuantityMt, "Measure", nameof(form.QuantityMt), "مقدار را وارد کنید.");
         if (form.Operation != CustodyOperation.Hold && location is null)
             ModelState.AddModelError(nameof(form.LocationKey), "محل را انتخاب کنید.");
         var toLocation = CustodyLocationKey.Parse(form.ToLocationKey);
@@ -299,7 +294,7 @@ public class CustodyController(
         if (!ModelState.IsValid)
             return View(await BuildOperationViewModelAsync(form, lot));
 
-        var measurement = form.Operation == CustodyOperation.Hold ? null : form.Measure.ToMeasurement();
+        var measurement = form.Measure.ToMeasurement();
         var qty = measurement is null ? form.QuantityMt!.Value : 0m;
         try
         {
@@ -352,7 +347,7 @@ public class CustodyController(
                     });
                     break;
                 case CustodyOperation.Hold:
-                    await custody.PlaceHoldAsync(form.LotId, qty, form.Reason!, formToken);
+                    await custody.PlaceHoldAsync(form.LotId, qty, measurement, form.Reason!, formToken);
                     break;
                 default:
                     return BadRequest();
@@ -430,8 +425,8 @@ public class CustodyController(
         }
         if (await CustodySaleService.ResolveFinancialOwnerAsync(db, new CustodyOwner(lot.OwnerPartyType, lot.OwnerPartyId)) is null)
         {
-            TempData["err"] = lot.OwnerPartyType == AccountingPartyType.Partner
-                ? "فروش امانیِ تیلِ شریک فقط پس از پیوند تأییدشده با نقش فروشندهٔ همان شخص ممکن است (صفحهٔ «خرید قطعی» همین بار)."
+            TempData["err"] = lot.OwnerPartyType is AccountingPartyType.Partner or AccountingPartyType.Company
+                ? "فروش امانیِ این مالک فقط پس از پیوند تأییدشده با نقش فروشندهٔ همان شخص ممکن است (صفحهٔ «خرید قطعی» همین بار)."
                 : "فروش امانی فقط برای مالکی است که مشتری یا فروشنده ثبت شده است.";
             return RedirectToAction(nameof(Details), new { id });
         }
@@ -707,10 +702,23 @@ public class CustodyController(
         var sale = await reader.GetSaleAsync(form.SaleId);
         if (sale is null) return NotFound();
         var lines = new List<CustodySaleSource>();
-        foreach (var line in form.Lines.Where(x => x.QuantityMt is > 0m))
+        if (form.Measure.IsLiters)
         {
-            if (CustodySourceKey.Parse(line.Key, line.QuantityMt!.Value) is { } source) lines.Add(source);
-            else ModelState.AddModelError(nameof(form.Lines), "بار یا محلِ انتخاب‌شده معتبر نیست.");
+            // برگشت لیتری فقط برای فروشِ تک‌بار/تک‌محل؛ کلید همان سطر واحد است.
+            if (!form.Measure.IsComplete)
+                ModelState.AddModelError("Measure.Liters", CustodyMeasureForm.IncompleteMessage);
+            else if (form.Lines.Count != 1 || CustodySourceKey.Parse(form.Lines[0].Key, 0m) is not { } single)
+                ModelState.AddModelError(nameof(form.Lines), "برگشت به لیتر فقط برای فروشی ممکن است که از یک بار و یک محل بوده است.");
+            else
+                lines.Add(single with { Measurement = form.Measure.ToMeasurement() });
+        }
+        else
+        {
+            foreach (var line in form.Lines.Where(x => x.QuantityMt is > 0m))
+            {
+                if (CustodySourceKey.Parse(line.Key, line.QuantityMt!.Value) is { } source) lines.Add(source);
+                else ModelState.AddModelError(nameof(form.Lines), "بار یا محلِ انتخاب‌شده معتبر نیست.");
+            }
         }
         if (lines.Count == 0 && ModelState.IsValid)
             ModelState.AddModelError(nameof(form.Lines), "مقدار برگشت را دست‌کم برای یک بار وارد کنید.");

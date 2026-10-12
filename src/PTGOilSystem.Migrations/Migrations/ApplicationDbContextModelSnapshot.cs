@@ -2171,6 +2171,19 @@ namespace PTGOilSystem.Web.Migrations
                     b.Property<int>("CustodyLotId")
                         .HasColumnType("integer");
 
+                    b.Property<decimal?>("DensityKgPerM3")
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<decimal?>("DensityTemperatureC")
+                        .HasColumnType("numeric(8,3)");
+
+                    b.Property<string>("MeasurementReference")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<decimal?>("MeasurementTemperatureC")
+                        .HasColumnType("numeric(8,3)");
+
                     b.Property<decimal>("QuantityMt")
                         .HasColumnType("numeric(18,4)");
 
@@ -2189,6 +2202,9 @@ namespace PTGOilSystem.Web.Migrations
                     b.Property<int?>("ReleasedByUserId")
                         .HasColumnType("integer");
 
+                    b.Property<decimal?>("SourceLiters")
+                        .HasColumnType("numeric(18,4)");
+
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -2201,6 +2217,8 @@ namespace PTGOilSystem.Web.Migrations
 
                     b.ToTable("CustodyHolds", null, t =>
                         {
+                            t.HasCheckConstraint("CK_CustodyHolds_Measurement", "(\"SourceLiters\" IS NULL AND \"DensityKgPerM3\" IS NULL AND \"MeasurementTemperatureC\" IS NULL AND \"DensityTemperatureC\" IS NULL AND \"MeasurementReference\" IS NULL) OR (\"SourceLiters\" IS NOT NULL AND \"SourceLiters\" > 0 AND \"DensityKgPerM3\" IS NOT NULL AND \"DensityKgPerM3\" > 0 AND \"MeasurementTemperatureC\" IS NOT NULL AND \"DensityTemperatureC\" IS NOT NULL AND \"MeasurementTemperatureC\" = \"DensityTemperatureC\" AND \"MeasurementReference\" IS NOT NULL AND length(trim(\"MeasurementReference\")) > 0 AND round(\"SourceLiters\" * \"DensityKgPerM3\" / 1000000, 4) = \"QuantityMt\")");
+
                             t.HasCheckConstraint("CK_CustodyHolds_PositiveQuantity", "\"QuantityMt\" > 0");
                         });
                 });
@@ -2641,6 +2659,9 @@ namespace PTGOilSystem.Web.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("CompanyId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -2669,6 +2690,9 @@ namespace PTGOilSystem.Web.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CompanyId")
+                        .IsUnique();
+
                     b.HasIndex("CustomerId")
                         .IsUnique();
 
@@ -2679,7 +2703,7 @@ namespace PTGOilSystem.Web.Migrations
 
                     b.ToTable("CustodySupplierIdentityLinks", null, t =>
                         {
-                            t.HasCheckConstraint("CK_CustodyIdentity_OneRole", "(\"CustomerId\" IS NOT NULL AND \"PartnerId\" IS NULL) OR (\"PartnerId\" IS NOT NULL AND \"CustomerId\" IS NULL)");
+                            t.HasCheckConstraint("CK_CustodyIdentity_OneRole", "(\"CustomerId\" IS NOT NULL AND \"PartnerId\" IS NULL AND \"CompanyId\" IS NULL) OR (\"PartnerId\" IS NOT NULL AND \"CustomerId\" IS NULL AND \"CompanyId\" IS NULL) OR (\"CompanyId\" IS NOT NULL AND \"CustomerId\" IS NULL AND \"PartnerId\" IS NULL)");
                         });
                 });
 
@@ -11355,6 +11379,11 @@ namespace PTGOilSystem.Web.Migrations
 
             modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CustodySupplierIdentityLink", b =>
                 {
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("PTGOilSystem.Web.Models.Entities.Customer", null)
                         .WithMany()
                         .HasForeignKey("CustomerId")
