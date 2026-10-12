@@ -1571,6 +1571,8 @@ public sealed class CustodySaleService(
             "PILOT_DISABLED" => "ثبت دفتر کلِ امانی فعال نیست (Accounting:Pilots:Custody)؛ سند ثبت نشد.",
             "CUSTODY_ACCOUNTS_NOT_CONFIGURED" => "حساب‌های امانی در «نقشه حساب‌ها» تعیین نشده‌اند؛ سند ثبت نشد.",
             CustodyAccountingAdapter.ProviderPayableNotConfiguredReason => "حساب پرداختنیِ نوعِ این مصرف تعیین نشده است؛ سند ثبت نشد.",
+            CustodyAccountingAdapter.CustodyAccountsMisclassifiedReason => "طبقه‌بندی حساب‌های امانی درست نیست: ۱۲۱۰ باید دارایی با سمت بستانکار (کاهندهٔ دریافتنی) و ۲۶۰۰ بدهی با سمت بستانکار و هر دو فعال باشند؛ سند ثبت نشد.",
+            CustodyAccountingAdapter.ForeignCurrencyNonMonetaryReason => "حساب‌های ۱۲۱۰ و ۲۶۰۰ «پولی» تعیین نشده‌اند؛ سند افغانی بدون تسعیرِ درست ثبت نمی‌شود.",
             _ => $"دفتر کلِ امانی آماده نیست ({result.Reason})؛ سند ثبت نشد."
         });
     }

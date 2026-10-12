@@ -647,4 +647,48 @@ public sealed class CustodyMultiCurrencyPostgresTests(ConcurrencyVersionPostgres
         await AssertOwnerGlMatchesStatementAsync(w);
         await AssertJournalsBalancedAsync();
     }
+
+    // ---------------------------------------------------------------- طبقه‌بندی ۱۲۱۰ و ۲۶۰۰
+
+    [Fact]
+    public async Task Misclassified_Or_Non_Monetary_Custody_Control_Accounts_Refuse_The_Document()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        await RateAsync(Day, 70m);
+        int pendingId, fundsId;
+        await using (var db = fixture.CreateDbContext())
+        {
+            var settings = await db.AccountingSettings.SingleAsync(s => s.CompanyId == w.CompanyId);
+            pendingId = settings.CustodyPendingCollectionAccountId!.Value;
+            fundsId = settings.CustodyFundsPayableAccountId!.Value;
+        }
+        async Task SetAsync(int id, NormalBalance? side = null, MonetaryTreatment? monetary = null)
+        {
+            await using var db = fixture.CreateDbContext();
+            var account = await db.Accounts.SingleAsync(a => a.Id == id);
+            if (side.HasValue) account.NormalBalance = side.Value;
+            if (monetary.HasValue) account.MonetaryTreatment = monetary.Value;
+            await db.SaveChangesAsync();
+        }
+        try
+        {
+            await SetAsync(pendingId, side: NormalBalance.Debit);
+            var misclassified = await Rule(() => SellAsync(Sale(w, "USD", 500m, quantity: 1m)));
+            Assert.Equal("CUSTODY_GL_NOT_READY", misclassified.Code);
+            Assert.Contains("۱۲۱۰", misclassified.Message);
+            await SetAsync(pendingId, side: NormalBalance.Credit);
+
+            await SetAsync(fundsId, monetary: MonetaryTreatment.NonMonetary);
+            await SellAsync(Sale(w, "USD", 500m, quantity: 1m));           // دالری بدون تسعیر مشکلی ندارد
+            Assert.Equal("CUSTODY_GL_NOT_READY", (await Rule(() => SellAsync(Sale(w, "AFN", 35_000m, quantity: 1m)))).Code);
+        }
+        finally
+        {
+            await SetAsync(pendingId, side: NormalBalance.Credit);
+            await SetAsync(fundsId, monetary: MonetaryTreatment.Monetary);
+        }
+        await using var check = fixture.CreateDbContext();
+        Assert.Equal(1, await check.CustodySales.CountAsync(s => s.CustodyLotId == w.LotId && s.Status == CustodyDocumentStatus.Posted));
+    }
 }

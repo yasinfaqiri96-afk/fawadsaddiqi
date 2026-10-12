@@ -70,6 +70,9 @@ public sealed class CustodyAccountingAdapter(
     public static string FinanceJournalNumber(int companyId, int entryId) => $"CUS-{companyId:D6}-F{entryId:D9}";
     public static string ReturnJournalNumber(int companyId, int returnId) => $"CUS-{companyId:D6}-R{returnId:D9}";
     public const string ProviderPayableNotConfiguredReason = "CUSTODY_PROVIDER_PAYABLE_NOT_CONFIGURED";
+    public const string CustodyAccountsMisclassifiedReason = "CUSTODY_ACCOUNTS_MISCLASSIFIED";
+    public const string ForeignCurrencyNonMonetaryReason = "CUSTODY_FOREIGN_CURRENCY_NON_MONETARY";
+    private bool _controlsMonetary = true;
 
     public async Task<CustodyAccountingResult> TryPostSaleAsync(CustodySale sale, CancellationToken cancellationToken = default)
     {
@@ -373,6 +376,9 @@ public sealed class CustodyAccountingAdapter(
         IReadOnlyCollection<AccountingPostLine> lines,
         CancellationToken cancellationToken)
     {
+        // ماندهٔ افغانی در ۱۲۱۰/۲۶۰۰ فقط وقتی درست تسعیر می‌شود که این حساب‌ها «پولی» باشند.
+        if (!_controlsMonetary && lines.Any(l => !SystemCurrency.IsBaseCurrency(l.TransactionCurrencyCode)))
+            return Skip(entityType, entityId, ForeignCurrencyNonMonetaryReason);
         var existing = await db.JournalEntries.AsNoTracking()
             .Include(x => x.Lines)
             .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.SourceModule == SourceModule && x.SourceEventId == eventId, cancellationToken);
@@ -423,6 +429,20 @@ public sealed class CustodyAccountingAdapter(
             return (companyId, null, "CUSTODY_ACCOUNTS_NOT_CONFIGURED");
         if (ownerType is not (AccountingPartyType.Customer or AccountingPartyType.Supplier))
             return (companyId, null, "UNSUPPORTED_OWNER_TYPE");
+
+        // طبقه‌بندیِ مالیِ حساب‌های کنترولیِ امانی: ۱۲۱۰ کاهندهٔ دارایی (دارایی، سمت بستانکار) و ۲۶۰۰
+        // بدهی (سمت بستانکار)، هر دو پولی. حسابِ نادرست سند نمی‌گیرد.
+        var controls = await db.Accounts.AsNoTracking()
+            .Where(a => a.Id == settings.CustodyPendingCollectionAccountId || a.Id == settings.CustodyFundsPayableAccountId)
+            .Select(a => new { a.Id, a.AccountType, a.NormalBalance, a.MonetaryTreatment, a.IsActive })
+            .ToListAsync(cancellationToken);
+        var pending = controls.SingleOrDefault(a => a.Id == settings.CustodyPendingCollectionAccountId);
+        var funds = controls.SingleOrDefault(a => a.Id == settings.CustodyFundsPayableAccountId);
+        if (pending is null || funds is null || !pending.IsActive || !funds.IsActive
+            || pending.AccountType != AccountType.Asset || pending.NormalBalance != NormalBalance.Credit
+            || funds.AccountType != AccountType.Liability || funds.NormalBalance != NormalBalance.Credit)
+            return (companyId, null, CustodyAccountsMisclassifiedReason);
+        _controlsMonetary = pending.MonetaryTreatment == MonetaryTreatment.Monetary && funds.MonetaryTreatment == MonetaryTreatment.Monetary;
 
         return (companyId, settings, null);
     }

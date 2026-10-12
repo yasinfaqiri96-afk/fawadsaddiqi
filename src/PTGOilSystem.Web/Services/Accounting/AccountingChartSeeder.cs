@@ -128,7 +128,9 @@ public sealed class AccountingChartSeeder(
             await db.SaveChangesAsync(cancellationToken);
         }
 
-        return account.AccountType == seed.AccountType ? account.Id : null;
+        // حسابِ موجود با همین کد فقط وقتی به امانی وصل می‌شود که نوع و سمت طبیعی‌اش همان طبقه‌بندی باشد؛
+        // مثلاً «۱۲۱۰»ِ دیگری با سمت بدهکار، کاهندهٔ دریافتنیِ امانی (سمت بستانکار) نیست.
+        return account.AccountType == seed.AccountType && account.NormalBalance == seed.NormalBalance ? account.Id : null;
     }
 
     /// <summary>
