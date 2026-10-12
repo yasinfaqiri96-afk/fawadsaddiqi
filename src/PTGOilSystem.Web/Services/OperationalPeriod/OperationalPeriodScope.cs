@@ -40,6 +40,8 @@ public static partial class OperationalPeriodScope
         CustodyFinanceEntry x => x.EntryDate,
         CustodyConversion x => x.ConversionDate,
         CustodySaleReturn x => x.ReturnDate,
+        CommodityLoan x => x.LoanDate,
+        CommodityLoanSettlement x => x.SettlementDate,
         LedgerEntry x => x.EntryDate,
         _ => null,
     };
@@ -65,6 +67,8 @@ public static partial class OperationalPeriodScope
         CustodyFinanceEntry => "سند مالی امانی",
         CustodyConversion => "تبدیل امانی به خرید",
         CustodySaleReturn => "برگشت فروش امانی",
+        CommodityLoan => "قرض جنسی",
+        CommodityLoanSettlement => "تسویه قرض جنسی",
         LedgerEntry => "ردیف دفتر کل",
         _ => "سند",
     };

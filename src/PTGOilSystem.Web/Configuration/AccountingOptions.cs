@@ -44,6 +44,15 @@ public sealed class AccountingPilotOptions
     //   پرداخت به مالک    Dr وجوه امانی پرداختنی         Cr صندوق/بانک
     public bool Custody { get; set; }
 
+    // قرض جنسی — قرض‌دادن از موجودی ملکی و قرض‌گرفتن با تعهد برگشت جنس.
+    //   قرض‌دادن          Dr طلب جنسی (حسابِ قرارداد)    Cr موجودی (بهای میانگین همان ترمینال)
+    //   برگشت جنس        Dr موجودی                       Cr طلب جنسی (ارزش دفتری آزادشده)
+    //   قرض‌گرفتن         Dr موجودی (ارزش توافقی)         Cr بدهی جنسی (حسابِ قرارداد)
+    //   برگشت به طرف      Dr بدهی جنسی                    Cr موجودی (بهای میانگین)؛ تفاوت ← حساب تفاوتِ قرارداد
+    //   تسویه نقدی        صندوق ↔ طلب/بدهی جنسی؛ تفاوت ← حساب تفاوتِ قرارداد
+    // دفتر کل روشن و این فلگ خاموش ⇒ سند قرض ثبت نمی‌شود (سند نصفه ساخته نمی‌شود).
+    public bool CommodityLoan { get; set; }
+
     // Stage 6 — purchase and inventory. Purchase raises the supplier payable against goods in
     // transit; InventoryReceipt moves those goods from in-transit into inventory, so the two
     // are normally enabled together.

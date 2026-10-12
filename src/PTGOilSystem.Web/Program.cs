@@ -141,6 +141,8 @@ builder.Services.AddScoped<PTGOilSystem.Web.Services.Custody.ICustodySaleService
 builder.Services.AddScoped<PTGOilSystem.Web.Services.Custody.CustodyAccountingReconciliationService>();
 builder.Services.AddScoped<PTGOilSystem.Web.Services.Custody.CustodyConversionService>();
 builder.Services.AddScoped<PTGOilSystem.Web.Services.Custody.CustodyGlReadService>();
+builder.Services.AddScoped<PTGOilSystem.Web.Services.CommodityLoans.ICommodityLoanService, PTGOilSystem.Web.Services.CommodityLoans.CommodityLoanService>();
+builder.Services.AddScoped<PTGOilSystem.Web.Services.CommodityLoans.CommodityLoanReadService>();
 builder.Services.AddScoped<ISupplierPaymentAllocationAccountingAdapter, SupplierPaymentAllocationAccountingAdapter>();
 builder.Services.AddScoped<ICompanyOwnershipReportService, CompanyOwnershipReportService>();
 // مرحله ۹ — گزارش فقط‌خواندنیِ آمادگی Cutover. هیچ Flag را روشن و هیچ Migration را اجرا نمی‌کند.

@@ -100,6 +100,10 @@ public partial class ApplicationDbContext : DbContext
     public DbSet<CustodyConversion> CustodyConversions => Set<CustodyConversion>();
     public DbSet<CustodySupplierIdentityLink> CustodySupplierIdentityLinks => Set<CustodySupplierIdentityLink>();
 
+    // --- Commodity loans (قرض جنسی) — company stock lent out or borrowed with an in-kind return obligation ---
+    public DbSet<CommodityLoan> CommodityLoans => Set<CommodityLoan>();
+    public DbSet<CommodityLoanSettlement> CommodityLoanSettlements => Set<CommodityLoanSettlement>();
+
     // --- Customs & Declarations ---
     public DbSet<CustomsDeclaration> CustomsDeclarations => Set<CustomsDeclaration>();
     public DbSet<CustomsDeclarationItem> CustomsDeclarationItems => Set<CustomsDeclarationItem>();
@@ -2290,6 +2294,7 @@ public partial class ApplicationDbContext : DbContext
         modelBuilder.ConfigureHumanResources();
         ConfigureInventoryLineage(modelBuilder);
         modelBuilder.ConfigureCustody();
+        modelBuilder.ConfigureCommodityLoans();
     }
 
     private static void ConfigureTransportOutcomeAllocations(ModelBuilder modelBuilder)

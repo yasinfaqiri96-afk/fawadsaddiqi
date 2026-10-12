@@ -1403,6 +1403,268 @@ namespace PTGOilSystem.Web.Migrations
                     b.ToTable("CashAccounts");
                 });
 
+            modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CommodityLoan", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal?>("AgreedUnitValueUsd")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("AgreementReference")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int?>("BorrowBasis")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("CancelledAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CancelledByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("CarryingValueUsd")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<bool>("CashSettlementAllowed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("CashSettlementReference")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<decimal?>("CashSettlementUnitPriceUsd")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<int>("CounterpartyId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CounterpartyType")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("DifferenceAccountId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Direction")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("DueDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("InventoryMovementId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("LoanAccountId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("LoanDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LoanNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("ProductId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("QualitySpec")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<decimal>("QuantityMt")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("QuantityTolerancePercent")
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<string>("ReturnObligation")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("StorageTankId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TerminalId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("UpdatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ValuationPolicy")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ValuationReference")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DifferenceAccountId");
+
+                    b.HasIndex("InventoryMovementId")
+                        .IsUnique();
+
+                    b.HasIndex("LoanAccountId");
+
+                    b.HasIndex("LoanNumber")
+                        .IsUnique();
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("StorageTankId");
+
+                    b.HasIndex("TerminalId");
+
+                    b.HasIndex("CounterpartyType", "CounterpartyId");
+
+                    b.ToTable("CommodityLoans", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CommodityLoans_Due", "\"DueDate\" >= \"LoanDate\"");
+
+                            t.HasCheckConstraint("CK_CommodityLoans_Quantity", "\"QuantityMt\" > 0");
+
+                            t.HasCheckConstraint("CK_CommodityLoans_Terms", "(\"Direction\" <> 1 OR \"ValuationPolicy\" IS NULL OR \"ValuationPolicy\" = 1) AND (\"Direction\" <> 2 OR \"BorrowBasis\" IS NOT NULL) AND (\"Direction\" <> 2 OR \"ValuationPolicy\" IS NULL OR (\"ValuationPolicy\" = 2 AND \"AgreedUnitValueUsd\" > 0 AND \"ValuationReference\" IS NOT NULL)) AND (NOT \"CashSettlementAllowed\" OR (\"CashSettlementUnitPriceUsd\" > 0 AND \"CashSettlementReference\" IS NOT NULL)) AND (\"QuantityTolerancePercent\" IS NULL OR (\"QuantityTolerancePercent\" >= 0 AND \"QuantityTolerancePercent\" <= 10))");
+                        });
+                });
+
+            modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CommodityLoanSettlement", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("CancelledAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CancelledByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("CarryingValueUsd")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<int?>("CashAccountId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("CashAmountUsd")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<int>("CommodityLoanId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("DifferenceUsd")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("DocumentNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int?>("InventoryMovementId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("InventoryValueUsd")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int?>("PaymentTransactionId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("QuantityMt")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<int?>("ReversalPaymentTransactionId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("SettlementDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("StorageTankId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("TerminalId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("UpdatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CashAccountId");
+
+                    b.HasIndex("CommodityLoanId");
+
+                    b.HasIndex("InventoryMovementId")
+                        .IsUnique();
+
+                    b.HasIndex("PaymentTransactionId")
+                        .IsUnique();
+
+                    b.HasIndex("ReversalPaymentTransactionId")
+                        .IsUnique();
+
+                    b.HasIndex("StorageTankId");
+
+                    b.HasIndex("TerminalId");
+
+                    b.ToTable("CommodityLoanSettlements", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CommodityLoanSettlements_Kind", "(\"Kind\" <> 1 OR (\"TerminalId\" IS NOT NULL AND \"InventoryMovementId\" IS NOT NULL)) AND (\"Kind\" <> 2 OR (\"CashAmountUsd\" > 0 AND \"CashAccountId\" IS NOT NULL))");
+
+                            t.HasCheckConstraint("CK_CommodityLoanSettlements_Quantity", "\"QuantityMt\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.Company", b =>
                 {
                     b.Property<int>("Id")
@@ -11160,6 +11422,85 @@ namespace PTGOilSystem.Web.Migrations
                     b.Navigation("Company");
                 });
 
+            modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CommodityLoan", b =>
+                {
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("DifferenceAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.InventoryMovement", null)
+                        .WithMany()
+                        .HasForeignKey("InventoryMovementId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("LoanAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.StorageTank", null)
+                        .WithMany()
+                        .HasForeignKey("StorageTankId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.Terminal", null)
+                        .WithMany()
+                        .HasForeignKey("TerminalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CommodityLoanSettlement", b =>
+                {
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.CashAccount", null)
+                        .WithMany()
+                        .HasForeignKey("CashAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.CommodityLoan", "CommodityLoan")
+                        .WithMany("Settlements")
+                        .HasForeignKey("CommodityLoanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.InventoryMovement", null)
+                        .WithMany()
+                        .HasForeignKey("InventoryMovementId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.PaymentTransaction", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentTransactionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.PaymentTransaction", null)
+                        .WithMany()
+                        .HasForeignKey("ReversalPaymentTransactionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.StorageTank", null)
+                        .WithMany()
+                        .HasForeignKey("StorageTankId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.Terminal", null)
+                        .WithMany()
+                        .HasForeignKey("TerminalId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CommodityLoan");
+                });
+
             modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.Company", b =>
                 {
                     b.HasOne("PTGOilSystem.Web.Models.Entities.Partner", "OwnerPartner")
@@ -14110,6 +14451,11 @@ namespace PTGOilSystem.Web.Migrations
             modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.AssetUsage", b =>
                 {
                     b.Navigation("Charges");
+                });
+
+            modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.CommodityLoan", b =>
+                {
+                    b.Navigation("Settlements");
                 });
 
             modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.Contract", b =>
