@@ -138,6 +138,26 @@ public sealed class CompanyBalanceReportService(
             notes.Add($"از مانده‌های طرف‌حساب، {custodyPayableUsd:N2} دالر وجوه امانیِ متعلق به مالکان (بدهی) و {custodyReceivableUsd:N2} دالر طلب شرکت از مالکان امانی است؛ تیلِ امانیِ دیگران در موجودی و دارایی شرکت شمرده نشده است. تفکیک هر مالک: «راپور دفتر کل امانی».");
         }
 
+        // ── قرض جنسی: فقط شفافیت. حرکت‌های قرض قرارداد خرید ندارند و این صفحه موجودی را به تفکیک
+        // قرارداد ارزش‌گذاری می‌کند؛ جمع‌زدنِ طلب/بدهی جنسی اینجا دوباره‌شماری یا ارزش ناقص می‌ساخت.
+        var openLoans = await db.CommodityLoans.AsNoTracking()
+            .Where(l => l.Status == CommodityLoanStatus.Active && l.LoanDate < toExclusive)
+            .Select(l => new
+            {
+                l.Direction, l.QuantityMt, l.CarryingValueUsd,
+                SettledMt = l.Settlements.Where(x => x.Status == CommodityLoanStatus.Active && x.SettlementDate < toExclusive).Sum(x => (decimal?)x.QuantityMt) ?? 0m,
+                SettledUsd = l.Settlements.Where(x => x.Status == CommodityLoanStatus.Active && x.SettlementDate < toExclusive).Sum(x => x.CarryingValueUsd) ?? 0m
+            })
+            .ToListAsync(ct);
+        var lent = openLoans.Where(l => l.Direction == CommodityLoanDirection.Lend && l.QuantityMt > l.SettledMt).ToList();
+        var borrowed = openLoans.Where(l => l.Direction == CommodityLoanDirection.Borrow && l.QuantityMt > l.SettledMt).ToList();
+        if (lent.Count > 0 || borrowed.Count > 0)
+        {
+            notes.Add($"قرض جنسی باز: {lent.Sum(l => l.QuantityMt - l.SettledMt):N3} تُن قرض‌داده (طلب جنسی، ارزش دفتری {lent.Sum(l => (l.CarryingValueUsd ?? 0m) - l.SettledUsd):N2} دالر) "
+                + $"و {borrowed.Sum(l => l.QuantityMt - l.SettledMt):N3} تُن قرض‌گرفته (بدهی جنسی {borrowed.Sum(l => (l.CarryingValueUsd ?? 0m) - l.SettledUsd):N2} دالر). "
+                + "حرکت‌های قرض قرارداد خرید ندارند، پس در این صفحه جنسِ قرض‌داده هنوز در ردیف قرارداد خریدش و جنسِ قرض‌گرفته بدون ارزش دیده می‌شود و طلب/بدهی جنسی جدا جمع نشده است؛ ارقام دقیق و تطبیق دفتر کل: «راپور طلب و بدهی جنسی».");
+        }
+
         // ── طرف‌حساب‌ها (فقط بر اساس علامت مانده) ────────────────────────────
         foreach (var row in partyRows
                      .Where(r => r.BalanceUsd != 0m && r.PartyType != nameof(PartyStatementPartyType.Partner))

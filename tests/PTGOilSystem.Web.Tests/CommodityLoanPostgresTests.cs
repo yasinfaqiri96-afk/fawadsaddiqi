@@ -8,6 +8,8 @@ using PTGOilSystem.Web.Services.Accounting;
 using PTGOilSystem.Web.Services.CommodityLoans;
 using PTGOilSystem.Web.Services.Exceptions;
 using PTGOilSystem.Web.Services.Parties;
+using PTGOilSystem.Web.Services.Reporting;
+using PTGOilSystem.Web.Models.Reports;
 using Xunit;
 
 namespace PTGOilSystem.Web.Tests;
@@ -383,6 +385,11 @@ public sealed class CommodityLoanPostgresTests(ConcurrencyVersionPostgresFixture
         Assert.Equal(31_000m, position.BorrowedValueUsd);
         Assert.Equal(1, position.OverdueLoans);
         Assert.Equal(0m, report.GlChecks.Single(c => c.AccountId == w.PayableAccountId).DifferenceUsd);
+
+        // بیلانس مدیریتی قرض باز را شفاف می‌گوید و آن را دوباره جمع نمی‌زند.
+        var balance = await new CompanyBalanceReportService(db, new ProfitAndLossService(db), new StockService(db), new PricingService(db))
+            .BuildAsync(new CompanyBalanceReportRequest(Day.AddDays(-30), Day.AddDays(10), "USD", Day.AddDays(10)), []);
+        Assert.Contains(balance.NotesFa, note => note.Contains("قرض جنسی باز") && note.Contains("راپور طلب و بدهی جنسی"));
     }
 
     [Fact]
