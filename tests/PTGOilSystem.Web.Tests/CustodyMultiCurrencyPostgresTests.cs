@@ -201,10 +201,17 @@ public sealed class CustodyMultiCurrencyPostgresTests(ConcurrencyVersionPostgres
     {
         await using var db = fixture.CreateDbContext();
         var report = await new CustodyGlReadService(db, new SystemCompanyProvider(db), new PartyDirectory(db),
-            Options.Create(new AccountingOptions { Enabled = true })).ReadAsync(Day.AddDays(30));
+            Options.Create(new AccountingOptions { Enabled = true })).ReadAsync(DateTime.UtcNow.Date);
         var mine = report.Owners.SingleOrDefault(o => o.Owner == new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId));
         if (mine is not null)
             Assert.True(Math.Abs(mine.DifferenceUsd) < 0.0001m, $"GL {mine.FundsNetCreditUsd} vs statement {mine.OperationalFundsUsd}");
+        // به ارز اصلی هم: ماندهٔ عملیاتی هر ارز = مبلغ اصلیِ همان ارز در ۲۶۰۰.
+        var owner = new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId);
+        var currencies = report.Currencies.Where(x => x.Owner == owner).ToList();
+        Assert.All(currencies, x => Assert.True(x.Difference == 0m, $"{x.Currency}: {x.OperationalBalance} vs GL {x.GlBalance}"));
+        var operational = await CustodySaleService.OwnerFundsBalancesAsync(db, owner, CancellationToken.None);
+        foreach (var (currency, balance) in operational.Where(x => x.Value != 0m))
+            Assert.Equal(balance, currencies.Single(x => x.Currency == currency).OperationalBalance);
     }
 
     private static async Task<BusinessRuleException> Rule(Func<Task> action) => await Assert.ThrowsAsync<BusinessRuleException>(action);
@@ -552,6 +559,19 @@ public sealed class CustodyMultiCurrencyPostgresTests(ConcurrencyVersionPostgres
             Assert.Equal(7_100m, await CustodySaleService.ProviderPaidAsync(db, charge, CancellationToken.None));
         Assert.Equal(-21_000m, await FundsAsync(w, "AFN"));
         Assert.Equal(-7_100m, await GlAsync(w.CompanyId, "1100", cashAccountId: w.AfnTill, currency: "AFN", transactionAmount: true));
+        await using (var db = fixture.CreateDbContext())
+        {
+            var report = await new CustodyGlReadService(db, new SystemCompanyProvider(db), new PartyDirectory(db),
+                Options.Create(new AccountingOptions { Enabled = true })).ReadAsync(Day.AddDays(30));
+            var typeName = await db.ExpenseTypes.Where(t => t.Id == w.ExpenseTypeId).Select(t => t.Name).SingleAsync();
+            var line = report.ExpenseLines.Single(x => x.ExpenseType == typeName && x.Currency == "AFN");
+            Assert.Equal(21_000m, line.Amount);
+            Assert.Equal(300m, line.AmountUsd);
+            var providerName = await db.ServiceProviders.Where(p => p.Id == w.ProviderId).Select(p => p.Name).SingleAsync();
+            var open = report.ProviderCharges.Single(x => x.Name == providerName);
+            Assert.Equal("AFN", open.Currency);
+            Assert.Equal(13_900m, open.UnpaidUsd);
+        }
         await AssertOwnerGlMatchesStatementAsync(w);
         await AssertJournalsBalancedAsync();
     }

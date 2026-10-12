@@ -61,4 +61,64 @@
             </table></div>
         }
     </section>
+    <section class="ak-form-section">
+        <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                 model="@(("حساب مالکان به تفکیک ارز", (string?)"ماندهٔ عملیاتی هر ارز با مبلغ اصلیِ همان ارز در حساب ۲۶۰۰ مقایسه می‌شود؛ ارزها با هم جمع یا تهاتر نمی‌شوند."))" />
+        <dl class="row">
+            <dt class="col-sm-6">سود / زیان تسعیرِ شرکت از اسناد دوارزی</dt>
+            <dd class="col-sm-6 ak-num">@Model.FxGainUsd.ToString("N2") / @Model.FxLossUsd.ToString("N2") USD</dd>
+        </dl>
+        <div class="ak-table-wrap"><table class="ak-table ak-detail-table">
+            <thead><tr><th>مالک</th><th>ارز</th><th>مانده عملیاتی</th><th>دفتر کل (ارز اصلی)</th><th>اختلاف</th></tr></thead>
+            <tbody>
+                @foreach (var row in Model.Currencies)
+                {
+                    <tr class="@(row.Difference != 0m ? "text-danger" : null)">
+                        <td><a asp-action="Owner" asp-route-key="@CustodyParty.Key(row.Owner.PartyType, row.Owner.PartyId)">@row.Name</a></td>
+                        <td>@row.Currency</td>
+                        <td class="ak-num">@row.OperationalBalance.ToString("N2")</td>
+                        <td class="ak-num">@row.GlBalance.ToString("N2")</td>
+                        <td class="ak-num">@row.Difference.ToString("N2")</td>
+                    </tr>
+                }
+                @if (!Model.Currencies.Any())
+                {
+                    <tr><td colspan="5"><div class="ak-empty">سندی نیست.</div></td></tr>
+                }
+            </tbody>
+        </table></div>
+    </section>
+    <section class="ak-form-section">
+        <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                 model="@(("مصارف و حق خدمات به حساب مالکان", (string?)"مصارف شرکت نیستند؛ از پول مالک کسر شده‌اند (حق خدمات درآمد شرکت است)."))" />
+        <div class="ak-table-wrap"><table class="ak-table ak-detail-table">
+            <thead><tr><th>نوع سند</th><th>نوع مصرف</th><th>ارز</th><th>تعداد</th><th>مبلغ</th><th>ارزش دالری</th></tr></thead>
+            <tbody>
+                @foreach (var row in Model.ExpenseLines)
+                {
+                    <tr><td>@row.Kind</td><td>@row.ExpenseType</td><td>@row.Currency</td><td class="ak-num">@row.Documents</td><td class="ak-num">@row.Amount.ToString("N2")</td><td class="ak-num">@row.AmountUsd.ToString("N2")</td></tr>
+                }
+                @if (!Model.ExpenseLines.Any())
+                {
+                    <tr><td colspan="6"><div class="ak-empty">مصرفی ثبت نشده است.</div></td></tr>
+                }
+            </tbody>
+        </table></div>
+    </section>
+    @if (Model.Conversions?.Lines is { Count: > 0 } conversions)
+    {
+        <section class="ak-form-section">
+            <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml" model="@(("تبدیل‌های امانی به خرید قطعی", (string?)null))" />
+            <div class="ak-table-wrap"><table class="ak-table ak-detail-table">
+                <thead><tr><th>تاریخ</th><th>بار</th><th>قرارداد خرید</th><th>مقدار</th><th>قیمت فی تُن</th></tr></thead>
+                <tbody>
+                    @foreach (var c in conversions)
+                    {
+                        <tr><td>@c.Date.ToDisplayDate()</td><td>@c.LotNumber</td><td><a asp-controller="Contracts" asp-action="Details" asp-route-id="@c.ContractId">@c.ContractNumber</a></td>
+                            <td class="ak-num">@NumberDisplay.Quantity(c.QuantityMt, "MT")</td><td class="ak-num">@c.UnitPriceUsd.ToString("N4") USD</td></tr>
+                    }
+                </tbody>
+            </table></div>
+        </section>
+    }
 </div>

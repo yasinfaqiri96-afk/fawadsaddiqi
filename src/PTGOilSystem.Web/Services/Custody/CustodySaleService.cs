@@ -1214,10 +1214,14 @@ public sealed class CustodySaleService(
     public static Task<decimal> OwnerFundsBalanceAsync(ApplicationDbContext db, CustodyOwner owner, CancellationToken ct)
         => OwnerFundsBalanceAsync(db, owner, SystemCurrency.BaseCurrencyCode, ct);
 
-    public static async Task<Dictionary<string, decimal>> OwnerFundsBalancesAsync(ApplicationDbContext db, CustodyOwner owner, CancellationToken ct)
+    /// <param name="before">«تا تاریخ»: سندِ تا آن تاریخ؛ سندی که بعد از آن لغو شده در آن تاریخ هنوز فعال بوده است.</param>
+    public static async Task<Dictionary<string, decimal>> OwnerFundsBalancesAsync(ApplicationDbContext db, CustodyOwner owner, CancellationToken ct,
+        DateTime? before = null)
     {
         var entries = await db.CustodyFinanceEntries.AsNoTracking()
-            .Where(e => e.OwnerPartyType == owner.PartyType && e.OwnerPartyId == owner.PartyId && e.Status == CustodyDocumentStatus.Posted)
+            .Where(e => e.OwnerPartyType == owner.PartyType && e.OwnerPartyId == owner.PartyId
+                && (e.Status == CustodyDocumentStatus.Posted || (before != null && e.CancelledAtUtc >= before))
+                && (before == null || e.EntryDate < before))
             .GroupBy(e => new { e.Kind, Currency = e.OwnerCurrency ?? "USD" })
             .Select(g => new
             {
@@ -1227,12 +1231,16 @@ public sealed class CustodySaleService(
             })
             .ToListAsync(ct);
         var saleCommission = await db.CustodySales.AsNoTracking()
-            .Where(s => s.OwnerPartyType == owner.PartyType && s.OwnerPartyId == owner.PartyId && s.Status == CustodyDocumentStatus.Posted)
+            .Where(s => s.OwnerPartyType == owner.PartyType && s.OwnerPartyId == owner.PartyId
+                && (s.Status == CustodyDocumentStatus.Posted || (before != null && s.CancelledAtUtc >= before))
+                && (before == null || s.SaleDate < before))
             .GroupBy(s => s.OwnerCurrency ?? "USD")
             .Select(g => new { Currency = g.Key, Amount = g.Sum(s => s.CommissionRecognizedAtSaleOwner ?? s.CommissionRecognizedAtSaleUsd) })
             .ToListAsync(ct);
         var returnedCommission = await db.CustodySaleReturns.AsNoTracking()
-            .Where(r => r.OwnerPartyType == owner.PartyType && r.OwnerPartyId == owner.PartyId && r.Status == CustodyDocumentStatus.Posted)
+            .Where(r => r.OwnerPartyType == owner.PartyType && r.OwnerPartyId == owner.PartyId
+                && (r.Status == CustodyDocumentStatus.Posted || (before != null && r.CancelledAtUtc >= before))
+                && (before == null || r.ReturnDate < before))
             .GroupBy(r => r.CustodySale!.OwnerCurrency ?? "USD")
             .Select(g => new { Currency = g.Key, Amount = g.Sum(r => r.OwnerCommissionReversed ?? r.RecognizedCommissionReversedUsd) })
             .ToListAsync(ct);
