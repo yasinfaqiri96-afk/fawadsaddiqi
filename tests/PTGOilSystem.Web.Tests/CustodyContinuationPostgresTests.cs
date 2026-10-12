@@ -860,4 +860,28 @@ public sealed class CustodyContinuationPostgresTests(ConcurrencyVersionPostgresF
             Assert.Equal("CUSTODY_MEASUREMENT_REFERENCE", guessed.Code);
         }
     }
+
+    [Fact]
+    public async Task Reconciliation_Preview_Blocks_A_Provider_Charge_Whose_Expense_Type_Has_No_Payable_Account()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        var typeId = await ExpenseTypeAsync(null);
+        await using (var db = fixture.CreateDbContext())
+        {
+            await Sales(db, accountingEnabled: false).RecordFinanceAsync(new CustodyFinanceInput
+            {
+                Kind = CustodyFinanceKind.ProviderCharge, Owner = new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId),
+                EntryDate = Day, AmountUsd = 50m, ServiceProviderId = w.ProviderId, ExpenseTypeId = typeId
+            });
+        }
+        await using var check = fixture.CreateDbContext();
+        var preview = await Reconciliation(check).PreviewAsync(new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId));
+        Assert.NotNull(preview.Blocker);
+        Assert.False(preview.CanApply);
+        var journals = await check.JournalEntries.CountAsync();
+        await Assert.ThrowsAsync<BusinessRuleException>(() => Reconciliation(check).ApplyAsync(
+            new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId), preview.Fingerprint, true, "try"));
+        Assert.Equal(journals, await check.JournalEntries.CountAsync());
+    }
 }

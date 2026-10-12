@@ -92,6 +92,15 @@ public sealed class CustodyAccountingReconciliationService(ApplicationDbContext 
             await Add(CustodyAccountingAdapter.FinanceEventId(entry.Id), $"AF-{entry.Id:D5} · {Models.Custody.CustodyFinanceForm.Title(entry.Kind)}", entry.EntryDate, entry.AmountUsd, entry.CommissionUsd);
             if (entry.CustodySaleId.HasValue && sales.All(s => s.Id != entry.CustodySaleId.Value))
                 blocker = "سند مالی به فروش فعالِ همین مالک وصل نیست؛ بررسی لازم است.";
+            if (entry.Kind is CustodyFinanceKind.ProviderCharge or CustodyFinanceKind.ProviderPayment)
+            {
+                var chargeTypeId = entry.Kind == CustodyFinanceKind.ProviderCharge ? entry.ExpenseTypeId
+                    : finance.SingleOrDefault(c => c.Id == entry.SettlesFinanceEntryId)?.ExpenseTypeId;
+                var payableKind = chargeTypeId is null ? null : await db.ExpenseTypes.AsNoTracking()
+                    .Where(t => t.Id == chargeTypeId).Select(t => t.PayableAccountKind).SingleOrDefaultAsync(ct);
+                if (payableKind is null)
+                    blocker = "برای نوعِ مصرفِ نسیهٔ خدمات‌دهنده «حساب پرداختنی» تعیین نشده است؛ پیش از تطبیق آن را در انواع مصرف تعیین کنید.";
+            }
         }
         foreach (var saleReturn in returns)
         {

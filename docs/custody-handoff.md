@@ -19,3 +19,7 @@
 ### راپور GL افزوده‌شده
 
 راپور readonly تطبیق امانی از همان GL در `Custody/LedgerReport` با تفکیک طلب/بدهی هر مالک اضافه شد.32 تست فروش/GL و مرورگر سه عرض موفق‌اند؛ [custody-gl-report-testing.md](custody-gl-report-testing.md). بیلانس عمومی، چندارزی و سایر قابلیت‌های باز هنوز نیازمند ادامه‌اند.
+
+### ادامهٔ Claude
+
+شاخهٔ `feature/custody-claude-continuation` از `a16ffe1` ادامه داده است: فروش چندباره، برگشت قسمی، مصرف نسیهٔ خدمات‌دهنده، لیتر در سایر عملیات، اقلام باز GL و دو Migration افزایشی. وضعیت دقیق، نتایج و تصمیم‌های باز: [custody-claude-continuation.md](custody-claude-continuation.md). محیط Claude: .NET در `/home/claude/.dotnet`، PostgreSQL محلی روی `127.0.0.1:5432` (`PTG_TEST_POSTGRES_ADMIN`)، بدون Docker.
