@@ -45,8 +45,22 @@ public sealed class CustodySaleInput
     public int CustomerId { get; init; }
     public DateTime SaleDate { get; init; }
     public decimal QuantityMt { get; init; }
+    /// <summary>قیمت فی تُن به ارز فروش (<see cref="Currency"/>).</summary>
     public decimal UnitPriceUsd { get; init; }
+    /// <summary>ارز فروش به مشتری: USD یا AFN.</summary>
     public string Currency { get; init; } = "USD";
+    /// <summary>نرخ توافقیِ تأییدشدهٔ همین معامله برای ارز فروش (اختیاری؛ وگرنه نرخ روزانهٔ سیستم).</summary>
+    public decimal? AgreedCurrencyPerUsd { get; init; }
+    public string? RateReference { get; init; }
+    /// <summary>ارز تعهد به مالک؛ خالی یعنی همان ارز فروش.</summary>
+    public string? OwnerCurrency { get; init; }
+    /// <summary>نرخ قفل‌شدهٔ توافق مالک (افغانی در برابر ۱ دالر) وقتی ارز مالک با ارز فروش فرق دارد؛ خالی یعنی نرخ روزانهٔ سیستم در تاریخ فروش.</summary>
+    public decimal? OwnerAgreedPerUsd { get; init; }
+    public string? OwnerRateReference { get; init; }
+    /// <summary>مسئول تفاوت نرخ طبق توافق مالک؛ پیش‌فرض ندارد.</summary>
+    public CustodyFxResponsibility? FxResponsibility { get; init; }
+    public decimal? FxOwnerSharePercent { get; init; }
+    public string? FxAgreementReference { get; init; }
     public CustodyCommissionMethod CommissionMethod { get; init; }
     public decimal CommissionRate { get; init; }
     public CustodyCommissionRecognition CommissionRecognition { get; init; } = CustodyCommissionRecognition.OnCollection;
@@ -65,8 +79,13 @@ public sealed class CustodyFinanceInput
     /// <summary>برای پرداخت به مالک، مصرف و حق خدمات که به فروش خاصی وصل نیستند.</summary>
     public CustodyOwner? Owner { get; init; }
     public DateTime EntryDate { get; init; }
+    /// <summary>مبلغ به ارز سند (<see cref="Currency"/>).</summary>
     public decimal AmountUsd { get; init; }
-    public string Currency { get; init; } = "USD";
+    /// <summary>ارز سند؛ برای وصول/استرداد همان ارز فروش و برای پرداخت به خدمات‌دهنده همان ارز مصرف. خالی = پیش‌فرض همان سند (یا دالر).</summary>
+    public string? Currency { get; init; }
+    /// <summary>نرخ توافقیِ تأییدشده (افغانی در برابر ۱ دالر) برای همین سند؛ خالی = نرخ روزانهٔ سیستم.</summary>
+    public decimal? AgreedCurrencyPerUsd { get; init; }
+    public string? RateReference { get; init; }
     public int? CashAccountId { get; init; }
     public int? ExpenseTypeId { get; init; }
     public string? PayeeName { get; init; }
@@ -89,7 +108,8 @@ public sealed class CustodySaleReturnInput
     public string? Notes { get; init; }
     public string? FormToken { get; init; }
 
-    // ---- استرداد وقتی پولِ بخشِ برگشتی قبلاً وصول شده است (جمع باید دقیقاً اضافه‌وصول را بپوشاند)
+    // ---- استرداد وقتی پولِ بخشِ برگشتی قبلاً وصول شده است (جمع باید دقیقاً اضافه‌وصول را بپوشاند).
+    // همهٔ مبالغ به ارز فروش‌اند (نام‌های *Usd برای سازگاری مانده‌اند).
     /// <summary>استرداد از صندوق/بانک شرکت؛ فقط با سند واقعی پرداخت.</summary>
     public decimal RefundFromCompanyUsd { get; init; }
     public int? RefundCashAccountId { get; init; }
@@ -113,6 +133,8 @@ public interface ICustodySaleService
     Task CancelFinanceAsync(int entryId, string reason, CancellationToken ct = default);
     Task<int> RecordReturnAsync(CustodySaleReturnInput input, CancellationToken ct = default);
     Task CancelReturnAsync(int returnId, string reason, CancellationToken ct = default);
+    /// <summary>ثبتِ بعدیِ مسئولیت تفاوت نرخ برای فروشِ دوارزی که هنوز توافقش ثبت نشده (فقط یک بار).</summary>
+    Task SetFxAgreementAsync(int saleId, CustodyFxResponsibility responsibility, decimal? ownerSharePercent, string reference, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -179,7 +201,8 @@ public sealed class CustodySaleService(
             if (input.Role != CustodySaleRole.Agent)
                 throw Rule("CUSTODY_PRINCIPAL_VIA_PURCHASE",
                     "شرکت پیش از فروش مالک این تیل نیست؛ برای فروش به‌عنوان فروشندهٔ اصلی، اول «تبدیل به خرید قطعی» و سپس فروش ملکی از همان خرید را ثبت کنید.");
-            RequireUsd(input.Currency);
+            var currency = CustodyFx.Normalize(input.Currency);
+            var ownerCurrency = CustodyFx.Normalize(string.IsNullOrWhiteSpace(input.OwnerCurrency) ? currency : input.OwnerCurrency);
             var primaryQuantity = input.Measurement?.ToMt() ?? input.QuantityMt;
             if (input.Measurement is not null && input.QuantityMt != 0m && input.QuantityMt != primaryQuantity)
                 throw Rule("CUSTODY_MEASUREMENT_MISMATCH", "مقدار MT با لیتر و چگالی سند یکسان نیست.");
@@ -213,8 +236,26 @@ public sealed class CustodySaleService(
             if (owner.PartyType == AccountingPartyType.Customer && owner.PartyId == customer.Id)
                 throw Rule("CUSTODY_SELF_SALE", "مالک نمی‌تواند خریدارِ تیلِ خودش باشد؛ برای این کار «برگشت به مالک» را ثبت کنید.");
 
-            var amountUsd = Money(totalQuantity * input.UnitPriceUsd);
-            var commissionUsd = CalculateCommission(input.CommissionMethod, input.CommissionRate, totalQuantity, amountUsd);
+            // مبالغ به ارز فروش؛ ارزشِ دالری با نرخ معتبرِ تاریخ فروش. وقتی ارز مالک فرق دارد، نرخِ
+            // قفل‌شدهٔ توافق مالک (ثبت‌شده یا توافقیِ با مرجع) لازم است.
+            var saleRate = await CustodyFx.ResolveAsync(db, currency, input.SaleDate, input.AgreedCurrencyPerUsd, input.RateReference, ct);
+            var cross = currency != ownerCurrency;
+            CustodyRate? locked = cross
+                ? await CustodyFx.ResolveAsync(db, CustodyFx.Afn, input.SaleDate, input.OwnerAgreedPerUsd, input.OwnerRateReference, ct)
+                : null;
+            var ownerRate = !cross ? saleRate : ownerCurrency == CustodyFx.Afn ? locked! : CustodyRate.Usd;
+            var (responsibility, ownerShare, fxReference) = cross
+                ? ValidateFxAgreement(input.FxResponsibility, input.FxOwnerSharePercent, input.FxAgreementReference)
+                : (null, null, null);
+
+            var amount = Money(totalQuantity * input.UnitPriceUsd);
+            var commission = CalculateCommission(input.CommissionMethod, input.CommissionRate, totalQuantity, amount);
+            var ownerCommission = cross ? CustodyFx.Convert(commission, currency, ownerCurrency, locked!.PerUsd) : commission;
+            var amountUsd = saleRate.ToUsdAmount(amount);
+            var commissionUsd = ownerRate.ToUsdAmount(ownerCommission);
+            if (commissionUsd > amountUsd)
+                throw Rule("CUSTODY_COMMISSION_EXCEEDS", "کمیشن (به ارز مالک) بیشتر از ارزش مبلغ فروش شده است.");
+            var onSale = input.CommissionRecognition == CustodyCommissionRecognition.OnSale;
 
             // خروج از موجودیِ همان مالک — همهٔ بارها با یک قفلِ مرتب، سقف موجودی، مسدودی و کنترل تاریخ.
             var stockKey = await custody.RecordSaleOutAsync(sources, input.SaleDate, input.DocumentNumber, ct);
@@ -231,14 +272,28 @@ public sealed class CustodySaleService(
                 StorageTankId = input.Location.StorageTankId,
                 SaleDate = ToUtc(input.SaleDate),
                 QuantityMt = totalQuantity,
-                UnitPriceUsd = input.UnitPriceUsd,
-                Currency = "USD",
+                UnitPriceUsd = saleRate.IsUsd ? input.UnitPriceUsd : saleRate.ToUsdAmount(input.UnitPriceUsd),
+                Currency = currency,
                 AmountUsd = amountUsd,
                 CommissionMethod = input.CommissionMethod,
                 CommissionRate = input.CommissionMethod == CustodyCommissionMethod.None ? 0m : input.CommissionRate,
                 CommissionUsd = commissionUsd,
                 CommissionRecognition = input.CommissionRecognition,
-                CommissionRecognizedAtSaleUsd = input.CommissionRecognition == CustodyCommissionRecognition.OnSale ? commissionUsd : 0m,
+                CommissionRecognizedAtSaleUsd = onSale ? commissionUsd : 0m,
+                UnitPrice = input.UnitPriceUsd,
+                SaleAmount = amount,
+                SaleCommission = commission,
+                RateToUsd = saleRate.ToUsd,
+                CurrencyPerUsd = saleRate.PerUsd,
+                RateSource = saleRate.IsUsd ? null : saleRate.Source,
+                OwnerCurrency = ownerCurrency,
+                OwnerAgreedPerUsd = locked?.PerUsd,
+                OwnerRateSource = locked?.Source,
+                OwnerRateToUsd = ownerRate.ToUsd,
+                CommissionRecognizedAtSaleOwner = onSale ? ownerCommission : 0m,
+                FxResponsibility = responsibility,
+                FxOwnerSharePercent = ownerShare,
+                FxAgreementReference = fxReference,
                 StockOperationKey = stockKey,
                 DocumentNumber = Clean(input.DocumentNumber),
                 Notes = Clean(input.Notes),
@@ -257,7 +312,8 @@ public sealed class CustodySaleService(
             {
                 ledger.Post(PartyRow(SaleSourceType, sale.Id, sale.SaleDate, sale.CommissionRecognizedAtSaleUsd, sale.SaleNumber + CommissionSuffix,
                     sale.OwnerPartyType, sale.OwnerPartyId, CompanyFlowEffect.Outflow,
-                    $"کمیشن فروش امانی {sale.SaleNumber} به {customerName}"));
+                    $"کمیشن فروش امانی {sale.SaleNumber} به {customerName}",
+                    Source(ownerCommission, ownerRate)));
             }
 
             await db.SaveChangesAsync(ct);
@@ -267,9 +323,11 @@ public sealed class CustodySaleService(
                 sale.SaleNumber, Lot = lot.LotNumber,
                 Sources = sources.Select(x => new { x.LotId, x.Location.TerminalId, x.Location.StorageTankId, x.QuantityMt }),
                 LotOwner = new { lot.OwnerPartyType, lot.OwnerPartyId }, FinancialOwner = owner,
-                sale.CustomerId, sale.QuantityMt, sale.UnitPriceUsd, sale.AmountUsd,
-                CommissionMethod = sale.CommissionMethod.ToString(), sale.CommissionRate, sale.CommissionUsd,
-                Recognition = sale.CommissionRecognition.ToString(), Settlement = input.Settlement.ToString()
+                sale.CustomerId, sale.QuantityMt, sale.Currency, sale.UnitPrice, sale.SaleAmount, sale.AmountUsd, sale.RateToUsd, sale.RateSource,
+                CommissionMethod = sale.CommissionMethod.ToString(), sale.CommissionRate, sale.SaleCommission, sale.CommissionUsd,
+                Recognition = sale.CommissionRecognition.ToString(), Settlement = input.Settlement.ToString(),
+                sale.OwnerCurrency, sale.OwnerAgreedPerUsd, sale.OwnerRateSource,
+                FxResponsibility = sale.FxResponsibility?.ToString(), sale.FxOwnerSharePercent, sale.FxAgreementReference
             }), ct: ct);
             await db.SaveChangesAsync(ct);
 
@@ -280,7 +338,10 @@ public sealed class CustodySaleService(
                     Kind = input.Settlement == CustodySaleSettlement.CashToCompany ? CustodyFinanceKind.Collection : CustodyFinanceKind.DirectToOwner,
                     SaleId = sale.Id,
                     EntryDate = input.SaleDate,
-                    AmountUsd = sale.AmountUsd,
+                    AmountUsd = amount,
+                    Currency = currency,
+                    AgreedCurrencyPerUsd = input.AgreedCurrencyPerUsd,
+                    RateReference = input.RateReference,
                     CashAccountId = input.CashAccountId,
                     DocumentNumber = input.DocumentNumber,
                     Description = "دریافت هم‌زمان با فروش"
@@ -295,7 +356,6 @@ public sealed class CustodySaleService(
 
     private async Task<int> RecordFinanceCoreAsync(CustodyFinanceInput input, CancellationToken ct)
     {
-        RequireUsd(input.Currency);
         RequirePositive(input.AmountUsd, "مبلغ", 2);
         if (!Enum.IsDefined(input.Kind))
             throw Rule("CUSTODY_FINANCE_KIND", "نوع سند مالی معتبر نیست.");
@@ -368,17 +428,28 @@ public sealed class CustodySaleService(
         }
         await EnsureAccountingCompleteAsync(owner, ct);
 
+        // ارز سند: وصول همان ارز فروش، پرداخت به خدمات‌دهنده همان ارز مصرف؛ سایر اسناد ارزِ انتخابی
+        // (حساب مالک در همان ارز تغییر می‌کند).
+        var fixedCurrency = input.Kind is CustodyFinanceKind.Collection or CustodyFinanceKind.DirectToOwner ? sale!.Currency
+            : input.Kind == CustodyFinanceKind.ProviderPayment ? charge!.Currency : null;
+        var currency = fixedCurrency is not null ? CustodyFx.Normalize(fixedCurrency) : CustodyFx.Normalize(input.Currency);
+        if (fixedCurrency is not null && !string.IsNullOrWhiteSpace(input.Currency) && CustodyFx.Normalize(input.Currency) != currency)
+            throw Rule("CUSTODY_CURRENCY_MISMATCH", input.Kind == CustodyFinanceKind.ProviderPayment
+                ? $"پرداختِ این مصرف فقط به ارزِ خودِ مصرف ({currency}) ثبت می‌شود."
+                : $"وصولِ این فروش فقط به ارز فروش ({currency}) ثبت می‌شود.");
+        var rate = await CustodyFx.ResolveAsync(db, currency, input.EntryDate, input.AgreedCurrencyPerUsd, input.RateReference, ct);
+
         var amount = input.AmountUsd;
         var commission = 0m;
         if (input.Kind is CustodyFinanceKind.Collection or CustodyFinanceKind.DirectToOwner)
         {
             var returned = await ReturnTotalsAsync(sale!.Id, ct);
-            var netAmount = sale.AmountUsd - returned.AmountUsd;
-            var netCommission = sale.CommissionUsd - returned.CommissionUsd;
+            var netAmount = sale.EffectiveAmount - returned.Amount;
+            var netCommission = sale.EffectiveCommission - returned.Commission;
             var collected = await CollectedAsync(sale.Id, excludeEntryId: null, ct);
             var outstanding = netAmount - collected;
             if (amount > outstanding)
-                throw Rule("CUSTODY_OVER_COLLECTION", $"باقی‌ماندهٔ این فروش {Usd(outstanding)} است.");
+                throw Rule("CUSTODY_OVER_COLLECTION", $"باقی‌ماندهٔ این فروش {Amt(outstanding, currency)} است.");
             if (sale.CommissionRecognition == CustodyCommissionRecognition.OnCollection && netCommission > 0m)
             {
                 var recognized = await CommissionOnCollectionsAsync(sale.Id, ct);
@@ -409,9 +480,9 @@ public sealed class CustodySaleService(
         else if (input.Kind == CustodyFinanceKind.ProviderPayment)
         {
             var paid = await ProviderPaidAsync(charge!.Id, ct);
-            var unpaid = charge.AmountUsd - paid;
+            var unpaid = charge.EffectiveAmount - paid;
             if (amount > unpaid)
-                throw Rule("CUSTODY_PROVIDER_OVERPAID", $"ماندهٔ پرداخت‌نشدهٔ این مصرف {Usd(unpaid)} است.");
+                throw Rule("CUSTODY_PROVIDER_OVERPAID", $"ماندهٔ پرداخت‌نشدهٔ این مصرف {Amt(unpaid, currency)} است.");
             serviceProviderId = charge.ServiceProviderId;
         }
 
@@ -421,21 +492,24 @@ public sealed class CustodySaleService(
         {
             if (!input.CashAccountId.HasValue)
                 throw Rule("CUSTODY_CASH_ACCOUNT", "صندوق یا بانک را انتخاب کنید.");
-            var cash = await db.CashAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == input.CashAccountId.Value, ct)
-                ?? throw Rule("CUSTODY_CASH_ACCOUNT", "صندوق یا بانک پیدا نشد.");
-            if (!cash.IsActive)
-                throw Rule("CUSTODY_CASH_INACTIVE", "این صندوق/بانک غیرفعال است.");
-            if (cash.AccountType != CashAccountType.Mixed && !string.Equals(cash.Currency, "USD", StringComparison.OrdinalIgnoreCase))
-                throw Rule("CUSTODY_CASH_CURRENCY", "این صندوق/بانک دالری نیست.");
+            await RequireCashAccountAsync(input.CashAccountId.Value, currency, ct);
         }
+
+        // اثر بر حساب مالک (به ارز مالک) و تفاوت نرخ.
+        var effect = input.Kind switch
+        {
+            CustodyFinanceKind.Collection => await CashOwnerEffectAsync(sale!, amount, commission, rate, input.EntryDate, input.AgreedCurrencyPerUsd, input.RateReference, inbound: true, ct),
+            CustodyFinanceKind.DirectToOwner => await DirectOwnerEffectAsync(sale!, amount, commission, rate, input.EntryDate, input.AgreedCurrencyPerUsd, input.RateReference, ct),
+            _ => OwnerEffect.SameCurrency(currency, amount, 0m, rate, rate.ToUsdAmount(amount))
+        };
 
         if (input.Kind == CustodyFinanceKind.OwnerPayout)
         {
-            var payable = await OwnerFundsBalanceAsync(owner, ct);
+            var payable = await OwnerFundsBalanceAsync(owner, currency, ct);
             if (amount > payable)
                 throw Rule("CUSTODY_OVER_PAYOUT", payable > 0m
-                    ? $"ماندهٔ قابل پرداخت به این مالک {Usd(payable)} است."
-                    : "فعلاً پولی از این مالک نزد شرکت نیست.");
+                    ? $"ماندهٔ قابل پرداخت به این مالک به {currency} {Amt(payable, currency)} است."
+                    : $"فعلاً پولِ {currency} از این مالک نزد شرکت نیست.");
         }
 
         var entry = new CustodyFinanceEntry
@@ -447,9 +521,21 @@ public sealed class CustodySaleService(
             OwnerPartyId = owner.PartyId,
             CustomerId = sale?.CustomerId,
             EntryDate = ToUtc(input.EntryDate),
-            AmountUsd = amount,
-            Currency = "USD",
-            CommissionUsd = commission,
+            AmountUsd = effect.AmountUsd,
+            Currency = currency,
+            CommissionUsd = effect.CommissionUsd,
+            Amount = amount,
+            Commission = commission,
+            RateToUsd = rate.ToUsd,
+            CurrencyPerUsd = rate.PerUsd,
+            RateSource = rate.IsUsd ? null : rate.Source,
+            OwnerCurrency = effect.OwnerCurrency,
+            OwnerAmount = effect.OwnerAmount,
+            OwnerCommission = effect.OwnerCommission,
+            OwnerRateToUsd = effect.OwnerRate.ToUsd,
+            FxDifference = effect.FxDifference,
+            FxOwnerShare = effect.FxOwnerShare,
+            FxCompanyUsd = effect.FxCompanyUsd,
             CashAccountId = paysCash ? input.CashAccountId : null,
             ExpenseTypeId = input.Kind is CustodyFinanceKind.ReimbursableExpense or CustodyFinanceKind.ServiceFee or CustodyFinanceKind.ProviderCharge
                 ? input.ExpenseTypeId
@@ -473,7 +559,7 @@ public sealed class CustodySaleService(
             entry.PaymentTransactionId = payment.Id;
         }
 
-        foreach (var row in BuildFinanceRows(entry, reference))
+        foreach (var row in BuildFinanceRows(entry, reference, effect.OwnerRate))
             ledger.Post(row);
         await db.SaveChangesAsync(ct);
 
@@ -483,7 +569,9 @@ public sealed class CustodySaleService(
         await audit.LogAsync(FinanceEntity, entry.Id, AuditAction.Insert, diff: Describe(new
         {
             Kind = entry.Kind.ToString(), Sale = sale?.SaleNumber, entry.OwnerPartyType, entry.OwnerPartyId,
-            entry.AmountUsd, entry.CommissionUsd, entry.CashAccountId, entry.PaymentTransactionId,
+            entry.Currency, entry.Amount, entry.Commission, entry.RateToUsd, entry.RateSource,
+            entry.AmountUsd, entry.CommissionUsd, entry.OwnerCurrency, entry.OwnerAmount, entry.OwnerCommission,
+            entry.FxDifference, entry.FxOwnerShare, entry.FxCompanyUsd, entry.CashAccountId, entry.PaymentTransactionId,
             entry.ServiceProviderId, entry.SettlesFinanceEntryId, entry.ExpenseTypeId
         }), ct: ct);
         await db.SaveChangesAsync(ct);
@@ -555,9 +643,11 @@ public sealed class CustodySaleService(
             // پرداخت (کمیشن یا مصرفِ اسناد دیگر) فقط طلبِ شرکت از مالک است و لغو را نمی‌بندد.
             if (entry.Kind == CustodyFinanceKind.Collection)
             {
-                var after = await OwnerFundsBalanceAsync(owner, ct) - (entry.AmountUsd - entry.CommissionUsd);
+                var after = await OwnerFundsBalanceAsync(owner, entry.EffectiveOwnerCurrency, ct)
+                    - (entry.EffectiveOwnerAmount - entry.EffectiveOwnerCommission);
                 var paidOut = after < 0m && await db.CustodyFinanceEntries.AnyAsync(e =>
                     e.OwnerPartyType == owner.PartyType && e.OwnerPartyId == owner.PartyId
+                    && (e.OwnerCurrency ?? "USD") == entry.EffectiveOwnerCurrency
                     && e.Kind == CustodyFinanceKind.OwnerPayout && e.Status == CustodyDocumentStatus.Posted, ct);
                 if (paidOut)
                     throw Rule("CUSTODY_CANCEL_OVERPAID", "این پول قبلاً به مالک پرداخت شده است؛ اول «پرداخت به مالک» مربوط را لغو کنید.");
@@ -599,7 +689,7 @@ public sealed class CustodySaleService(
 
     /// <summary>سند استرداد همراهِ برگشت؛ همان مسیرِ پرداخت، دفتر طرف‌ها و ژورنالِ اسناد مالی امانی.</summary>
     private async Task<int> PostRefundAsync(CustodySale sale, CustodySaleReturn saleReturn, CustodyFinanceKind kind, decimal amount,
-        int? cashAccountId, string? documentNumber, string description, CancellationToken ct)
+        CustodyRate rate, OwnerEffect effect, int? cashAccountId, string? documentNumber, string description, CancellationToken ct)
     {
         var entry = new CustodyFinanceEntry
         {
@@ -611,8 +701,20 @@ public sealed class CustodySaleService(
             OwnerPartyId = sale.OwnerPartyId,
             CustomerId = sale.CustomerId,
             EntryDate = saleReturn.ReturnDate,
-            AmountUsd = amount,
-            Currency = "USD",
+            AmountUsd = effect.AmountUsd,
+            Currency = sale.Currency,
+            Amount = amount,
+            Commission = 0m,
+            RateToUsd = rate.ToUsd,
+            CurrencyPerUsd = rate.PerUsd,
+            RateSource = rate.IsUsd ? null : rate.Source,
+            OwnerCurrency = effect.OwnerCurrency,
+            OwnerAmount = effect.OwnerAmount,
+            OwnerCommission = 0m,
+            OwnerRateToUsd = effect.OwnerRate.ToUsd,
+            FxDifference = effect.FxDifference,
+            FxOwnerShare = effect.FxOwnerShare,
+            FxCompanyUsd = effect.FxCompanyUsd,
             CashAccountId = kind == CustodyFinanceKind.CustomerRefund ? cashAccountId : null,
             DocumentNumber = Clean(documentNumber),
             Description = description,
@@ -626,28 +728,151 @@ public sealed class CustodySaleService(
             await db.SaveChangesAsync(ct);
             entry.PaymentTransactionId = payment.Id;
         }
-        foreach (var row in BuildFinanceRows(entry, sale.SaleNumber))
+        foreach (var row in BuildFinanceRows(entry, sale.SaleNumber, effect.OwnerRate))
             ledger.Post(row);
         await db.SaveChangesAsync(ct);
         RequireJournal(await accounting.TryPostFinanceAsync(entry, sale, ct));
         await audit.LogAsync(FinanceEntity, entry.Id, AuditAction.Insert, diff: Describe(new
         {
-            Kind = entry.Kind.ToString(), sale.SaleNumber, saleReturn.ReturnNumber, entry.AmountUsd, entry.CashAccountId,
+            Kind = entry.Kind.ToString(), sale.SaleNumber, saleReturn.ReturnNumber, entry.Currency, entry.Amount, entry.AmountUsd,
+            entry.OwnerCurrency, entry.OwnerAmount, entry.FxDifference, entry.FxOwnerShare, entry.FxCompanyUsd, entry.CashAccountId,
             entry.PaymentTransactionId, entry.DocumentNumber
         }), ct: ct);
         await db.SaveChangesAsync(ct);
         return entry.Id;
     }
 
-    private async Task RequireUsdCashAccountAsync(int cashAccountId, CancellationToken ct)
+    private async Task RequireCashAccountAsync(int cashAccountId, string currency, CancellationToken ct)
     {
         var cash = await db.CashAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == cashAccountId, ct)
             ?? throw Rule("CUSTODY_CASH_ACCOUNT", "صندوق یا بانک پیدا نشد.");
         if (!cash.IsActive)
             throw Rule("CUSTODY_CASH_INACTIVE", "این صندوق/بانک غیرفعال است.");
-        if (cash.AccountType != CashAccountType.Mixed && !string.Equals(cash.Currency, "USD", StringComparison.OrdinalIgnoreCase))
-            throw Rule("CUSTODY_CASH_CURRENCY", "این صندوق/بانک دالری نیست.");
+        if (cash.AccountType != CashAccountType.Mixed && !string.Equals(cash.Currency, currency, StringComparison.OrdinalIgnoreCase))
+            throw Rule("CUSTODY_CASH_CURRENCY", currency == SystemCurrency.BaseCurrencyCode ? "این صندوق/بانک دالری نیست." : $"این صندوق/بانک به ارز {currency} نیست.");
     }
+
+    // ---------------------------------------------------------------- اثر ارزی بر حساب مالک
+
+    /// <summary>
+    /// اثرِ یک سند بر حساب مالک به ارز مالک. ستون‌های دالری (AmountUsd/CommissionUsd) ارزشِ دفتر کل‌اند.
+    /// FxCompanyUsd سود (+) یا زیانِ (−) تسعیرِ شرکت است که در ژورنال به حساب تفاوت نرخ می‌رود.
+    /// </summary>
+    private sealed record OwnerEffect(string OwnerCurrency, decimal OwnerAmount, decimal OwnerCommission, CustodyRate OwnerRate,
+        decimal AmountUsd, decimal CommissionUsd, decimal? FxDifference, decimal? FxOwnerShare, decimal? FxCompanyUsd)
+    {
+        public static OwnerEffect SameCurrency(string currency, decimal amount, decimal commission, CustodyRate rate, decimal amountUsd)
+            => new(currency, amount, commission, rate, amountUsd, rate.ToUsdAmount(commission), null, null, null);
+    }
+
+    /// <summary>
+    /// پولی که واقعاً از صندوق شرکت می‌گذرد (وصول یا استرداد). وقتی ارز فروش و ارز مالک یکی است، مالک
+    /// همان مبلغ را به همان ارز می‌گیرد/می‌دهد و تفاوت نرخی نیست. وقتی فرق دارد: سهمِ مالک با نرخِ قفل‌شدهٔ
+    /// توافق تبدیل می‌شود و تفاوتِ ارزشِ واقعیِ همان پول با آن (به ارز مالک) طبق توافق بین مالک و شرکت
+    /// تقسیم می‌شود؛ اگر توافق ثبت نشده و تفاوت صفر نیست، سند ثبت نمی‌شود.
+    /// </summary>
+    private async Task<OwnerEffect> CashOwnerEffectAsync(CustodySale sale, decimal amount, decimal commission, CustodyRate cashRate,
+        DateTime date, decimal? agreedPerUsd, string? rateReference, bool inbound, CancellationToken ct)
+    {
+        var saleCurrency = CustodyFx.Normalize(sale.Currency);
+        var ownerCurrency = CustodyFx.Normalize(sale.EffectiveOwnerCurrency);
+        var cashUsd = cashRate.ToUsdAmount(amount);
+        if (saleCurrency == ownerCurrency)
+            return OwnerEffect.SameCurrency(ownerCurrency, amount, commission, cashRate, cashUsd);
+
+        var afn = saleCurrency == CustodyFx.Afn ? cashRate : await CustodyFx.ResolveAsync(db, CustodyFx.Afn, date, agreedPerUsd, rateReference, ct);
+        var ownerRate = ownerCurrency == CustodyFx.Afn ? afn : CustodyRate.Usd;
+        var lockedRate = sale.OwnerAgreedPerUsd ?? throw Rule("CUSTODY_FX_LOCKED_RATE", "نرخ قفل‌شدهٔ توافق مالک برای این فروش ثبت نشده است.");
+        var locked = CustodyFx.Convert(amount, saleCurrency, ownerCurrency, lockedRate);
+        var real = ownerCurrency == SystemCurrency.BaseCurrencyCode ? cashUsd : CustodyFx.Convert(amount, saleCurrency, ownerCurrency, afn.PerUsd);
+        var difference = Money(real - locked);
+        var share = CustodyFx.OwnerShare(sale);
+        if (difference != 0m && share is null)
+            throw Rule("CUSTODY_FX_RESPONSIBILITY",
+                $"ارزشِ این پول به نرخ روز ({Amt(real, ownerCurrency)}) با نرخ قفل‌شدهٔ توافق مالک ({Amt(locked, ownerCurrency)}) فرق دارد، اما مسئول تفاوت نرخ (مالک، شرکت یا تقسیم) در توافق مالک ثبت نشده است. اول توافق را در صفحهٔ فروش ثبت کنید.");
+        var ownerShare = share is null ? 0m : decimal.Round(share.Value * difference, 4, MidpointRounding.AwayFromZero);
+        var ownerAmount = locked + ownerShare;
+        var ownerCommission = CustodyFx.Convert(commission, saleCurrency, ownerCurrency, lockedRate);
+        var ownerUsd = ownerRate.ToUsdAmount(ownerAmount);
+        var commissionUsd = ownerRate.ToUsdAmount(ownerCommission);
+        if (ownerAmount <= 0m || commissionUsd > cashUsd)
+            throw Rule("CUSTODY_FX_AMOUNT", "مبلغ این سند پس از تبدیل ارز معتبر نیست.");
+        return new OwnerEffect(ownerCurrency, ownerAmount, ownerCommission, ownerRate, cashUsd, commissionUsd,
+            difference, ownerShare, inbound ? cashUsd - ownerUsd : ownerUsd - cashUsd);
+    }
+
+    /// <summary>
+    /// پولی که مستقیم بین مشتری و مالک رد و بدل شد: صندوق شرکت تغییر نمی‌کند و تفاوت نرخی برای شرکت
+    /// نیست؛ طلب مشتری و «در انتظار وصول» با نرخِ همان فروش و کمیشن به ارز مالک (نرخ قفل‌شده) ثبت می‌شود.
+    /// </summary>
+    private async Task<OwnerEffect> DirectOwnerEffectAsync(CustodySale sale, decimal amount, decimal commission, CustodyRate rate,
+        DateTime date, decimal? agreedPerUsd, string? rateReference, CancellationToken ct)
+    {
+        var saleCurrency = CustodyFx.Normalize(sale.Currency);
+        var ownerCurrency = CustodyFx.Normalize(sale.EffectiveOwnerCurrency);
+        var receivableUsd = CustodyFx.AtSaleRate(sale, amount);
+        if (saleCurrency == ownerCurrency)
+        {
+            var same = OwnerEffect.SameCurrency(ownerCurrency, amount, commission, rate, receivableUsd);
+            if (same.CommissionUsd > receivableUsd) throw Rule("CUSTODY_FX_AMOUNT", "کمیشن این سند از ارزش مبلغ آن بیشتر است.");
+            return same;
+        }
+        // بدون کمیشن، ارزشِ دالریِ بخشِ مالک لازم نیست؛ نرخِ خودِ فروش کافی است و نرخ تازه‌ای خواسته نمی‌شود.
+        var ownerRate = commission == 0m ? SaleOwnerRate(sale)
+            : ownerCurrency == CustodyFx.Afn
+                ? (saleCurrency == CustodyFx.Afn ? rate : await CustodyFx.ResolveAsync(db, CustodyFx.Afn, date, agreedPerUsd, rateReference, ct))
+                : CustodyRate.Usd;
+        var lockedRate = sale.OwnerAgreedPerUsd ?? throw Rule("CUSTODY_FX_LOCKED_RATE", "نرخ قفل‌شدهٔ توافق مالک برای این فروش ثبت نشده است.");
+        var ownerCommission = CustodyFx.Convert(commission, saleCurrency, ownerCurrency, lockedRate);
+        var commissionUsd = ownerRate.ToUsdAmount(ownerCommission);
+        if (commissionUsd > receivableUsd) throw Rule("CUSTODY_FX_AMOUNT", "کمیشن این سند از ارزش مبلغ آن بیشتر است.");
+        return new OwnerEffect(ownerCurrency, CustodyFx.Convert(amount, saleCurrency, ownerCurrency, lockedRate), ownerCommission, ownerRate,
+            receivableUsd, commissionUsd, null, null, null);
+    }
+
+    private static (CustodyFxResponsibility? Responsibility, decimal? OwnerSharePercent, string? Reference) ValidateFxAgreement(
+        CustodyFxResponsibility? responsibility, decimal? ownerSharePercent, string? reference)
+    {
+        if (responsibility is null)
+            return (null, null, null);
+        if (!Enum.IsDefined(responsibility.Value))
+            throw Rule("CUSTODY_FX_RESPONSIBILITY", "مسئول تفاوت نرخ معتبر نیست.");
+        if (string.IsNullOrWhiteSpace(reference))
+            throw Rule("CUSTODY_FX_AGREEMENT_REFERENCE", "مرجعِ توافق مالک دربارهٔ تفاوت نرخ الزامی است.");
+        if (responsibility == CustodyFxResponsibility.Split)
+        {
+            if (ownerSharePercent is not > 0m || ownerSharePercent >= 100m || decimal.Round(ownerSharePercent.Value, 4) != ownerSharePercent)
+                throw Rule("CUSTODY_FX_SPLIT", "برای تقسیم، سهم مالک باید بین ۰ و ۱۰۰ فیصد (حداکثر چهار رقم اعشار) باشد.");
+            return (responsibility, ownerSharePercent, reference.Trim());
+        }
+        return (responsibility, null, reference.Trim());
+    }
+
+    public Task SetFxAgreementAsync(int saleId, CustodyFxResponsibility responsibility, decimal? ownerSharePercent, string reference, CancellationToken ct = default)
+        => InTransactionAsync(async () =>
+        {
+            var sale = await db.CustodySales.FirstOrDefaultAsync(s => s.Id == saleId, ct)
+                ?? throw Rule("CUSTODY_SALE_NOT_FOUND", "فروش امانی پیدا نشد.");
+            await LockOwnerAsync(new CustodyOwner(sale.OwnerPartyType, sale.OwnerPartyId), ct);
+            await LockSaleAsync(sale.Id, ct);
+            await db.Entry(sale).ReloadAsync(ct);
+            if (sale.Status != CustodyDocumentStatus.Posted)
+                throw Rule("CUSTODY_SALE_CANCELLED", "این فروش لغو شده است.");
+            if (!sale.IsCrossCurrency)
+                throw Rule("CUSTODY_FX_NOT_APPLICABLE", "ارز فروش و ارز مالک یکی است؛ تفاوت نرخی وجود ندارد.");
+            if (sale.FxResponsibility.HasValue)
+                throw Rule("CUSTODY_FX_AGREEMENT_EXISTS", "توافق تفاوت نرخ این فروش قبلاً ثبت شده و تغییر نمی‌کند.");
+            var (value, share, cleanReference) = ValidateFxAgreement(responsibility, ownerSharePercent, reference);
+            sale.FxResponsibility = value;
+            sale.FxOwnerSharePercent = share;
+            sale.FxAgreementReference = cleanReference;
+            await audit.LogAsync(SaleEntity, sale.Id, AuditAction.Update, diff: Describe(new
+            {
+                sale.SaleNumber, FxResponsibility = value?.ToString(), FxOwnerSharePercent = share, FxAgreementReference = cleanReference
+            }), ct: ct);
+            await db.SaveChangesAsync(ct);
+            return 0;
+        }, ct);
 
     // ---------------------------------------------------------------- برگشتِ قسمیِ فروش
 
@@ -697,14 +922,17 @@ public sealed class CustodySaleService(
                     throw Rule("CUSTODY_RETURN_EXCEEDS", $"از این بار/محل حداکثر {Qty(available)} تُن قابل برگشت است.");
             }
 
+            // همهٔ مبالغِ برگشت به ارز فروش‌اند؛ اثر بر مالک به ارز مالک.
+            var currency = CustodyFx.Normalize(sale.Currency);
+            var ownerCurrency = CustodyFx.Normalize(sale.EffectiveOwnerCurrency);
             var totals = await ReturnTotalsAsync(sale.Id, ct);
             var quantity = requested.Sum(r => r.Quantity);
             var netQuantityBefore = sale.QuantityMt - totals.QuantityMt;
-            var netAmountBefore = sale.AmountUsd - totals.AmountUsd;
-            var netCommissionBefore = sale.CommissionUsd - totals.CommissionUsd;
+            var netAmountBefore = sale.EffectiveAmount - totals.Amount;
+            var netCommissionBefore = sale.EffectiveCommission - totals.Commission;
             var netQuantityAfter = netQuantityBefore - quantity;
             // آخرین برگشتِ کامل، باقیماندهٔ دقیق مبلغ را می‌گیرد تا گردکردن مبلغ را کم یا زیاد نکند.
-            var amount = netQuantityAfter == 0m ? netAmountBefore : Money(quantity * sale.UnitPriceUsd);
+            var amount = netQuantityAfter == 0m ? netAmountBefore : Money(quantity * sale.EffectiveUnitPrice);
             var netAmountAfter = netAmountBefore - amount;
             if (amount <= 0m || netAmountAfter < 0m)
                 throw Rule("CUSTODY_RETURN_AMOUNT", "مبلغ برگشت معتبر نیست.");
@@ -720,23 +948,23 @@ public sealed class CustodySaleService(
             if (refundCompany + refundOwner != refundDue)
                 throw Rule("CUSTODY_RETURN_COLLECTED", refundDue == 0m
                     ? "برای این برگشت پولی وصول نشده است؛ استرداد ثبت نمی‌شود."
-                    : $"مبلغ این برگشت ({Usd(amount)}) از ماندهٔ وصول‌نشدهٔ فروش ({Usd(outstanding)}) بیشتر است؛ دقیقاً {Usd(refundDue)} باید با سند واقعی مسترد شود (از صندوق شرکت و/یا مستقیم توسط مالک).");
+                    : $"مبلغ این برگشت ({Amt(amount, currency)}) از ماندهٔ وصول‌نشدهٔ فروش ({Amt(outstanding, currency)}) بیشتر است؛ دقیقاً {Amt(refundDue, currency)} باید با سند واقعی مسترد شود (از صندوق شرکت و/یا مستقیم توسط مالک).");
             if (refundCompany > 0m)
             {
                 var companyCollected = await NetCollectedAsync(sale.Id, CustodyFinanceKind.Collection, CustodyFinanceKind.CustomerRefund, ct);
                 if (refundCompany > companyCollected)
-                    throw Rule("CUSTODY_REFUND_EXCEEDS", $"پولی که از این فروش نزد صندوق شرکت آمده {Usd(companyCollected)} است؛ استرداد بیشتر از آن ممکن نیست.");
+                    throw Rule("CUSTODY_REFUND_EXCEEDS", $"پولی که از این فروش نزد صندوق شرکت آمده {Amt(companyCollected, currency)} است؛ استرداد بیشتر از آن ممکن نیست.");
                 if (!input.RefundCashAccountId.HasValue)
                     throw Rule("CUSTODY_CASH_ACCOUNT", "صندوق یا بانکِ استرداد را انتخاب کنید.");
                 if (string.IsNullOrWhiteSpace(input.RefundDocumentNumber))
                     throw Rule("CUSTODY_REFUND_DOCUMENT", "شمارهٔ سند واقعیِ پرداختِ استرداد الزامی است.");
-                await RequireUsdCashAccountAsync(input.RefundCashAccountId.Value, ct);
+                await RequireCashAccountAsync(input.RefundCashAccountId.Value, currency, ct);
             }
             if (refundOwner > 0m)
             {
                 var ownerCollected = await NetCollectedAsync(sale.Id, CustodyFinanceKind.DirectToOwner, CustodyFinanceKind.OwnerDirectRefund, ct);
                 if (refundOwner > ownerCollected)
-                    throw Rule("CUSTODY_REFUND_EXCEEDS", $"پولی که مشتری مستقیم به مالک داده {Usd(ownerCollected)} است؛ استردادِ مالک بیشتر از آن ممکن نیست.");
+                    throw Rule("CUSTODY_REFUND_EXCEEDS", $"پولی که مشتری مستقیم به مالک داده {Amt(ownerCollected, currency)} است؛ استردادِ مالک بیشتر از آن ممکن نیست.");
                 if (string.IsNullOrWhiteSpace(input.OwnerRefundReference))
                     throw Rule("CUSTODY_REFUND_DOCUMENT", "سندِ استردادِ مستقیمِ مالک به مشتری الزامی است.");
             }
@@ -771,19 +999,41 @@ public sealed class CustodySaleService(
                 recognizedReversal = Math.Min(Math.Max(recognized - target, 0m), commissionReduction);
             }
 
+            // کمیشنِ معکوس و کاهشِ کمیشن به ارز مالک (نرخ قفل‌شده وقتی ارزها فرق دارند). ارزشِ دالریِ
+            // کمیشنِ «هنگام فروش» با همان نرخِ شناسایی‌اش برمی‌گردد؛ کمیشنِ «به تناسب وصول» با نرخ روز برگشت.
+            var cross = currency != ownerCurrency;
+            decimal ToOwner(decimal value) => cross ? CustodyFx.Convert(value, currency, ownerCurrency, sale.OwnerAgreedPerUsd!.Value) : value;
+            var ownerReversal = ToOwner(recognizedReversal);
+            var ownerReduction = ToOwner(commissionReduction);
+            var commissionRate = sale.CommissionRecognition == CustodyCommissionRecognition.OnSale || ownerReversal == 0m
+                ? SaleOwnerRate(sale)
+                : await CustodyFx.ResolveAsync(db, ownerCurrency, returnDate, null, null, ct);
+
             // استرداد از صندوق، پولِ مالک نزد شرکت را کم می‌کند. اگر آن پول قبلاً به مالک پرداخت شده،
             // بدون تأیید و سندِ قابل وصول از مالک، طلبِ حدسی از مالک ساخته نمی‌شود.
+            CustodyRate? refundRate = null;
+            OwnerEffect? refundEffect = null;
             if (refundCompany > 0m)
             {
-                var fundsAfter = await OwnerFundsBalanceAsync(owner, ct) - refundCompany + recognizedReversal;
+                refundRate = await CustodyFx.ResolveAsync(db, currency, returnDate, null, null, ct);
+                refundEffect = await CashOwnerEffectAsync(sale, refundCompany, 0m, refundRate, returnDate, null, null, inbound: false, ct);
+                var fundsAfter = await OwnerFundsBalanceAsync(owner, ownerCurrency, ct) - refundEffect.OwnerAmount + ownerReversal;
                 if (fundsAfter < 0m && await db.CustodyFinanceEntries.AnyAsync(e =>
                         e.OwnerPartyType == owner.PartyType && e.OwnerPartyId == owner.PartyId
+                        && (e.OwnerCurrency ?? "USD") == ownerCurrency
                         && e.Kind == CustodyFinanceKind.OwnerPayout && e.Status == CustodyDocumentStatus.Posted, ct)
                     && (!input.OwnerRecoveryConfirmed || string.IsNullOrWhiteSpace(input.OwnerRecoveryReference)))
                 {
                     throw Rule("CUSTODY_REFUND_OWNER_PAID",
-                        $"پولِ این فروش قبلاً به مالک پرداخت شده و استرداد حساب مالک را {Usd(-fundsAfter)} بدهکار می‌کند؛ فقط با تأیید صریح و سندِ قابل وصول از مالک ممکن است.");
+                        $"پولِ این فروش قبلاً به مالک پرداخت شده و استرداد حساب مالک را {Amt(-fundsAfter, ownerCurrency)} بدهکار می‌کند؛ فقط با تأیید صریح و سندِ قابل وصول از مالک ممکن است.");
                 }
+            }
+            CustodyRate? directRate = null;
+            OwnerEffect? directEffect = null;
+            if (refundOwner > 0m)
+            {
+                directRate = SaleRate(sale);
+                directEffect = await DirectOwnerEffectAsync(sale, refundOwner, 0m, directRate, returnDate, null, null, ct);
             }
 
             var stockKey = await custody.RecordSaleReturnInAsync(
@@ -799,9 +1049,14 @@ public sealed class CustodySaleService(
                 CustomerId = sale.CustomerId,
                 ReturnDate = returnDate,
                 QuantityMt = quantity,
-                AmountUsd = amount,
-                CommissionUsd = commissionReduction,
-                RecognizedCommissionReversedUsd = recognizedReversal,
+                AmountUsd = CustodyFx.AtSaleRate(sale, amount),
+                CommissionUsd = commissionRate.ToUsdAmount(ownerReduction),
+                RecognizedCommissionReversedUsd = commissionRate.ToUsdAmount(ownerReversal),
+                Amount = amount,
+                Commission = commissionReduction,
+                RecognizedCommissionReversed = recognizedReversal,
+                OwnerCommissionReversed = ownerReversal,
+                OwnerRateToUsd = commissionRate.ToUsd,
                 StockOperationKey = stockKey,
                 DocumentNumber = Clean(input.DocumentNumber),
                 Notes = Clean(input.Notes),
@@ -812,11 +1067,12 @@ public sealed class CustodySaleService(
             await db.SaveChangesAsync(ct);
             saleReturn.ReturnNumber = $"AR-{saleReturn.Id:D5}";
 
-            if (recognizedReversal > 0m)
+            if (saleReturn.RecognizedCommissionReversedUsd > 0m)
             {
-                ledger.Post(PartyRow(ReturnSourceType, saleReturn.Id, saleReturn.ReturnDate, recognizedReversal,
+                ledger.Post(PartyRow(ReturnSourceType, saleReturn.Id, saleReturn.ReturnDate, saleReturn.RecognizedCommissionReversedUsd,
                     saleReturn.ReturnNumber + CommissionSuffix, sale.OwnerPartyType, sale.OwnerPartyId, CompanyFlowEffect.Receipt,
-                    $"برگشت کمیشن فروش امانی {sale.SaleNumber} ({saleReturn.ReturnNumber})"));
+                    $"برگشت کمیشن فروش امانی {sale.SaleNumber} ({saleReturn.ReturnNumber})",
+                    Source(ownerReversal, commissionRate)));
             }
             await db.SaveChangesAsync(ct);
             RequireJournal(await accounting.TryPostReturnAsync(saleReturn, sale, ct));
@@ -825,7 +1081,7 @@ public sealed class CustodySaleService(
             if (refundCompany > 0m)
             {
                 refundIds.Add(await PostRefundAsync(sale, saleReturn, CustodyFinanceKind.CustomerRefund, refundCompany,
-                    input.RefundCashAccountId, input.RefundDocumentNumber,
+                    refundRate!, refundEffect!, input.RefundCashAccountId, input.RefundDocumentNumber,
                     input.OwnerRecoveryConfirmed && !string.IsNullOrWhiteSpace(input.OwnerRecoveryReference)
                         ? $"استرداد برگشت {saleReturn.ReturnNumber}؛ قابل وصول از مالک: {input.OwnerRecoveryReference!.Trim()}"
                         : $"استرداد برگشت {saleReturn.ReturnNumber}", ct));
@@ -833,14 +1089,15 @@ public sealed class CustodySaleService(
             if (refundOwner > 0m)
             {
                 refundIds.Add(await PostRefundAsync(sale, saleReturn, CustodyFinanceKind.OwnerDirectRefund, refundOwner,
-                    null, input.OwnerRefundReference, $"مالک مستقیم به مشتری پس داد — برگشت {saleReturn.ReturnNumber}", ct));
+                    directRate!, directEffect!, null, input.OwnerRefundReference, $"مالک مستقیم به مشتری پس داد — برگشت {saleReturn.ReturnNumber}", ct));
             }
 
             await audit.LogAsync(ReturnEntity, saleReturn.Id, AuditAction.Insert, diff: Describe(new
             {
                 saleReturn.ReturnNumber, sale.SaleNumber,
                 Lines = requested.Select(r => new { r.Key.LotId, r.Key.TerminalId, r.Key.StorageTankId, r.Quantity }),
-                saleReturn.QuantityMt, saleReturn.AmountUsd, saleReturn.CommissionUsd, saleReturn.RecognizedCommissionReversedUsd,
+                saleReturn.QuantityMt, sale.Currency, saleReturn.Amount, saleReturn.AmountUsd, saleReturn.Commission, saleReturn.CommissionUsd,
+                saleReturn.RecognizedCommissionReversed, saleReturn.RecognizedCommissionReversedUsd, sale.OwnerCurrency, saleReturn.OwnerCommissionReversed,
                 RefundFromCompany = refundCompany, RefundByOwner = refundOwner, Refunds = refundIds,
                 OwnerRecovery = input.OwnerRecoveryConfirmed ? input.OwnerRecoveryReference : null
             }), ct: ct);
@@ -892,16 +1149,20 @@ public sealed class CustodySaleService(
             return 0;
         }, ct);
 
-    public sealed record ReturnTotals(decimal QuantityMt, decimal AmountUsd, decimal CommissionUsd, decimal RecognizedCommissionReversedUsd);
+    /// <summary>جمعِ برگشت‌های فعالِ یک فروش؛ مبالغ به ارز فروش.</summary>
+    public sealed record ReturnTotals(decimal QuantityMt, decimal Amount, decimal Commission, decimal RecognizedCommissionReversed);
 
     public static async Task<ReturnTotals> ReturnTotalsAsync(ApplicationDbContext db, int saleId, CancellationToken ct)
     {
         var rows = await db.CustodySaleReturns.AsNoTracking()
             .Where(r => r.CustodySaleId == saleId && r.Status == CustodyDocumentStatus.Posted)
-            .Select(r => new { r.QuantityMt, r.AmountUsd, r.CommissionUsd, r.RecognizedCommissionReversedUsd })
+            .Select(r => new
+            {
+                r.QuantityMt, Amount = r.Amount ?? r.AmountUsd, Commission = r.Commission ?? r.CommissionUsd,
+                Reversed = r.RecognizedCommissionReversed ?? r.RecognizedCommissionReversedUsd
+            })
             .ToListAsync(ct);
-        return new ReturnTotals(rows.Sum(r => r.QuantityMt), rows.Sum(r => r.AmountUsd), rows.Sum(r => r.CommissionUsd),
-            rows.Sum(r => r.RecognizedCommissionReversedUsd));
+        return new ReturnTotals(rows.Sum(r => r.QuantityMt), rows.Sum(r => r.Amount), rows.Sum(r => r.Commission), rows.Sum(r => r.Reversed));
     }
 
     private Task<ReturnTotals> ReturnTotalsAsync(int saleId, CancellationToken ct) => ReturnTotalsAsync(db, saleId, ct);
@@ -933,7 +1194,7 @@ public sealed class CustodySaleService(
         => db.CustodyFinanceEntries.AsNoTracking()
             .Where(e => e.SettlesFinanceEntryId == chargeId && e.Kind == CustodyFinanceKind.ProviderPayment
                 && e.Status == CustodyDocumentStatus.Posted)
-            .SumAsync(e => e.AmountUsd, ct);
+            .SumAsync(e => e.Amount ?? e.AmountUsd, ct);
 
     private Task<decimal> ProviderPaidAsync(int chargeId, CancellationToken ct) => ProviderPaidAsync(db, chargeId, ct);
 
@@ -941,37 +1202,61 @@ public sealed class CustodySaleService(
     // ---------------------------------------------------------------- balances (همان تعریفِ صفحهٔ حساب مالک)
 
     /// <summary>
-    /// پولِ مالک نزد شرکت = وصولِ نقدی − همهٔ کمیشن‌های درآمدشده (+ کمیشنِ برگشت‌خورده با برگشت فروش)
-    /// − مصارف به حساب مالک (نقد یا نسیهٔ خدمات‌دهنده) − حق خدمات − پرداخت‌ها. منفی یعنی مالک به شرکت بدهکار است.
-    /// پرداخت به خدمات‌دهنده حساب مالک را تغییر نمی‌دهد؛ مالک هنگام ثبتِ مصرف نسیه بدهکار شده بود.
+    /// پولِ مالک نزد شرکت به یک ارز = وصولِ نقدی (سهمِ مالک به ارز مالک) − همهٔ کمیشن‌های درآمدشده
+    /// (+ کمیشنِ برگشت‌خورده با برگشت فروش) − مصارف به حساب مالک (نقد یا نسیهٔ خدمات‌دهنده) − حق خدمات
+    /// − پرداخت‌ها − استرداد از صندوق. منفی یعنی مالک به شرکت بدهکار است. پرداخت به خدمات‌دهنده حساب
+    /// مالک را تغییر نمی‌دهد. هر ارز جدا حساب می‌شود؛ ارزها با هم جمع یا تهاتر نمی‌شوند.
     /// </summary>
-    public static async Task<decimal> OwnerFundsBalanceAsync(ApplicationDbContext db, CustodyOwner owner, CancellationToken ct)
+    public static async Task<decimal> OwnerFundsBalanceAsync(ApplicationDbContext db, CustodyOwner owner, string currency, CancellationToken ct)
+        => (await OwnerFundsBalancesAsync(db, owner, ct)).GetValueOrDefault(CustodyFx.Normalize(currency));
+
+    /// <summary>ماندهٔ دالری (سازگار با خوانندگانِ قبلی).</summary>
+    public static Task<decimal> OwnerFundsBalanceAsync(ApplicationDbContext db, CustodyOwner owner, CancellationToken ct)
+        => OwnerFundsBalanceAsync(db, owner, SystemCurrency.BaseCurrencyCode, ct);
+
+    public static async Task<Dictionary<string, decimal>> OwnerFundsBalancesAsync(ApplicationDbContext db, CustodyOwner owner, CancellationToken ct)
     {
         var entries = await db.CustodyFinanceEntries.AsNoTracking()
             .Where(e => e.OwnerPartyType == owner.PartyType && e.OwnerPartyId == owner.PartyId && e.Status == CustodyDocumentStatus.Posted)
-            .GroupBy(e => e.Kind)
-            .Select(g => new { Kind = g.Key, Amount = g.Sum(e => e.AmountUsd), Commission = g.Sum(e => e.CommissionUsd) })
+            .GroupBy(e => new { e.Kind, Currency = e.OwnerCurrency ?? "USD" })
+            .Select(g => new
+            {
+                g.Key.Kind, g.Key.Currency,
+                Amount = g.Sum(e => e.OwnerAmount ?? e.AmountUsd),
+                Commission = g.Sum(e => e.OwnerCommission ?? e.CommissionUsd)
+            })
             .ToListAsync(ct);
         var saleCommission = await db.CustodySales.AsNoTracking()
             .Where(s => s.OwnerPartyType == owner.PartyType && s.OwnerPartyId == owner.PartyId && s.Status == CustodyDocumentStatus.Posted)
-            .SumAsync(s => s.CommissionRecognizedAtSaleUsd, ct);
+            .GroupBy(s => s.OwnerCurrency ?? "USD")
+            .Select(g => new { Currency = g.Key, Amount = g.Sum(s => s.CommissionRecognizedAtSaleOwner ?? s.CommissionRecognizedAtSaleUsd) })
+            .ToListAsync(ct);
         var returnedCommission = await db.CustodySaleReturns.AsNoTracking()
             .Where(r => r.OwnerPartyType == owner.PartyType && r.OwnerPartyId == owner.PartyId && r.Status == CustodyDocumentStatus.Posted)
-            .SumAsync(r => r.RecognizedCommissionReversedUsd, ct);
+            .GroupBy(r => r.CustodySale!.OwnerCurrency ?? "USD")
+            .Select(g => new { Currency = g.Key, Amount = g.Sum(r => r.OwnerCommissionReversed ?? r.RecognizedCommissionReversedUsd) })
+            .ToListAsync(ct);
 
-        decimal Amount(CustodyFinanceKind kind) => entries.Where(e => e.Kind == kind).Sum(e => e.Amount);
-        return Amount(CustodyFinanceKind.Collection)
-            - entries.Sum(e => e.Commission)
-            - saleCommission
-            + returnedCommission
-            - Amount(CustodyFinanceKind.ReimbursableExpense)
-            - Amount(CustodyFinanceKind.ProviderCharge)
-            - Amount(CustodyFinanceKind.ServiceFee)
-            - Amount(CustodyFinanceKind.OwnerPayout)
-            - Amount(CustodyFinanceKind.CustomerRefund);
+        var currencies = entries.Select(e => e.Currency).Concat(saleCommission.Select(x => x.Currency))
+            .Concat(returnedCommission.Select(x => x.Currency)).Distinct().ToList();
+        var result = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        foreach (var currency in currencies)
+        {
+            decimal Amount(CustodyFinanceKind kind) => entries.Where(e => e.Kind == kind && e.Currency == currency).Sum(e => e.Amount);
+            result[currency] = Amount(CustodyFinanceKind.Collection)
+                - entries.Where(e => e.Currency == currency).Sum(e => e.Commission)
+                - saleCommission.Where(x => x.Currency == currency).Sum(x => x.Amount)
+                + returnedCommission.Where(x => x.Currency == currency).Sum(x => x.Amount)
+                - Amount(CustodyFinanceKind.ReimbursableExpense)
+                - Amount(CustodyFinanceKind.ProviderCharge)
+                - Amount(CustodyFinanceKind.ServiceFee)
+                - Amount(CustodyFinanceKind.OwnerPayout)
+                - Amount(CustodyFinanceKind.CustomerRefund);
+        }
+        return result;
     }
 
-    private Task<decimal> OwnerFundsBalanceAsync(CustodyOwner owner, CancellationToken ct) => OwnerFundsBalanceAsync(db, owner, ct);
+    private Task<decimal> OwnerFundsBalanceAsync(CustodyOwner owner, string currency, CancellationToken ct) => OwnerFundsBalanceAsync(db, owner, currency, ct);
 
     /// <summary>وصولِ خالص فروش (نزد شرکت و مستقیم به مالک) منهای استردادها.</summary>
     private Task<decimal> CollectedAsync(int saleId, int? excludeEntryId, CancellationToken ct)
@@ -981,22 +1266,22 @@ public sealed class CustodySaleService(
                     || e.Kind == CustodyFinanceKind.CustomerRefund || e.Kind == CustodyFinanceKind.OwnerDirectRefund)
                 && (excludeEntryId == null || e.Id != excludeEntryId))
             .SumAsync(e => e.Kind == CustodyFinanceKind.CustomerRefund || e.Kind == CustodyFinanceKind.OwnerDirectRefund
-                ? -e.AmountUsd : e.AmountUsd, ct);
+                ? -(e.Amount ?? e.AmountUsd) : e.Amount ?? e.AmountUsd, ct);
 
     private Task<decimal> NetCollectedAsync(int saleId, CustodyFinanceKind collection, CustodyFinanceKind refund, CancellationToken ct)
         => db.CustodyFinanceEntries.AsNoTracking()
             .Where(e => e.CustodySaleId == saleId && e.Status == CustodyDocumentStatus.Posted && (e.Kind == collection || e.Kind == refund))
-            .SumAsync(e => e.Kind == refund ? -e.AmountUsd : e.AmountUsd, ct);
+            .SumAsync(e => e.Kind == refund ? -(e.Amount ?? e.AmountUsd) : e.Amount ?? e.AmountUsd, ct);
 
     /// <summary>کمیشنِ درآمدشده از وصول‌ها منهای آنچه برگشت‌ها معکوس کرده‌اند.</summary>
     private async Task<decimal> CommissionOnCollectionsAsync(int saleId, CancellationToken ct)
         => await db.CustodyFinanceEntries.AsNoTracking()
             .Where(e => e.CustodySaleId == saleId && e.Status == CustodyDocumentStatus.Posted)
-            .SumAsync(e => e.CommissionUsd, ct)
+            .SumAsync(e => e.Commission ?? e.CommissionUsd, ct)
             - await db.CustodySaleReturns.AsNoTracking()
                 .Where(r => r.CustodySaleId == saleId && r.Status == CustodyDocumentStatus.Posted
                     && r.CustodySale!.CommissionRecognition == CustodyCommissionRecognition.OnCollection)
-                .SumAsync(r => r.RecognizedCommissionReversedUsd, ct);
+                .SumAsync(r => r.RecognizedCommissionReversed ?? r.RecognizedCommissionReversedUsd, ct);
 
     // ---------------------------------------------------------------- ledger rows
 
@@ -1015,7 +1300,8 @@ public sealed class CustodySaleService(
         AccountingPartyType partyType,
         int partyId,
         CompanyFlowEffect effect,
-        string description)
+        string description,
+        LedgerSource? source = null)
     {
         var isReceivable = partyType == AccountingPartyType.Customer;
         var side = effect == CompanyFlowEffect.Outflow
@@ -1028,10 +1314,10 @@ public sealed class CustodySaleService(
             EntryDate = date.Date,
             Side = side,
             AmountUsd = amountUsd,
-            SourceAmount = amountUsd,
-            SourceCurrencyCode = "USD",
-            AppliedFxRateToUsd = 1m,
-            AppliedCurrencyPerUsdRate = 1m,
+            SourceAmount = source?.Amount ?? amountUsd,
+            SourceCurrencyCode = source?.Currency ?? "USD",
+            AppliedFxRateToUsd = source?.ToUsd ?? 1m,
+            AppliedCurrencyPerUsdRate = source?.PerUsd ?? 1m,
             AppliedFxRateDate = date.Date,
             Description = description,
             Reference = reference,
@@ -1040,49 +1326,57 @@ public sealed class CustodySaleService(
         };
     }
 
-    private IEnumerable<LedgerPostingRequest> BuildFinanceRows(CustodyFinanceEntry entry, string reference)
+    /// <summary>
+    /// سطرهای دفتر طرف‌ها؛ سطرِ مالک به ارز مالک با همان ارزش دالری‌ای که در ژورنالِ حساب ۲۶۰۰ می‌نشیند،
+    /// تا تطبیقِ دفتر کل و صورت‌حساب مالک به دالر هم برقرار بماند.
+    /// </summary>
+    private IEnumerable<LedgerPostingRequest> BuildFinanceRows(CustodyFinanceEntry entry, string reference, CustodyRate ownerRate)
     {
         var sourceType = FinanceSourceType(entry.Kind);
+        var documentRate = new CustodyRate(entry.Currency, entry.CurrencyPerUsd ?? 1m, entry.EffectiveRateToUsd, entry.EntryDate.Date, entry.RateSource ?? "");
+        var document = Source(entry.EffectiveAmount, documentRate);
+        var ownerAmount = entry.EffectiveOwnerAmount;
+        var ownerUsd = ownerRate.ToUsdAmount(ownerAmount);
         switch (entry.Kind)
         {
             case CustodyFinanceKind.Collection:
-                yield return PartyRow(sourceType, entry.Id, entry.EntryDate, entry.AmountUsd, reference + OwnerSuffix,
+                yield return PartyRow(sourceType, entry.Id, entry.EntryDate, ownerUsd, reference + OwnerSuffix,
                     entry.OwnerPartyType, entry.OwnerPartyId, CompanyFlowEffect.Receipt,
-                    $"پول فروش امانی {reference} نزد شرکت به حساب مالک");
+                    $"پول فروش امانی {reference} نزد شرکت به حساب مالک", Source(ownerAmount, ownerRate));
                 break;
             case CustodyFinanceKind.DirectToOwner:
                 // پول به مالک رسید؛ شرکت چیزی به او بدهکار نشد. فقط کمیشن (پایین) اثر دارد.
                 break;
             case CustodyFinanceKind.OwnerPayout:
                 yield return PartyRow(sourceType, entry.Id, entry.EntryDate, entry.AmountUsd, reference,
-                    entry.OwnerPartyType, entry.OwnerPartyId, CompanyFlowEffect.Outflow, "پرداخت به مالک امانی");
+                    entry.OwnerPartyType, entry.OwnerPartyId, CompanyFlowEffect.Outflow, "پرداخت به مالک امانی", document);
                 break;
             case CustodyFinanceKind.ReimbursableExpense:
                 yield return PartyRow(sourceType, entry.Id, entry.EntryDate, entry.AmountUsd, reference,
                     entry.OwnerPartyType, entry.OwnerPartyId, CompanyFlowEffect.Outflow,
-                    $"مصرف به حساب مالک{(entry.PayeeName is null ? "" : " — " + entry.PayeeName)}");
+                    $"مصرف به حساب مالک{(entry.PayeeName is null ? "" : " — " + entry.PayeeName)}", document);
                 break;
             case CustodyFinanceKind.ServiceFee:
                 yield return PartyRow(sourceType, entry.Id, entry.EntryDate, entry.AmountUsd, reference,
-                    entry.OwnerPartyType, entry.OwnerPartyId, CompanyFlowEffect.Outflow, "حق خدمات شرکت (امانی)");
+                    entry.OwnerPartyType, entry.OwnerPartyId, CompanyFlowEffect.Outflow, "حق خدمات شرکت (امانی)", document);
                 break;
             case CustodyFinanceKind.ProviderCharge:
                 yield return PartyRow(sourceType, entry.Id, entry.EntryDate, entry.AmountUsd, reference,
                     entry.OwnerPartyType, entry.OwnerPartyId, CompanyFlowEffect.Outflow,
-                    $"مصرف نسیه به حساب مالک{(entry.PayeeName is null ? "" : " — " + entry.PayeeName)}");
+                    $"مصرف نسیه به حساب مالک{(entry.PayeeName is null ? "" : " — " + entry.PayeeName)}", document);
                 // بدهیِ واقعیِ شرکت به خدمات‌دهنده — همان سمتِ مصرفِ پرداخت‌نشدهٔ عادی (بستانکار).
                 yield return ProviderRow(sourceType, entry, reference + ProviderSuffix, LedgerSide.Credit,
-                    $"مصرف نسیه برای مالک امانی {reference}");
+                    $"مصرف نسیه برای مالک امانی {reference}", document);
                 break;
             case CustodyFinanceKind.ProviderPayment:
                 yield return ProviderRow(sourceType, entry, reference + ProviderSuffix, LedgerSide.Debit,
-                    $"پرداخت مصرف نسیهٔ امانی AF-{entry.SettlesFinanceEntryId:D5}");
+                    $"پرداخت مصرف نسیهٔ امانی AF-{entry.SettlesFinanceEntryId:D5}", document);
                 break;
             case CustodyFinanceKind.CustomerRefund:
                 // پولِ مالک که نزد شرکت بود به مشتری برگشت؛ تعهد شرکت به مالک کم می‌شود.
-                yield return PartyRow(sourceType, entry.Id, entry.EntryDate, entry.AmountUsd, reference + OwnerSuffix + "-R" + entry.Id,
+                yield return PartyRow(sourceType, entry.Id, entry.EntryDate, ownerUsd, reference + OwnerSuffix + "-R" + entry.Id,
                     entry.OwnerPartyType, entry.OwnerPartyId, CompanyFlowEffect.Outflow,
-                    $"استرداد فروش امانی {reference} به مشتری از پول مالک");
+                    $"استرداد فروش امانی {reference} به مشتری از پول مالک", Source(ownerAmount, ownerRate));
                 break;
             case CustodyFinanceKind.OwnerDirectRefund:
                 // مالک خودش به مشتری پس داد؛ شرکت چیزی به مالک بدهکار نبود.
@@ -1093,11 +1387,12 @@ public sealed class CustodySaleService(
         {
             yield return PartyRow(sourceType, entry.Id, entry.EntryDate, entry.CommissionUsd, reference + CommissionSuffix,
                 entry.OwnerPartyType, entry.OwnerPartyId, CompanyFlowEffect.Outflow,
-                $"کمیشن فروش امانی {reference}");
+                $"کمیشن فروش امانی {reference}", Source(entry.EffectiveOwnerCommission, ownerRate));
         }
     }
 
-    private static LedgerPostingRequest ProviderRow(string sourceType, CustodyFinanceEntry entry, string reference, LedgerSide side, string description)
+    private static LedgerPostingRequest ProviderRow(string sourceType, CustodyFinanceEntry entry, string reference, LedgerSide side, string description,
+        LedgerSource source)
         => new()
         {
             SourceType = sourceType,
@@ -1105,10 +1400,10 @@ public sealed class CustodySaleService(
             EntryDate = entry.EntryDate.Date,
             Side = side,
             AmountUsd = entry.AmountUsd,
-            SourceAmount = entry.AmountUsd,
-            SourceCurrencyCode = "USD",
-            AppliedFxRateToUsd = 1m,
-            AppliedCurrencyPerUsdRate = 1m,
+            SourceAmount = source.Amount,
+            SourceCurrencyCode = source.Currency,
+            AppliedFxRateToUsd = source.ToUsd,
+            AppliedCurrencyPerUsdRate = source.PerUsd,
             AppliedFxRateDate = entry.EntryDate.Date,
             Description = description,
             Reference = reference,
@@ -1163,9 +1458,9 @@ public sealed class CustodySaleService(
             CompanyId = companyId,
             CashAccountId = entry.CashAccountId,
             FundingSource = PaymentFundingSource.Company,
-            Amount = entry.AmountUsd,
-            Currency = "USD",
-            AppliedFxRateToUsd = 1m,
+            Amount = entry.EffectiveAmount,
+            Currency = entry.Currency,
+            AppliedFxRateToUsd = entry.EffectiveRateToUsd,
             AmountUsd = entry.AmountUsd,
             Reference = reversal ? reference + "-REV" : reference,
             Description = reversal ? $"لغو {label} {reference}" : $"{label} {reference}",
@@ -1176,6 +1471,28 @@ public sealed class CustodySaleService(
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /// <summary>نرخِ ارز فروش که در خودِ سند فروش ثبت شده (طلب مشتری و «در انتظار وصول» با همین ارزش می‌مانند).</summary>
+    private static CustodyRate SaleRate(CustodySale sale)
+        => SystemCurrency.IsBaseCurrency(sale.Currency) ? CustodyRate.Usd
+            : new CustodyRate(sale.Currency, sale.CurrencyPerUsd ?? FxRateMath.PerUsdFromToUsd(sale.EffectiveRateToUsd), sale.EffectiveRateToUsd, sale.SaleDate.Date, sale.RateSource ?? "");
+
+    /// <summary>نرخِ ارز مالک که هنگام فروش به کار رفت (نرخ قفل‌شده وقتی ارزها فرق دارند).</summary>
+    private static CustodyRate SaleOwnerRate(CustodySale sale)
+    {
+        var ownerCurrency = sale.EffectiveOwnerCurrency;
+        if (SystemCurrency.IsBaseCurrency(ownerCurrency)) return CustodyRate.Usd;
+        if (!sale.IsCrossCurrency) return SaleRate(sale);
+        return new CustodyRate(ownerCurrency, sale.OwnerAgreedPerUsd ?? FxRateMath.PerUsdFromToUsd(sale.EffectiveOwnerRateToUsd),
+            sale.EffectiveOwnerRateToUsd, sale.SaleDate.Date, sale.OwnerRateSource ?? "");
+    }
+
+    private sealed record LedgerSource(decimal Amount, string Currency, decimal ToUsd, decimal PerUsd);
+
+    private static LedgerSource Source(decimal amount, CustodyRate rate) => new(amount, rate.Currency, rate.ToUsd, rate.PerUsd);
+
+    private static string Amt(decimal value, string currency)
+        => value.ToString("#,0.00") + (SystemCurrency.IsBaseCurrency(currency) ? " دالر" : " " + (currency == CustodyFx.Afn ? "افغانی" : currency));
 
     private async Task EnsureAccountingCompleteAsync(CustodyOwner owner, CancellationToken ct)
     {
@@ -1256,12 +1573,6 @@ public sealed class CustodySaleService(
             CustodyAccountingAdapter.ProviderPayableNotConfiguredReason => "حساب پرداختنیِ نوعِ این مصرف تعیین نشده است؛ سند ثبت نشد.",
             _ => $"دفتر کلِ امانی آماده نیست ({result.Reason})؛ سند ثبت نشد."
         });
-    }
-
-    private static void RequireUsd(string? currency)
-    {
-        if (!string.Equals(currency?.Trim(), "USD", StringComparison.OrdinalIgnoreCase))
-            throw Rule("CUSTODY_CURRENCY", "سند امانی فعلاً فقط به دالر ثبت می‌شود؛ قاعدهٔ تفاوت نرخ برای امانی هنوز تعیین نشده است.");
     }
 
     private static void RequirePositive(decimal value, string label, int decimals)

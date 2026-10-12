@@ -2039,6 +2039,9 @@ namespace PTGOilSystem.Web.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<decimal?>("Amount")
+                        .HasColumnType("numeric(18,4)");
+
                     b.Property<decimal>("AmountUsd")
                         .HasColumnType("numeric(18,4)");
 
@@ -2055,6 +2058,9 @@ namespace PTGOilSystem.Web.Migrations
                     b.Property<int?>("CashAccountId")
                         .HasColumnType("integer");
 
+                    b.Property<decimal?>("Commission")
+                        .HasColumnType("numeric(18,4)");
+
                     b.Property<decimal>("CommissionUsd")
                         .HasColumnType("numeric(18,4)");
 
@@ -2068,6 +2074,9 @@ namespace PTGOilSystem.Web.Migrations
                         .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");
+
+                    b.Property<decimal?>("CurrencyPerUsd")
+                        .HasColumnType("numeric(24,12)");
 
                     b.Property<int?>("CustodyLotId")
                         .HasColumnType("integer");
@@ -2095,8 +2104,27 @@ namespace PTGOilSystem.Web.Migrations
                     b.Property<int?>("ExpenseTypeId")
                         .HasColumnType("integer");
 
+                    b.Property<decimal?>("FxCompanyUsd")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("FxDifference")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("FxOwnerShare")
+                        .HasColumnType("numeric(18,4)");
+
                     b.Property<int>("Kind")
                         .HasColumnType("integer");
+
+                    b.Property<decimal?>("OwnerAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("OwnerCommission")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("OwnerCurrency")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
 
                     b.Property<int>("OwnerPartyId")
                         .HasColumnType("integer");
@@ -2104,12 +2132,22 @@ namespace PTGOilSystem.Web.Migrations
                     b.Property<int>("OwnerPartyType")
                         .HasColumnType("integer");
 
+                    b.Property<decimal?>("OwnerRateToUsd")
+                        .HasColumnType("numeric(24,12)");
+
                     b.Property<string>("PayeeName")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
                     b.Property<int?>("PaymentTransactionId")
                         .HasColumnType("integer");
+
+                    b.Property<string>("RateSource")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<decimal?>("RateToUsd")
+                        .HasColumnType("numeric(24,12)");
 
                     b.Property<int?>("ReversalPaymentTransactionId")
                         .HasColumnType("integer");
@@ -2464,6 +2502,9 @@ namespace PTGOilSystem.Web.Migrations
                     b.Property<int>("CommissionRecognition")
                         .HasColumnType("integer");
 
+                    b.Property<decimal?>("CommissionRecognizedAtSaleOwner")
+                        .HasColumnType("numeric(18,4)");
+
                     b.Property<decimal>("CommissionRecognizedAtSaleUsd")
                         .HasColumnType("numeric(18,4)");
 
@@ -2481,6 +2522,9 @@ namespace PTGOilSystem.Web.Migrations
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");
 
+                    b.Property<decimal?>("CurrencyPerUsd")
+                        .HasColumnType("numeric(24,12)");
+
                     b.Property<int>("CustodyLotId")
                         .HasColumnType("integer");
 
@@ -2491,9 +2535,26 @@ namespace PTGOilSystem.Web.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("FxAgreementReference")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<decimal?>("FxOwnerSharePercent")
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<int?>("FxResponsibility")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
+
+                    b.Property<decimal?>("OwnerAgreedPerUsd")
+                        .HasColumnType("numeric(24,12)");
+
+                    b.Property<string>("OwnerCurrency")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
 
                     b.Property<int>("OwnerPartyId")
                         .HasColumnType("integer");
@@ -2501,10 +2562,30 @@ namespace PTGOilSystem.Web.Migrations
                     b.Property<int>("OwnerPartyType")
                         .HasColumnType("integer");
 
+                    b.Property<string>("OwnerRateSource")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<decimal?>("OwnerRateToUsd")
+                        .HasColumnType("numeric(24,12)");
+
                     b.Property<int>("ProductId")
                         .HasColumnType("integer");
 
                     b.Property<decimal>("QuantityMt")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("RateSource")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<decimal?>("RateToUsd")
+                        .HasColumnType("numeric(24,12)");
+
+                    b.Property<decimal?>("SaleAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("SaleCommission")
                         .HasColumnType("numeric(18,4)");
 
                     b.Property<DateTime>("SaleDate")
@@ -2526,6 +2607,9 @@ namespace PTGOilSystem.Web.Migrations
 
                     b.Property<int>("TerminalId")
                         .HasColumnType("integer");
+
+                    b.Property<decimal?>("UnitPrice")
+                        .HasColumnType("numeric(18,4)");
 
                     b.Property<decimal>("UnitPriceUsd")
                         .HasColumnType("numeric(18,4)");
@@ -2554,6 +2638,8 @@ namespace PTGOilSystem.Web.Migrations
                         {
                             t.HasCheckConstraint("CK_CustodySales_Amounts", "\"AmountUsd\" > 0 AND \"CommissionUsd\" >= 0 AND \"CommissionUsd\" <= \"AmountUsd\" AND \"CommissionRecognizedAtSaleUsd\" >= 0 AND \"CommissionRecognizedAtSaleUsd\" <= \"CommissionUsd\"");
 
+                            t.HasCheckConstraint("CK_CustodySales_Fx", "(\"OwnerCurrency\" IS NULL OR \"OwnerCurrency\" = \"Currency\" OR \"OwnerAgreedPerUsd\" > 0) AND (\"FxResponsibility\" IS NULL OR \"FxAgreementReference\" IS NOT NULL) AND (\"FxResponsibility\" IS NULL OR \"FxResponsibility\" <> 3 OR (\"FxOwnerSharePercent\" > 0 AND \"FxOwnerSharePercent\" < 100))");
+
                             t.HasCheckConstraint("CK_CustodySales_Quantity", "\"QuantityMt\" > 0");
                         });
                 });
@@ -2565,6 +2651,9 @@ namespace PTGOilSystem.Web.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal?>("Amount")
+                        .HasColumnType("numeric(18,4)");
 
                     b.Property<decimal>("AmountUsd")
                         .HasColumnType("numeric(18,4)");
@@ -2578,6 +2667,9 @@ namespace PTGOilSystem.Web.Migrations
 
                     b.Property<int?>("CancelledByUserId")
                         .HasColumnType("integer");
+
+                    b.Property<decimal?>("Commission")
+                        .HasColumnType("numeric(18,4)");
 
                     b.Property<decimal>("CommissionUsd")
                         .HasColumnType("numeric(18,4)");
@@ -2602,13 +2694,22 @@ namespace PTGOilSystem.Web.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<decimal?>("OwnerCommissionReversed")
+                        .HasColumnType("numeric(18,4)");
+
                     b.Property<int>("OwnerPartyId")
                         .HasColumnType("integer");
 
                     b.Property<int>("OwnerPartyType")
                         .HasColumnType("integer");
 
+                    b.Property<decimal?>("OwnerRateToUsd")
+                        .HasColumnType("numeric(24,12)");
+
                     b.Property<decimal>("QuantityMt")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("RecognizedCommissionReversed")
                         .HasColumnType("numeric(18,4)");
 
                     b.Property<decimal>("RecognizedCommissionReversedUsd")

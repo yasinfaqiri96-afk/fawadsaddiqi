@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using PTGOilSystem.Web.Configuration;
 using PTGOilSystem.Web.Data;
 using PTGOilSystem.Web.Models.Entities;
+using PTGOilSystem.Web.Services.Custody;
 
 namespace PTGOilSystem.Web.Services.Accounting;
 
@@ -78,12 +79,14 @@ public sealed class CustodyAccountingAdapter(
 
         var s = context.Settings!;
         var owner = (sale.OwnerPartyType, sale.OwnerPartyId);
+        var receivable = Money.Of(sale.Currency, sale.EffectiveAmount, sale.AmountUsd, sale.RateToUsd);
         var lines = new List<AccountingPostLine>
         {
-            Line(s.AccountsReceivableAccountId, sale.AmountUsd, 0m, AccountingPartyType.Customer, sale.CustomerId, sale.ProductId, $"Custody sale {sale.SaleNumber} receivable"),
-            Line(s.CustodyPendingCollectionAccountId!.Value, 0m, sale.AmountUsd, owner.OwnerPartyType, owner.OwnerPartyId, sale.ProductId, $"Custody sale {sale.SaleNumber} pending collection")
+            Line(s.AccountsReceivableAccountId, receivable, true, AccountingPartyType.Customer, sale.CustomerId, sale.ProductId, $"Custody sale {sale.SaleNumber} receivable"),
+            Line(s.CustodyPendingCollectionAccountId!.Value, receivable, false, owner.OwnerPartyType, owner.OwnerPartyId, sale.ProductId, $"Custody sale {sale.SaleNumber} pending collection")
         };
-        AddCommission(lines, s, owner, sale.CommissionRecognizedAtSaleUsd, sale.ProductId, sale.SaleNumber);
+        AddCommission(lines, s, owner, Money.Of(sale.EffectiveOwnerCurrency, sale.EffectiveCommissionAtSaleOwner, sale.CommissionRecognizedAtSaleUsd, sale.OwnerRateToUsd),
+            sale.ProductId, sale.SaleNumber);
 
         return await PostAsync(
             context.CompanyId,
@@ -112,47 +115,53 @@ public sealed class CustodyAccountingAdapter(
 
         var s = context.Settings!;
         var owner = (entry.OwnerPartyType, entry.OwnerPartyId);
-        var amount = entry.AmountUsd;
         var productId = sale?.ProductId;
         var label = sale?.SaleNumber ?? $"#{entry.Id}";
         var lines = new List<AccountingPostLine>();
+        // پولِ خودِ سند (صندوق) به ارز و نرخ همان روز؛ طلب مشتری و «در انتظار وصول» به نرخ فروش؛ حساب
+        // مالک (۲۶۰۰) به ارز مالک. اختلافِ دالریِ باقی‌مانده فقط تفاوت نرخ است و به حساب سود/زیان تسعیر می‌رود.
+        var cash = Money.Of(entry.Currency, entry.EffectiveAmount, entry.AmountUsd, entry.RateToUsd);
+        var receivable = sale is null ? cash : Money.Of(sale.Currency, entry.EffectiveAmount, CustodyFx.AtSaleRate(sale, entry.EffectiveAmount), sale.RateToUsd);
+        var ownerFunds = Money.Of(entry.EffectiveOwnerCurrency, entry.EffectiveOwnerAmount,
+            Usd(entry.EffectiveOwnerAmount, entry.EffectiveOwnerCurrency, entry.EffectiveOwnerRateToUsd), entry.OwnerRateToUsd);
+        var commission = Money.Of(entry.EffectiveOwnerCurrency, entry.EffectiveOwnerCommission, entry.CommissionUsd, entry.OwnerRateToUsd);
 
         switch (entry.Kind)
         {
             case CustodyFinanceKind.Collection:
-                lines.Add(CashLine(s, entry.CashAccountId, amount, 0m, $"Custody collection {label}"));
-                lines.Add(Line(s.AccountsReceivableAccountId, 0m, amount, AccountingPartyType.Customer, entry.CustomerId!.Value, productId, $"Custody collection {label}"));
-                lines.Add(Line(s.CustodyPendingCollectionAccountId!.Value, amount, 0m, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Custody collection {label} released to owner"));
-                lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, 0m, amount, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Custody funds held for owner {label}"));
-                AddCommission(lines, s, owner, entry.CommissionUsd, productId, label);
+                lines.Add(CashLine(s, entry.CashAccountId, cash, true, $"Custody collection {label}"));
+                lines.Add(Line(s.AccountsReceivableAccountId, receivable, false, AccountingPartyType.Customer, entry.CustomerId!.Value, productId, $"Custody collection {label}"));
+                lines.Add(Line(s.CustodyPendingCollectionAccountId!.Value, receivable, true, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Custody collection {label} released to owner"));
+                lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, ownerFunds, false, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Custody funds held for owner {label}"));
+                AddCommission(lines, s, owner, commission, productId, label);
                 break;
             case CustodyFinanceKind.DirectToOwner:
-                lines.Add(Line(s.CustodyPendingCollectionAccountId!.Value, amount, 0m, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Customer paid owner directly {label}"));
-                lines.Add(Line(s.AccountsReceivableAccountId, 0m, amount, AccountingPartyType.Customer, entry.CustomerId!.Value, productId, $"Customer paid owner directly {label}"));
-                AddCommission(lines, s, owner, entry.CommissionUsd, productId, label);
+                lines.Add(Line(s.CustodyPendingCollectionAccountId!.Value, receivable, true, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Customer paid owner directly {label}"));
+                lines.Add(Line(s.AccountsReceivableAccountId, receivable, false, AccountingPartyType.Customer, entry.CustomerId!.Value, productId, $"Customer paid owner directly {label}"));
+                AddCommission(lines, s, owner, commission, productId, label);
                 break;
             case CustodyFinanceKind.OwnerPayout:
             case CustodyFinanceKind.ReimbursableExpense:
-                lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, amount, 0m, owner.OwnerPartyType, owner.OwnerPartyId, productId,
+                lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, cash, true, owner.OwnerPartyType, owner.OwnerPartyId, productId,
                     entry.Kind == CustodyFinanceKind.OwnerPayout ? "Payment to custody owner" : "Expense paid on owner's behalf"));
-                lines.Add(CashLine(s, entry.CashAccountId, 0m, amount,
+                lines.Add(CashLine(s, entry.CashAccountId, cash, false,
                     entry.Kind == CustodyFinanceKind.OwnerPayout ? "Payment to custody owner" : "Expense paid on owner's behalf"));
                 break;
             case CustodyFinanceKind.ServiceFee:
-                lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, amount, 0m, owner.OwnerPartyType, owner.OwnerPartyId, productId, "Custody service fee charged to owner"));
-                lines.Add(Line(s.CustodyServiceRevenueAccountId!.Value, 0m, amount, null, null, productId, "Custody service revenue"));
+                lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, cash, true, owner.OwnerPartyType, owner.OwnerPartyId, productId, "Custody service fee charged to owner"));
+                lines.Add(Line(s.CustodyServiceRevenueAccountId!.Value, Money.Dollars(entry.AmountUsd), false, null, null, productId, "Custody service revenue"));
                 break;
             case CustodyFinanceKind.CustomerRefund:
                 // آینهٔ وصول: پول از صندوق به مشتری برمی‌گردد و از وجوه مالک کم می‌شود.
-                lines.Add(Line(s.AccountsReceivableAccountId, amount, 0m, AccountingPartyType.Customer, entry.CustomerId!.Value, productId, $"Custody refund {label}"));
-                lines.Add(CashLine(s, entry.CashAccountId, 0m, amount, $"Custody refund {label}"));
-                lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, amount, 0m, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Custody refund {label} from owner funds"));
-                lines.Add(Line(s.CustodyPendingCollectionAccountId!.Value, 0m, amount, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Custody refund {label}"));
+                lines.Add(Line(s.AccountsReceivableAccountId, receivable, true, AccountingPartyType.Customer, entry.CustomerId!.Value, productId, $"Custody refund {label}"));
+                lines.Add(CashLine(s, entry.CashAccountId, cash, false, $"Custody refund {label}"));
+                lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, ownerFunds, true, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Custody refund {label} from owner funds"));
+                lines.Add(Line(s.CustodyPendingCollectionAccountId!.Value, receivable, false, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Custody refund {label}"));
                 break;
             case CustodyFinanceKind.OwnerDirectRefund:
                 // آینهٔ پرداخت مستقیم مشتری به مالک؛ صندوق شرکت و وجوه مالک دست نمی‌خورند.
-                lines.Add(Line(s.AccountsReceivableAccountId, amount, 0m, AccountingPartyType.Customer, entry.CustomerId!.Value, productId, $"Owner refunded customer directly {label}"));
-                lines.Add(Line(s.CustodyPendingCollectionAccountId!.Value, 0m, amount, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Owner refunded customer directly {label}"));
+                lines.Add(Line(s.AccountsReceivableAccountId, receivable, true, AccountingPartyType.Customer, entry.CustomerId!.Value, productId, $"Owner refunded customer directly {label}"));
+                lines.Add(Line(s.CustodyPendingCollectionAccountId!.Value, receivable, false, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Owner refunded customer directly {label}"));
                 break;
             case CustodyFinanceKind.ProviderCharge:
             case CustodyFinanceKind.ProviderPayment:
@@ -164,19 +173,24 @@ public sealed class CustodyAccountingAdapter(
                     return Skip("Finance", entry.Id, ProviderPayableNotConfiguredReason);
                 if (entry.Kind == CustodyFinanceKind.ProviderCharge)
                 {
-                    lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, amount, 0m, owner.OwnerPartyType, owner.OwnerPartyId, productId, "Unpaid provider charge on owner's behalf"));
-                    lines.Add(Line(payableAccountId.Value, 0m, amount, AccountingPartyType.ServiceProvider, entry.ServiceProviderId, productId, "Provider payable for custody owner"));
+                    lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, cash, true, owner.OwnerPartyType, owner.OwnerPartyId, productId, "Unpaid provider charge on owner's behalf"));
+                    lines.Add(Line(payableAccountId.Value, cash, false, AccountingPartyType.ServiceProvider, entry.ServiceProviderId, productId, "Provider payable for custody owner"));
                 }
                 else
                 {
-                    lines.Add(Line(payableAccountId.Value, amount, 0m, AccountingPartyType.ServiceProvider, entry.ServiceProviderId, productId, "Provider payable settled (custody)"));
-                    lines.Add(CashLine(s, entry.CashAccountId, 0m, amount, "Provider payable settled (custody)"));
+                    lines.Add(Line(payableAccountId.Value, cash, true, AccountingPartyType.ServiceProvider, entry.ServiceProviderId, productId, "Provider payable settled (custody)"));
+                    lines.Add(CashLine(s, entry.CashAccountId, cash, false, "Provider payable settled (custody)"));
                 }
                 break;
             }
             default:
                 return Skip("Finance", entry.Id, "UNSUPPORTED_KIND");
         }
+
+        // فقط سندِ دوارزیِ نقدی (وصول/استرداد با ارز مالکِ متفاوت) تفاوت نرخ دارد؛ هر جای دیگر ناترازی خطاست.
+        var crossCurrency = sale is not null && sale.IsCrossCurrency
+            && entry.Kind is CustodyFinanceKind.Collection or CustodyFinanceKind.CustomerRefund;
+        AddExchangeDifference(lines, s, crossCurrency, productId, label);
 
         return await PostAsync(
             context.CompanyId,
@@ -207,15 +221,18 @@ public sealed class CustodyAccountingAdapter(
         var owner = (saleReturn.OwnerPartyType, saleReturn.OwnerPartyId);
         var label = saleReturn.ReturnNumber;
         // Mirror image of the sale journal for the returned part only.
+        var returned = Money.Of(sale.Currency, saleReturn.EffectiveAmount, saleReturn.AmountUsd, sale.RateToUsd);
         var lines = new List<AccountingPostLine>
         {
-            Line(s.CustodyPendingCollectionAccountId!.Value, saleReturn.AmountUsd, 0m, owner.OwnerPartyType, owner.OwnerPartyId, sale.ProductId, $"Custody sale return {label} pending collection released"),
-            Line(s.AccountsReceivableAccountId, 0m, saleReturn.AmountUsd, AccountingPartyType.Customer, saleReturn.CustomerId, sale.ProductId, $"Custody sale return {label} receivable reduced")
+            Line(s.CustodyPendingCollectionAccountId!.Value, returned, true, owner.OwnerPartyType, owner.OwnerPartyId, sale.ProductId, $"Custody sale return {label} pending collection released"),
+            Line(s.AccountsReceivableAccountId, returned, false, AccountingPartyType.Customer, saleReturn.CustomerId, sale.ProductId, $"Custody sale return {label} receivable reduced")
         };
         if (saleReturn.RecognizedCommissionReversedUsd > 0m)
         {
-            lines.Add(Line(s.CustodyCommissionRevenueAccountId!.Value, saleReturn.RecognizedCommissionReversedUsd, 0m, null, null, sale.ProductId, $"Custody commission reversed {label}"));
-            lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, 0m, saleReturn.RecognizedCommissionReversedUsd, owner.OwnerPartyType, owner.OwnerPartyId, sale.ProductId, $"Commission returned to owner {label}"));
+            lines.Add(Line(s.CustodyCommissionRevenueAccountId!.Value, Money.Dollars(saleReturn.RecognizedCommissionReversedUsd), true, null, null, sale.ProductId, $"Custody commission reversed {label}"));
+            lines.Add(Line(s.CustodyFundsPayableAccountId!.Value,
+                Money.Of(sale.EffectiveOwnerCurrency, saleReturn.EffectiveOwnerCommissionReversed, saleReturn.RecognizedCommissionReversedUsd, saleReturn.OwnerRateToUsd),
+                false, owner.OwnerPartyType, owner.OwnerPartyId, sale.ProductId, $"Commission returned to owner {label}"));
         }
 
         return await PostAsync(
@@ -272,33 +289,78 @@ public sealed class CustodyAccountingAdapter(
         return new CustodyAccountingResult(CustodyPostingStatus.Posted, journal, null);
     }
 
+    /// <summary>مبلغِ یک سطر: ارز و مبلغِ اصلی و ارزشِ دالری.</summary>
+    private readonly record struct Money(string Currency, decimal Amount, decimal Usd, decimal? Rate)
+    {
+        public static Money Of(string currency, decimal amount, decimal usd, decimal? rate = null)
+            => SystemCurrency.IsBaseCurrency(currency) ? new(SystemCurrency.BaseCurrencyCode, usd, usd, 1m) : new(currency.Trim().ToUpperInvariant(), amount, usd, rate);
+        public static Money Dollars(decimal usd) => new(SystemCurrency.BaseCurrencyCode, usd, usd, 1m);
+    }
+
+    private static decimal Usd(decimal amount, string currency, decimal toUsd)
+        => SystemCurrency.IsBaseCurrency(currency) ? amount : decimal.Round(amount * toUsd, 4, MidpointRounding.AwayFromZero);
+
     private static void AddCommission(
         List<AccountingPostLine> lines,
         AccountingSettings s,
         (AccountingPartyType Type, int Id) owner,
-        decimal commissionUsd,
+        Money commission,
         int? productId,
         string label)
     {
-        if (commissionUsd <= 0m) return;
-        lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, commissionUsd, 0m, owner.Type, owner.Id, productId, $"Commission deducted {label}"));
-        lines.Add(Line(s.CustodyCommissionRevenueAccountId!.Value, 0m, commissionUsd, null, null, productId, $"Custody commission {label}"));
+        if (commission.Usd <= 0m) return;
+        lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, commission, true, owner.Type, owner.Id, productId, $"Commission deducted {label}"));
+        lines.Add(Line(s.CustodyCommissionRevenueAccountId!.Value, Money.Dollars(commission.Usd), false, null, null, productId, $"Custody commission {label}"));
     }
 
+    /// <summary>
+    /// تفاوتِ دالریِ پولِ واقعی و سهمِ ثبت‌شدهٔ مالک (طبق توافقِ مسئولیت تفاوت نرخ) به حساب‌های
+    /// تسعیرِ تنظیمات حسابداری می‌رود. سندِ هم‌ارز باید دقیقاً تراز باشد.
+    /// </summary>
+    private static void AddExchangeDifference(List<AccountingPostLine> lines, AccountingSettings s, bool crossCurrency, int? productId, string label)
+    {
+        var difference = lines.Sum(x => x.Debit) - lines.Sum(x => x.Credit);
+        if (difference == 0m) return;
+        if (!crossCurrency)
+            throw new InvalidOperationException($"Custody journal for {label} is unbalanced by {difference} without a currency difference.");
+        if (difference > 0m)
+            lines.Add(Line(s.ExchangeGainAccountId, Money.Dollars(difference), false, null, null, productId, $"Custody exchange difference {label}"));
+        else
+            lines.Add(Line(s.ExchangeLossAccountId, Money.Dollars(-difference), true, null, null, productId, $"Custody exchange difference {label}"));
+    }
+
+    /// <summary>
+    /// سطرِ ارزی: مبلغ اصلی × نرخ باید دقیقاً همان ارزش دالری باشد (قاعدهٔ <see cref="AccountingPostingService"/>).
+    /// نرخ از خودِ ارزش‌ها مشتق می‌شود تا ارزشِ دالریِ ثبت‌شده در سند امانی و ژورنال یکی بماند.
+    /// </summary>
     private static AccountingPostLine Line(
         int accountId,
-        decimal debit,
-        decimal credit,
+        Money money,
+        bool debit,
         AccountingPartyType? partyType,
         int? partyId,
         int? productId,
-        string description)
-        => new(accountId, debit, credit, "USD", debit + credit, 1m, partyType, partyId,
-            ProductId: productId, Description: description);
+        string description,
+        int? cashAccountId = null)
+    {
+        var rate = 1m;
+        if (!SystemCurrency.IsBaseCurrency(money.Currency))
+        {
+            if (money.Amount <= 0m)
+                throw new InvalidOperationException($"Custody {money.Currency} line without an amount: {description}");
+            // اول نرخِ خودِ سند؛ اگر ارزش دالری از جمعِ چند جزء آمده، نرخِ مشتق از همان ارزش.
+            rate = money.Rate is > 0m && decimal.Round(money.Amount * money.Rate.Value, 4, MidpointRounding.AwayFromZero) == money.Usd
+                ? money.Rate.Value
+                : FxRateMath.RoundRate(money.Usd / money.Amount);
+            if (decimal.Round(money.Amount * rate, 4, MidpointRounding.AwayFromZero) != money.Usd)
+                throw new InvalidOperationException($"Custody {money.Currency} line cannot be expressed with a 12-digit rate: {description}");
+        }
+        return new AccountingPostLine(accountId, debit ? money.Usd : 0m, debit ? 0m : money.Usd, money.Currency, money.Amount, rate,
+            partyType, partyId, ProductId: productId, CashAccountId: cashAccountId, Description: description);
+    }
 
-    private static AccountingPostLine CashLine(AccountingSettings s, int? cashAccountId, decimal debit, decimal credit, string description)
-        => new(s.CashBankControlAccountId, debit, credit, "USD", debit + credit, 1m,
-            CashAccountId: cashAccountId, Description: description);
+    private static AccountingPostLine CashLine(AccountingSettings s, int? cashAccountId, Money money, bool debit, string description)
+        => Line(s.CashBankControlAccountId, money, debit, null, null, null, description, cashAccountId);
 
     private async Task<CustodyAccountingResult> PostAsync(
         int companyId,

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace PTGOilSystem.Web.Models.Entities;
 
@@ -183,6 +184,17 @@ public enum CustodyCommissionRecognition
     [Display(Name = "هنگام فروش")] OnSale = 2
 }
 
+/// <summary>
+/// مسئولِ تفاوت نرخ وقتی ارز فروش به مشتری با ارز تعهد به مالک فرق دارد. هیچ مقدار پیش‌فرضی
+/// ندارد؛ تا در توافق مالک صریحاً ثبت نشود، سندی که تفاوت نرخ دارد نهایی نمی‌شود.
+/// </summary>
+public enum CustodyFxResponsibility
+{
+    [Display(Name = "مالک")] Owner = 1,
+    [Display(Name = "شرکت")] Company = 2,
+    [Display(Name = "تقسیم طبق توافق")] Split = 3
+}
+
 public class CustodySale : BaseEntity
 {
     [Required, MaxLength(50)] public string SaleNumber { get; set; } = "";
@@ -214,6 +226,42 @@ public class CustodySale : BaseEntity
 
     /// <summary>OperationKeyِ حرکتِ خروجِ همین فروش در دفتر امانی.</summary>
     public Guid StockOperationKey { get; set; }
+
+    // ---- چندارزی. ستون‌های *Usd ارزشِ دالریِ دفتر کل‌اند؛ مبالغِ زیر به ارزِ خودِ سند. سطرهای قدیمی
+    // (null) همه دالری‌اند و مقدارِ مؤثرشان همان ستون‌های دالری است — دادهٔ تاریخی تغییر نمی‌کند.
+    /// <summary>قیمت فی تُن به ارز فروش (<see cref="Currency"/>).</summary>
+    public decimal? UnitPrice { get; set; }
+    /// <summary>مبلغ فروش به ارز فروش.</summary>
+    public decimal? SaleAmount { get; set; }
+    /// <summary>کمیشنِ کل به ارز فروش.</summary>
+    public decimal? SaleCommission { get; set; }
+    /// <summary>ضریبِ ارز فروش به دالر در تاریخ فروش (۱ برای دالر).</summary>
+    public decimal? RateToUsd { get; set; }
+    /// <summary>«۱ دالر = چند واحد» همان نرخ، همان‌طور که ثبت/توافق شده.</summary>
+    public decimal? CurrencyPerUsd { get; set; }
+    [MaxLength(300)] public string? RateSource { get; set; }
+    /// <summary>ارز تعهد به مالک؛ null یعنی سند قدیمیِ دالری.</summary>
+    [MaxLength(10)] public string? OwnerCurrency { get; set; }
+    /// <summary>نرخِ قفل‌شدهٔ توافق مالک (افغانی در برابر ۱ دالر) وقتی ارز فروش و ارز مالک فرق دارند.</summary>
+    public decimal? OwnerAgreedPerUsd { get; set; }
+    [MaxLength(300)] public string? OwnerRateSource { get; set; }
+    /// <summary>ضریبِ ارز مالک به دالر برای اسنادِ هنگام فروش (کمیشنِ «هنگام فروش»).</summary>
+    public decimal? OwnerRateToUsd { get; set; }
+    /// <summary>کمیشنِ «هنگام فروش» به ارز مالک.</summary>
+    public decimal? CommissionRecognizedAtSaleOwner { get; set; }
+    public CustodyFxResponsibility? FxResponsibility { get; set; }
+    /// <summary>سهم مالک از تفاوت نرخ (فیصدی) — فقط برای «تقسیم طبق توافق».</summary>
+    public decimal? FxOwnerSharePercent { get; set; }
+    [MaxLength(300)] public string? FxAgreementReference { get; set; }
+
+    [NotMapped] public decimal EffectiveAmount => SaleAmount ?? AmountUsd;
+    [NotMapped] public decimal EffectiveUnitPrice => UnitPrice ?? UnitPriceUsd;
+    [NotMapped] public decimal EffectiveCommission => SaleCommission ?? CommissionUsd;
+    [NotMapped] public decimal EffectiveRateToUsd => RateToUsd ?? 1m;
+    [NotMapped] public string EffectiveOwnerCurrency => OwnerCurrency ?? "USD";
+    [NotMapped] public decimal EffectiveOwnerRateToUsd => OwnerRateToUsd ?? 1m;
+    [NotMapped] public decimal EffectiveCommissionAtSaleOwner => CommissionRecognizedAtSaleOwner ?? CommissionRecognizedAtSaleUsd;
+    [NotMapped] public bool IsCrossCurrency => !string.Equals(Currency, EffectiveOwnerCurrency, StringComparison.OrdinalIgnoreCase);
 
     [MaxLength(100)] public string? DocumentNumber { get; set; }
     [MaxLength(1000)] public string? Notes { get; set; }
@@ -291,6 +339,37 @@ public class CustodyFinanceEntry : BaseEntity
     public int? CustodySaleReturnId { get; set; }
     public CustodySaleReturn? CustodySaleReturn { get; set; }
 
+    // ---- چندارزی (null = سند قدیمیِ دالری). AmountUsd ارزشِ دالریِ پولِ سند در تاریخ خودش است؛
+    // CommissionUsd درآمدِ دالریِ کمیشن.
+    /// <summary>مبلغ به ارز سند (<see cref="Currency"/>) — برای وصول/استرداد همان ارز فروش.</summary>
+    public decimal? Amount { get; set; }
+    /// <summary>سهمِ کمیشن از همین وصول به ارز فروش (برای تناسبِ کمیشن).</summary>
+    public decimal? Commission { get; set; }
+    public decimal? RateToUsd { get; set; }
+    public decimal? CurrencyPerUsd { get; set; }
+    [MaxLength(300)] public string? RateSource { get; set; }
+    /// <summary>ارزی که حساب مالک با این سند در آن تغییر می‌کند.</summary>
+    [MaxLength(10)] public string? OwnerCurrency { get; set; }
+    /// <summary>اثرِ ناخالص بر حساب مالک به ارز مالک (بستانکار برای وصول، بدهکار برای مصرف/پرداخت/استرداد).</summary>
+    public decimal? OwnerAmount { get; set; }
+    /// <summary>کمیشنِ کسرشده از مالک به ارز مالک.</summary>
+    public decimal? OwnerCommission { get; set; }
+    public decimal? OwnerRateToUsd { get; set; }
+    /// <summary>تفاوت نرخ نسبت به نرخ قفل‌شدهٔ توافق مالک، به ارز مالک (مثبت = به نفع).</summary>
+    public decimal? FxDifference { get; set; }
+    /// <summary>بخشی از تفاوت نرخ که طبق توافق به حساب مالک رفت (به ارز مالک).</summary>
+    public decimal? FxOwnerShare { get; set; }
+    /// <summary>سود (+) یا زیان (−) تسعیرِ شرکت از این سند، به دالر.</summary>
+    public decimal? FxCompanyUsd { get; set; }
+
+    [NotMapped] public decimal EffectiveAmount => Amount ?? AmountUsd;
+    [NotMapped] public decimal EffectiveCommission => Commission ?? CommissionUsd;
+    [NotMapped] public decimal EffectiveRateToUsd => RateToUsd ?? 1m;
+    [NotMapped] public string EffectiveOwnerCurrency => OwnerCurrency ?? "USD";
+    [NotMapped] public decimal EffectiveOwnerAmount => OwnerAmount ?? AmountUsd;
+    [NotMapped] public decimal EffectiveOwnerCommission => OwnerCommission ?? CommissionUsd;
+    [NotMapped] public decimal EffectiveOwnerRateToUsd => OwnerRateToUsd ?? 1m;
+
     [MaxLength(100)] public string? DocumentNumber { get; set; }
     [MaxLength(1000)] public string? Description { get; set; }
 
@@ -322,6 +401,24 @@ public class CustodySaleReturn : BaseEntity
     public decimal CommissionUsd { get; set; }
     /// <summary>بخشی از کاهش که قبلاً درآمد شده بود (کمیشن «هنگام فروش») و اکنون معکوس شد.</summary>
     public decimal RecognizedCommissionReversedUsd { get; set; }
+
+    // ---- چندارزی (null = سند قدیمیِ دالری). AmountUsd به نرخِ همان فروش است تا طلب مشتری و «در انتظار
+    // وصول» دقیقاً با همان ارزش دفتری برگردند.
+    /// <summary>مبلغ برگشت به ارز فروش.</summary>
+    public decimal? Amount { get; set; }
+    /// <summary>کاهش کمیشن به ارز فروش.</summary>
+    public decimal? Commission { get; set; }
+    /// <summary>کمیشنِ درآمدشدهٔ معکوس‌شده به ارز فروش.</summary>
+    public decimal? RecognizedCommissionReversed { get; set; }
+    /// <summary>کمیشنِ معکوس‌شده که به حساب مالک برگشت، به ارز مالک.</summary>
+    public decimal? OwnerCommissionReversed { get; set; }
+    public decimal? OwnerRateToUsd { get; set; }
+
+    [NotMapped] public decimal EffectiveAmount => Amount ?? AmountUsd;
+    [NotMapped] public decimal EffectiveCommission => Commission ?? CommissionUsd;
+    [NotMapped] public decimal EffectiveRecognizedCommissionReversed => RecognizedCommissionReversed ?? RecognizedCommissionReversedUsd;
+    [NotMapped] public decimal EffectiveOwnerCommissionReversed => OwnerCommissionReversed ?? RecognizedCommissionReversedUsd;
+    [NotMapped] public decimal EffectiveOwnerRateToUsd => OwnerRateToUsd ?? 1m;
 
     /// <summary>OperationKeyِ ورودِ برگشت در دفتر امانی.</summary>
     public Guid StockOperationKey { get; set; }

@@ -97,6 +97,11 @@ public static class CustodyModelConfiguration
             table.HasCheckConstraint("CK_CustodySales_Amounts",
                 "\"AmountUsd\" > 0 AND \"CommissionUsd\" >= 0 AND \"CommissionUsd\" <= \"AmountUsd\""
                 + " AND \"CommissionRecognizedAtSaleUsd\" >= 0 AND \"CommissionRecognizedAtSaleUsd\" <= \"CommissionUsd\"");
+            // ارزِ متفاوتِ مالک بدون نرخِ قفل‌شده ثبت نمی‌شود؛ مسئولیتِ تفاوت نرخ فقط همراهِ مرجعِ توافق.
+            table.HasCheckConstraint("CK_CustodySales_Fx",
+                "(\"OwnerCurrency\" IS NULL OR \"OwnerCurrency\" = \"Currency\" OR \"OwnerAgreedPerUsd\" > 0)"
+                + " AND (\"FxResponsibility\" IS NULL OR \"FxAgreementReference\" IS NOT NULL)"
+                + " AND (\"FxResponsibility\" IS NULL OR \"FxResponsibility\" <> 3 OR (\"FxOwnerSharePercent\" > 0 AND \"FxOwnerSharePercent\" < 100))");
         });
         sale.Property(x => x.QuantityMt).HasColumnType("numeric(18,4)");
         sale.Property(x => x.UnitPriceUsd).HasColumnType("numeric(18,4)");
@@ -104,6 +109,15 @@ public static class CustodyModelConfiguration
         sale.Property(x => x.CommissionRate).HasColumnType("numeric(18,6)");
         sale.Property(x => x.CommissionUsd).HasColumnType("numeric(18,4)");
         sale.Property(x => x.CommissionRecognizedAtSaleUsd).HasColumnType("numeric(18,4)");
+        sale.Property(x => x.UnitPrice).HasColumnType("numeric(18,4)");
+        sale.Property(x => x.SaleAmount).HasColumnType("numeric(18,4)");
+        sale.Property(x => x.SaleCommission).HasColumnType("numeric(18,4)");
+        sale.Property(x => x.RateToUsd).HasColumnType("numeric(24,12)");
+        sale.Property(x => x.CurrencyPerUsd).HasColumnType("numeric(24,12)");
+        sale.Property(x => x.OwnerAgreedPerUsd).HasColumnType("numeric(24,12)");
+        sale.Property(x => x.OwnerRateToUsd).HasColumnType("numeric(24,12)");
+        sale.Property(x => x.CommissionRecognizedAtSaleOwner).HasColumnType("numeric(18,4)");
+        sale.Property(x => x.FxOwnerSharePercent).HasColumnType("numeric(9,4)");
         sale.HasIndex(x => x.SaleNumber).IsUnique();
         sale.HasIndex(x => x.StockOperationKey).IsUnique();
         sale.HasIndex(x => new { x.OwnerPartyType, x.OwnerPartyId });
@@ -120,6 +134,16 @@ public static class CustodyModelConfiguration
         });
         finance.Property(x => x.AmountUsd).HasColumnType("numeric(18,4)");
         finance.Property(x => x.CommissionUsd).HasColumnType("numeric(18,4)");
+        finance.Property(x => x.Amount).HasColumnType("numeric(18,4)");
+        finance.Property(x => x.Commission).HasColumnType("numeric(18,4)");
+        finance.Property(x => x.RateToUsd).HasColumnType("numeric(24,12)");
+        finance.Property(x => x.CurrencyPerUsd).HasColumnType("numeric(24,12)");
+        finance.Property(x => x.OwnerAmount).HasColumnType("numeric(18,4)");
+        finance.Property(x => x.OwnerCommission).HasColumnType("numeric(18,4)");
+        finance.Property(x => x.OwnerRateToUsd).HasColumnType("numeric(24,12)");
+        finance.Property(x => x.FxDifference).HasColumnType("numeric(18,4)");
+        finance.Property(x => x.FxOwnerShare).HasColumnType("numeric(18,4)");
+        finance.Property(x => x.FxCompanyUsd).HasColumnType("numeric(18,4)");
         finance.HasIndex(x => new { x.OwnerPartyType, x.OwnerPartyId });
         finance.HasIndex(x => x.CustodySaleId);
         finance.HasIndex(x => x.CustodyLotId);
@@ -151,6 +175,11 @@ public static class CustodyModelConfiguration
         saleReturn.Property(x => x.AmountUsd).HasColumnType("numeric(18,4)");
         saleReturn.Property(x => x.CommissionUsd).HasColumnType("numeric(18,4)");
         saleReturn.Property(x => x.RecognizedCommissionReversedUsd).HasColumnType("numeric(18,4)");
+        saleReturn.Property(x => x.Amount).HasColumnType("numeric(18,4)");
+        saleReturn.Property(x => x.Commission).HasColumnType("numeric(18,4)");
+        saleReturn.Property(x => x.RecognizedCommissionReversed).HasColumnType("numeric(18,4)");
+        saleReturn.Property(x => x.OwnerCommissionReversed).HasColumnType("numeric(18,4)");
+        saleReturn.Property(x => x.OwnerRateToUsd).HasColumnType("numeric(24,12)");
         saleReturn.HasIndex(x => x.ReturnNumber).IsUnique();
         saleReturn.HasIndex(x => x.StockOperationKey).IsUnique();
         saleReturn.HasIndex(x => x.CustodySaleId);
