@@ -58,6 +58,7 @@
                     <tr><td><a asp-controller="Contracts" asp-action="Details" asp-route-id="@c.ContractId">@c.Contract?.ContractNumber</a></td><td>@NumberDisplay.Quantity(c.QuantityMt, "MT")</td><td>@(c.Status == CustodyDocumentStatus.Posted ? "ثبت‌شده" : "لغو‌شده")</td><td>
                         @if (c.Status == CustodyDocumentStatus.Posted)
                         {
+                            <a class="btn btn-sm btn-light" asp-controller="Sales" asp-action="Create" asp-route-sourcePurchaseContractId="@c.ContractId">فروش ملکی از همین خرید</a>
                             <form asp-action="CancelConversion" asp-route-id="@c.Id" method="post">
                                 @Html.AntiForgeryToken()
                                 <input name="reason" class="ak-input" placeholder="دلیل لغو" aria-label="دلیل لغو" maxlength="500" required />

@@ -42,6 +42,10 @@
                 @UiText.T(Context,
                     "شرکت به نمایندگی مالک می‌فروشد. تیل از موجودی همین مالک کم می‌شود؛ مبلغ فروش از آنِ مالک است و فقط کمیشن درآمد شرکت است. موجودی ملکی و فروش شرکت تغییر نمی‌کند.",
                     "The company sells on the owner's behalf. Stock leaves this owner's lot; the sale amount belongs to the owner and only the commission is company revenue.")
+                <div class="small mt-1">
+                    @UiText.T(Context, "اگر شرکت فروشندهٔ اصلی است، اول تیل را بخرد و سپس از موجودی ملکی بفروشد:", "If the company is the principal seller, buy the stock first, then sell from company stock:")
+                    <a asp-action="ConvertPurchase" asp-route-id="@lot.LotId">@UiText.T(Context, "تبدیل به خرید قطعی", "Convert to purchase")</a>
+                </div>
             </div>
 
             <section class="ak-form-section">

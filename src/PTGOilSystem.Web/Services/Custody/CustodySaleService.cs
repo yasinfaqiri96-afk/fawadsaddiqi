@@ -20,8 +20,19 @@ public enum CustodySaleSettlement
     DirectToOwner = 3
 }
 
+/// <summary>
+/// نقش شرکت در فروش امانی. فروش امانی همیشه به نمایندگی مالک است؛ فروشندهٔ اصلی فقط پس از
+/// خرید قطعی (تبدیل امانی) و از مسیر فروش ملکیِ موجود ممکن است، نه با انتخاب یک گزینه.
+/// </summary>
+public enum CustodySaleRole
+{
+    Agent = 1,
+    Principal = 2
+}
+
 public sealed class CustodySaleInput
 {
+    public CustodySaleRole Role { get; init; } = CustodySaleRole.Agent;
     public int LotId { get; init; }
     public required CustodyLocation Location { get; init; }
     /// <summary>
@@ -165,6 +176,9 @@ public sealed class CustodySaleService(
     public Task<int> CreateSaleAsync(CustodySaleInput input, CancellationToken ct = default)
         => InTransactionAsync(async () =>
         {
+            if (input.Role != CustodySaleRole.Agent)
+                throw Rule("CUSTODY_PRINCIPAL_VIA_PURCHASE",
+                    "شرکت پیش از فروش مالک این تیل نیست؛ برای فروش به‌عنوان فروشندهٔ اصلی، اول «تبدیل به خرید قطعی» و سپس فروش ملکی از همان خرید را ثبت کنید.");
             RequireUsd(input.Currency);
             var primaryQuantity = input.Measurement?.ToMt() ?? input.QuantityMt;
             if (input.Measurement is not null && input.QuantityMt != 0m && input.QuantityMt != primaryQuantity)

@@ -1125,4 +1125,23 @@ public sealed class CustodyContinuationPostgresTests(ConcurrencyVersionPostgresF
             Assert.False(await db.PaymentTransactions.AnyAsync(p => p.CashAccountId == w.CashAccountId));
         await AssertCustodyJournalsBalancedAsync();
     }
+
+    [Fact]
+    public async Task Principal_Role_Never_Creates_A_Company_Sale_From_Custody_Stock()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        await using var db = fixture.CreateDbContext();
+        var sales = await db.SalesTransactions.CountAsync();
+        var input = SaleInput(w, 10m, 0m);
+        var ex = await Assert.ThrowsAsync<BusinessRuleException>(() => Sales(db).CreateSaleAsync(new CustodySaleInput
+        {
+            Role = CustodySaleRole.Principal, LotId = input.LotId, Location = input.Location, QuantityMt = 10m,
+            CustomerId = w.CustomerId, SaleDate = Day, UnitPriceUsd = 500m
+        }));
+        Assert.Equal("CUSTODY_PRINCIPAL_VIA_PURCHASE", ex.Code);
+        Assert.Equal(sales, await db.SalesTransactions.CountAsync());
+        Assert.False(await db.CustodySales.AnyAsync(x => x.CustodyLotId == w.LotA));
+        Assert.Equal(40m, await LotBalanceAsync(w.LotA));
+    }
 }
