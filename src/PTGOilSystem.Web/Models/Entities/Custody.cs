@@ -239,7 +239,11 @@ public enum CustodyFinanceKind
     /// </summary>
     [Display(Name = "مصرف نسیه به حساب مالک")] ProviderCharge = 6,
     /// <summary>پرداختِ (کامل یا قسمیِ) همان مصرف نسیه به خدمات‌دهنده؛ حساب مالک تغییر نمی‌کند.</summary>
-    [Display(Name = "پرداخت به خدمات‌دهنده")] ProviderPayment = 7
+    [Display(Name = "پرداخت به خدمات‌دهنده")] ProviderPayment = 7,
+    /// <summary>استردادِ پولِ وصول‌شده به مشتری از صندوق/بانک شرکت، فقط همراهِ سند برگشت فروش.</summary>
+    [Display(Name = "استرداد به مشتری")] CustomerRefund = 8,
+    /// <summary>مالک مستقیماً پولِ پرداخت‌شده به خودش را به مشتری پس داد؛ صندوق شرکت تغییر نمی‌کند.</summary>
+    [Display(Name = "استرداد مستقیم مالک به مشتری")] OwnerDirectRefund = 9
 }
 
 /// <summary>
@@ -283,6 +287,9 @@ public class CustodyFinanceEntry : BaseEntity
     /// <summary>پرداخت به خدمات‌دهنده به کدام مصرف نسیه تعلق دارد.</summary>
     public int? SettlesFinanceEntryId { get; set; }
     public CustodyFinanceEntry? SettlesFinanceEntry { get; set; }
+    /// <summary>استرداد به کدام برگشتِ فروش تعلق دارد؛ فقط همراهِ همان سند ثبت و لغو می‌شود.</summary>
+    public int? CustodySaleReturnId { get; set; }
+    public CustodySaleReturn? CustodySaleReturn { get; set; }
 
     [MaxLength(100)] public string? DocumentNumber { get; set; }
     [MaxLength(1000)] public string? Description { get; set; }

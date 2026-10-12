@@ -136,6 +136,8 @@ public static class CustodyModelConfiguration
         finance.HasIndex(x => x.SettlesFinanceEntryId);
         finance.HasOne(x => x.ServiceProvider).WithMany().HasForeignKey(x => x.ServiceProviderId).OnDelete(DeleteBehavior.Restrict);
         finance.HasOne(x => x.SettlesFinanceEntry).WithMany().HasForeignKey(x => x.SettlesFinanceEntryId).OnDelete(DeleteBehavior.Restrict);
+        finance.HasIndex(x => x.CustodySaleReturnId);
+        finance.HasOne(x => x.CustodySaleReturn).WithMany().HasForeignKey(x => x.CustodySaleReturnId).OnDelete(DeleteBehavior.Restrict);
 
         var saleReturn = modelBuilder.Entity<CustodySaleReturn>();
         saleReturn.ToTable("CustodySaleReturns", table =>

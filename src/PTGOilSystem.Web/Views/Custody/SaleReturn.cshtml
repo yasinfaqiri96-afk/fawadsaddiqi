@@ -72,6 +72,58 @@
                 <span class="ak-field-error">@Html.ValidationMessage("Lines")</span>
             </section>
 
+            @if (sale.CollectedByCompanyUsd > 0m || sale.CollectedByOwnerUsd > 0m)
+            {
+                var refundOpen = (form.RefundFromCompanyUsd ?? 0m) + (form.RefundByOwnerUsd ?? 0m) > 0m;
+                <details class="ak-advanced" open="@refundOpen">
+                    <summary class="ak-advanced-summary fw-bold">@UiText.T(Context, "استرداد پولِ وصول‌شده (اگر مبلغ برگشت از وصول‌نشده بیشتر است)", "Refund of collected money")</summary>
+                    <p class="text-muted small mb-2">
+                        @UiText.T(Context, "جمعِ استرداد باید دقیقاً برابر بخشی از برگشت باشد که پولش قبلاً وصول شده. استرداد از صندوق فقط با سند واقعی پرداخت؛ اگر پول به مالک پرداخت شده، فقط با سندِ قابل وصول از مالک.", "Refunds must exactly cover the collected part; a real payment document is required.")
+                        @UiText.T(Context, "نزد شرکت", "Held by company"): @sale.CollectedByCompanyUsd.ToString("N2") USD ·
+                        @UiText.T(Context, "مستقیم به مالک", "Paid to owner directly"): @sale.CollectedByOwnerUsd.ToString("N2") USD
+                    </p>
+                    <div class="ak-form-grid">
+                        @if (sale.CollectedByCompanyUsd > 0m)
+                        {
+                            <div class="ak-field">
+                                <label for="RefundFromCompanyUsd" class="ak-label">@UiText.T(Context, "استرداد از صندوق شرکت (USD)", "Refund from company (USD)")</label>
+                                <input id="RefundFromCompanyUsd" name="RefundFromCompanyUsd" type="number" step="0.01" min="0" class="ak-input" value="@form.RefundFromCompanyUsd" />
+                            </div>
+                            <div class="ak-field">
+                                <label for="RefundCashAccountId" class="ak-label">@UiText.T(Context, "صندوق / بانک", "Till / bank")</label>
+                                <select id="RefundCashAccountId" name="RefundCashAccountId" class="ak-input">
+                                    <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
+                                    @foreach (var a in Model.CashAccounts)
+                                    {
+                                        <option value="@a.Id" selected="@(a.Id == form.RefundCashAccountId)">@a.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="ak-field">
+                                <label for="RefundDocumentNumber" class="ak-label">@UiText.T(Context, "شمارهٔ سند پرداخت", "Payment document no.")</label>
+                                <input id="RefundDocumentNumber" name="RefundDocumentNumber" class="ak-input" maxlength="100" value="@form.RefundDocumentNumber" />
+                            </div>
+                            <div class="ak-field ak-col-full">
+                                <label><input type="checkbox" name="OwnerRecoveryConfirmed" value="true" checked="@form.OwnerRecoveryConfirmed" />
+                                    @UiText.T(Context, "پول به مالک پرداخت شده و این مبلغ طبق سند از مالک قابل وصول است", "Owner was paid; this amount is recoverable from the owner per document")</label>
+                                <input name="OwnerRecoveryReference" class="ak-input" maxlength="300" value="@form.OwnerRecoveryReference" aria-label="@UiText.T(Context, "سند قابل وصول از مالک", "Owner recovery document")" placeholder="@UiText.T(Context, "سند قابل وصول از مالک", "Owner recovery document")" />
+                            </div>
+                        }
+                        @if (sale.CollectedByOwnerUsd > 0m)
+                        {
+                            <div class="ak-field">
+                                <label for="RefundByOwnerUsd" class="ak-label">@UiText.T(Context, "مالک مستقیم پس داد (USD)", "Refunded by owner directly (USD)")</label>
+                                <input id="RefundByOwnerUsd" name="RefundByOwnerUsd" type="number" step="0.01" min="0" class="ak-input" value="@form.RefundByOwnerUsd" />
+                            </div>
+                            <div class="ak-field">
+                                <label for="OwnerRefundReference" class="ak-label">@UiText.T(Context, "سند استرداد مالک", "Owner refund document")</label>
+                                <input id="OwnerRefundReference" name="OwnerRefundReference" class="ak-input" maxlength="100" value="@form.OwnerRefundReference" />
+                            </div>
+                        }
+                    </div>
+                </details>
+            }
+
             <partial name="~/Views/Shared/Components/Ak/_AkFooterActions.cshtml"
                      model="@((UiText.T(Context, "ثبت برگشت", "Record return"), backUrl ?? "/", UiText.T(Context, "انصراف", "Cancel")))" />
         </form>

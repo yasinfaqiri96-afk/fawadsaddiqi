@@ -569,13 +569,16 @@ public sealed class CustodyReadService(
 
         return rows.Select(r =>
         {
-            var mine = collected.Where(c => c.SaleId == r.Id && c.Kind is CustodyFinanceKind.Collection or CustodyFinanceKind.DirectToOwner).ToList();
+            var mine = collected.Where(c => c.SaleId == r.Id && c.Kind is CustodyFinanceKind.Collection or CustodyFinanceKind.DirectToOwner
+                or CustodyFinanceKind.CustomerRefund or CustodyFinanceKind.OwnerDirectRefund).ToList();
             var back = returned.SingleOrDefault(x => x.SaleId == r.Id);
             return new CustodySaleRow(
                 r.Id, r.SaleNumber, r.CustodyLotId, r.LotNumber, r.OwnerPartyType, r.OwnerPartyId, r.SaleDate,
                 r.CustomerId, r.CustomerName, r.ProductName ?? "-", r.QuantityMt, r.UnitPriceUsd, r.AmountUsd,
-                mine.Where(c => c.Kind == CustodyFinanceKind.Collection).Sum(c => c.Amount),
-                mine.Where(c => c.Kind == CustodyFinanceKind.DirectToOwner).Sum(c => c.Amount),
+                mine.Where(c => c.Kind == CustodyFinanceKind.Collection).Sum(c => c.Amount)
+                    - mine.Where(c => c.Kind == CustodyFinanceKind.CustomerRefund).Sum(c => c.Amount),
+                mine.Where(c => c.Kind == CustodyFinanceKind.DirectToOwner).Sum(c => c.Amount)
+                    - mine.Where(c => c.Kind == CustodyFinanceKind.OwnerDirectRefund).Sum(c => c.Amount),
                 r.CommissionMethod, r.CommissionRate, r.CommissionUsd,
                 r.CommissionRecognizedAtSaleUsd - (back?.Reversed ?? 0m) + mine.Sum(c => c.Commission),
                 r.CommissionRecognition, r.Status, r.CancellationReason,

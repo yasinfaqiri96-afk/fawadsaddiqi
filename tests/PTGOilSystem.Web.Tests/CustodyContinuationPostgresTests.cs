@@ -977,4 +977,152 @@ public sealed class CustodyContinuationPostgresTests(ConcurrencyVersionPostgresF
             Assert.Contains("امانی", customerSafety.UsageAreas);
         }
     }
+
+    // ---------------------------------------------------------------- برگشتِ فروشِ وصول‌شده و استرداد
+
+    private async Task<int> ReturnWithRefundAsync(World w, int saleId, decimal fromA, decimal refundCompany = 0m, decimal refundOwner = 0m,
+        string? document = "PV-77", bool recoveryConfirmed = false, string? recovery = null)
+    {
+        await using var db = fixture.CreateDbContext();
+        return await Sales(db).RecordReturnAsync(new CustodySaleReturnInput
+        {
+            SaleId = saleId, ReturnDate = Day.AddDays(4),
+            Lines = [new CustodySaleSource(w.LotA, new CustodyLocation(w.TerminalId, w.TankA), fromA)],
+            RefundFromCompanyUsd = refundCompany, RefundCashAccountId = refundCompany > 0m ? w.CashAccountId : null,
+            RefundDocumentNumber = refundCompany > 0m ? document : null,
+            RefundByOwnerUsd = refundOwner, OwnerRefundReference = refundOwner > 0m ? "Owner receipt OR-5" : null,
+            OwnerRecoveryConfirmed = recoveryConfirmed, OwnerRecoveryReference = recovery
+        });
+    }
+
+    [Fact]
+    public async Task Return_Of_A_Fully_Collected_Sale_Refunds_From_Company_Cash_And_Reverses_Earned_Commission()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        var saleId = await SellAsync(w, fromA: 30m, fromB: 0m);
+        await CollectAsync(w, saleId, 15_000m);
+        var revenueBefore = await GlAsync(w.CompanyId, "4500");
+        Assert.Equal(14_550m, await OwnerFundsAsync(w.OwnerId));
+
+        var noDoc = await Assert.ThrowsAsync<BusinessRuleException>(() => ReturnWithRefundAsync(w, saleId, 10m, refundCompany: 5_000m, document: null));
+        Assert.Equal("CUSTODY_REFUND_DOCUMENT", noDoc.Code);
+        var wrongSum = await Assert.ThrowsAsync<BusinessRuleException>(() => ReturnWithRefundAsync(w, saleId, 10m, refundCompany: 4_000m));
+        Assert.Equal("CUSTODY_RETURN_COLLECTED", wrongSum.Code);
+        var notOwner = await Assert.ThrowsAsync<BusinessRuleException>(() => ReturnWithRefundAsync(w, saleId, 10m, refundOwner: 5_000m));
+        Assert.Equal("CUSTODY_REFUND_EXCEEDS", notOwner.Code);
+        Assert.Equal(0m, await LotBalanceAsync(w.LotA) - 10m);
+
+        var returnId = await ReturnWithRefundAsync(w, saleId, 10m, refundCompany: 5_000m);
+        Assert.Equal(20m, await LotBalanceAsync(w.LotA));
+        Assert.Equal(9_700m, await OwnerFundsAsync(w.OwnerId));
+        Assert.Equal(10_000m, await GlAsync(w.CompanyId, "1100", cashAccountId: w.CashAccountId));
+        Assert.Equal(0m, await GlAsync(w.CompanyId, "1200", AccountingPartyType.Customer, w.CustomerId));
+        Assert.Equal(0m, await GlAsync(w.CompanyId, "1210", AccountingPartyType.Supplier, w.OwnerId));
+        Assert.Equal(-9_700m, await GlAsync(w.CompanyId, "2600", AccountingPartyType.Supplier, w.OwnerId));
+        Assert.Equal(150m, await GlAsync(w.CompanyId, "4500") - revenueBefore);
+        await using (var db = fixture.CreateDbContext())
+        {
+            var r = await db.CustodySaleReturns.SingleAsync(x => x.Id == returnId);
+            Assert.Equal(150m, r.RecognizedCommissionReversedUsd);
+            var refund = await db.CustodyFinanceEntries.SingleAsync(e => e.CustodySaleReturnId == returnId);
+            Assert.Equal(CustodyFinanceKind.CustomerRefund, refund.Kind);
+            var payment = await db.PaymentTransactions.SingleAsync(p => p.Id == refund.PaymentTransactionId);
+            Assert.Equal(PaymentDirection.Out, payment.Direction);
+            Assert.Equal(5_000m, payment.AmountUsd);
+            var ownerLedger = await db.LedgerEntries.Where(l => l.SupplierId == w.OwnerId).ToListAsync();
+            Assert.Equal(9_700m, ownerLedger.Sum(x => x.Side == LedgerSide.Credit ? x.AmountUsd : -x.AmountUsd));
+
+            var direct = await Assert.ThrowsAsync<BusinessRuleException>(() => Sales(db).CancelFinanceAsync(refund.Id, "x"));
+            Assert.Equal("CUSTODY_REFUND_VIA_RETURN", direct.Code);
+            var collection = await db.CustodyFinanceEntries.SingleAsync(e => e.CustodySaleId == saleId && e.Kind == CustodyFinanceKind.Collection);
+            var blocked = await Assert.ThrowsAsync<BusinessRuleException>(() => Sales(db).CancelFinanceAsync(collection.Id, "x"));
+            Assert.Equal("CUSTODY_COLLECTION_HAS_REFUNDS", blocked.Code);
+        }
+
+        // دومین برگشت: باقیِ فروش؛ همه وصول شده بود، پس کل مبلغ مسترد و کمیشن صفر می‌شود.
+        await ReturnWithRefundAsync(w, saleId, 20m, refundCompany: 10_000m, document: "PV-78");
+        Assert.Equal(0m, await OwnerFundsAsync(w.OwnerId));
+        Assert.Equal(0m, await GlAsync(w.CompanyId, "1100", cashAccountId: w.CashAccountId));
+        // کل کمیشنِ درآمدشدهٔ ۴۵۰ (پیش از برگشت‌ها) معکوس شد؛ درآمد کمیشن این فروش صفر است.
+        Assert.Equal(450m, await GlAsync(w.CompanyId, "4500") - revenueBefore);
+        // برگشتِ دوباره از فروشِ کاملاً برگشت‌خورده رد می‌شود.
+        var again = await Assert.ThrowsAsync<BusinessRuleException>(() => ReturnWithRefundAsync(w, saleId, 1m, refundCompany: 500m));
+        Assert.Equal("CUSTODY_RETURN_EXCEEDS", again.Code);
+        await AssertCustodyJournalsBalancedAsync();
+    }
+
+    [Fact]
+    public async Task Refund_After_The_Owner_Was_Paid_Needs_A_Documented_Recovery_From_The_Owner()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        var saleId = await SellAsync(w, fromA: 30m, fromB: 0m);
+        await CollectAsync(w, saleId, 15_000m);
+        await using (var db = fixture.CreateDbContext())
+        {
+            await Sales(db).RecordFinanceAsync(new CustodyFinanceInput
+            {
+                Kind = CustodyFinanceKind.OwnerPayout, Owner = new CustodyOwner(AccountingPartyType.Supplier, w.OwnerId),
+                EntryDate = Day.AddDays(3), AmountUsd = 14_550m, CashAccountId = w.CashAccountId
+            });
+        }
+        var guessed = await Assert.ThrowsAsync<BusinessRuleException>(() => ReturnWithRefundAsync(w, saleId, 10m, refundCompany: 5_000m));
+        Assert.Equal("CUSTODY_REFUND_OWNER_PAID", guessed.Code);
+        var noReference = await Assert.ThrowsAsync<BusinessRuleException>(() => ReturnWithRefundAsync(w, saleId, 10m, refundCompany: 5_000m, recoveryConfirmed: true));
+        Assert.Equal("CUSTODY_REFUND_OWNER_PAID", noReference.Code);
+        Assert.Equal(30m, 30m + await LotBalanceAsync(w.LotA) - 10m);
+
+        var returnId = await ReturnWithRefundAsync(w, saleId, 10m, refundCompany: 5_000m, recoveryConfirmed: true, recovery: "Owner signed debit note DN-9");
+        Assert.Equal(-4_850m, await OwnerFundsAsync(w.OwnerId));
+        Assert.Equal(4_850m, await GlAsync(w.CompanyId, "2600", AccountingPartyType.Supplier, w.OwnerId));
+        await using (var db = fixture.CreateDbContext())
+            Assert.Contains("DN-9", (await db.CustodyFinanceEntries.SingleAsync(e => e.CustodySaleReturnId == returnId)).Description);
+
+        // لغوِ برگشت، استرداد را هم با پرداختِ معکوس برمی‌گرداند.
+        await using (var db = fixture.CreateDbContext())
+            await Sales(db).CancelReturnAsync(returnId, "customer kept the stock");
+        Assert.Equal(0m, await OwnerFundsAsync(w.OwnerId));
+        Assert.Equal(0m, await GlAsync(w.CompanyId, "2600", AccountingPartyType.Supplier, w.OwnerId));
+        Assert.Equal(450m, await GlAsync(w.CompanyId, "1100", cashAccountId: w.CashAccountId));
+        await using (var db = fixture.CreateDbContext())
+        {
+            var refund = await db.CustodyFinanceEntries.SingleAsync(e => e.CustodySaleReturnId == returnId);
+            Assert.Equal(CustodyDocumentStatus.Cancelled, refund.Status);
+            Assert.NotNull(refund.ReversalPaymentTransactionId);
+        }
+        Assert.Equal(10m, await LotBalanceAsync(w.LotA));
+        await AssertCustodyJournalsBalancedAsync();
+    }
+
+    [Fact]
+    public async Task Return_Of_A_Sale_Paid_Directly_To_The_Owner_Is_Refunded_By_The_Owner_Without_Company_Cash()
+    {
+        RequirePostgres();
+        var w = await SeedAsync();
+        int saleId;
+        await using (var db = fixture.CreateDbContext())
+        {
+            var input = SaleInput(w, 30m, 0m);
+            saleId = await Sales(db).CreateSaleAsync(new CustodySaleInput
+            {
+                LotId = input.LotId, Location = input.Location, QuantityMt = 30m, CustomerId = w.CustomerId, SaleDate = Day,
+                UnitPriceUsd = 500m, CommissionMethod = CustodyCommissionMethod.PercentOfSale, CommissionRate = 3m,
+                Settlement = CustodySaleSettlement.DirectToOwner
+            });
+        }
+        Assert.Equal(-450m, await OwnerFundsAsync(w.OwnerId));
+        var company = await Assert.ThrowsAsync<BusinessRuleException>(() => ReturnWithRefundAsync(w, saleId, 10m, refundCompany: 5_000m));
+        Assert.Equal("CUSTODY_REFUND_EXCEEDS", company.Code);
+
+        await ReturnWithRefundAsync(w, saleId, 10m, refundOwner: 5_000m);
+        Assert.Equal(-300m, await OwnerFundsAsync(w.OwnerId));
+        Assert.Equal(0m, await GlAsync(w.CompanyId, "1100", cashAccountId: w.CashAccountId));
+        Assert.Equal(0m, await GlAsync(w.CompanyId, "1200", AccountingPartyType.Customer, w.CustomerId));
+        Assert.Equal(0m, await GlAsync(w.CompanyId, "1210", AccountingPartyType.Supplier, w.OwnerId));
+        Assert.Equal(300m, await GlAsync(w.CompanyId, "2600", AccountingPartyType.Supplier, w.OwnerId));
+        await using (var db = fixture.CreateDbContext())
+            Assert.False(await db.PaymentTransactions.AnyAsync(p => p.CashAccountId == w.CashAccountId));
+        await AssertCustodyJournalsBalancedAsync();
+    }
 }

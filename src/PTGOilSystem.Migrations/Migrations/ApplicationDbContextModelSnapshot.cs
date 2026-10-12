@@ -2075,6 +2075,9 @@ namespace PTGOilSystem.Web.Migrations
                     b.Property<int?>("CustodySaleId")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("CustodySaleReturnId")
+                        .HasColumnType("integer");
+
                     b.Property<int?>("CustomerId")
                         .HasColumnType("integer");
 
@@ -2133,6 +2136,8 @@ namespace PTGOilSystem.Web.Migrations
                     b.HasIndex("CustodyLotId");
 
                     b.HasIndex("CustodySaleId");
+
+                    b.HasIndex("CustodySaleReturnId");
 
                     b.HasIndex("ExpenseTypeId");
 
@@ -11239,6 +11244,11 @@ namespace PTGOilSystem.Web.Migrations
                         .HasForeignKey("CustodySaleId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.CustodySaleReturn", "CustodySaleReturn")
+                        .WithMany()
+                        .HasForeignKey("CustodySaleReturnId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("PTGOilSystem.Web.Models.Entities.ExpenseType", "ExpenseType")
                         .WithMany()
                         .HasForeignKey("ExpenseTypeId")
@@ -11269,6 +11279,8 @@ namespace PTGOilSystem.Web.Migrations
                     b.Navigation("CustodyLot");
 
                     b.Navigation("CustodySale");
+
+                    b.Navigation("CustodySaleReturn");
 
                     b.Navigation("ExpenseType");
 

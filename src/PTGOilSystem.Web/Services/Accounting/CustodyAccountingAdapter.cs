@@ -142,6 +142,18 @@ public sealed class CustodyAccountingAdapter(
                 lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, amount, 0m, owner.OwnerPartyType, owner.OwnerPartyId, productId, "Custody service fee charged to owner"));
                 lines.Add(Line(s.CustodyServiceRevenueAccountId!.Value, 0m, amount, null, null, productId, "Custody service revenue"));
                 break;
+            case CustodyFinanceKind.CustomerRefund:
+                // آینهٔ وصول: پول از صندوق به مشتری برمی‌گردد و از وجوه مالک کم می‌شود.
+                lines.Add(Line(s.AccountsReceivableAccountId, amount, 0m, AccountingPartyType.Customer, entry.CustomerId!.Value, productId, $"Custody refund {label}"));
+                lines.Add(CashLine(s, entry.CashAccountId, 0m, amount, $"Custody refund {label}"));
+                lines.Add(Line(s.CustodyFundsPayableAccountId!.Value, amount, 0m, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Custody refund {label} from owner funds"));
+                lines.Add(Line(s.CustodyPendingCollectionAccountId!.Value, 0m, amount, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Custody refund {label}"));
+                break;
+            case CustodyFinanceKind.OwnerDirectRefund:
+                // آینهٔ پرداخت مستقیم مشتری به مالک؛ صندوق شرکت و وجوه مالک دست نمی‌خورند.
+                lines.Add(Line(s.AccountsReceivableAccountId, amount, 0m, AccountingPartyType.Customer, entry.CustomerId!.Value, productId, $"Owner refunded customer directly {label}"));
+                lines.Add(Line(s.CustodyPendingCollectionAccountId!.Value, 0m, amount, owner.OwnerPartyType, owner.OwnerPartyId, productId, $"Owner refunded customer directly {label}"));
+                break;
             case CustodyFinanceKind.ProviderCharge:
             case CustodyFinanceKind.ProviderPayment:
             {

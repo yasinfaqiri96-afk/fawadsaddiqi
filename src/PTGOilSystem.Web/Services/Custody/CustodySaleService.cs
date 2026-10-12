@@ -77,6 +77,21 @@ public sealed class CustodySaleReturnInput
     public string? DocumentNumber { get; init; }
     public string? Notes { get; init; }
     public string? FormToken { get; init; }
+
+    // ---- استرداد وقتی پولِ بخشِ برگشتی قبلاً وصول شده است (جمع باید دقیقاً اضافه‌وصول را بپوشاند)
+    /// <summary>استرداد از صندوق/بانک شرکت؛ فقط با سند واقعی پرداخت.</summary>
+    public decimal RefundFromCompanyUsd { get; init; }
+    public int? RefundCashAccountId { get; init; }
+    public string? RefundDocumentNumber { get; init; }
+    /// <summary>بخشی که مالک خودش مستقیم به مشتری پس داد (پولی که مشتری مستقیم به مالک داده بود).</summary>
+    public decimal RefundByOwnerUsd { get; init; }
+    public string? OwnerRefundReference { get; init; }
+    /// <summary>
+    /// وقتی پولِ مالک قبلاً پرداخت شده و استرداد از صندوق شرکت حساب مالک را منفی می‌کند، فقط با تأیید
+    /// صریح و سندِ قابل وصول از مالک ثبت می‌شود.
+    /// </summary>
+    public bool OwnerRecoveryConfirmed { get; init; }
+    public string? OwnerRecoveryReference { get; init; }
 }
 
 public interface ICustodySaleService
@@ -270,6 +285,8 @@ public sealed class CustodySaleService(
         RequirePositive(input.AmountUsd, "مبلغ", 2);
         if (!Enum.IsDefined(input.Kind))
             throw Rule("CUSTODY_FINANCE_KIND", "نوع سند مالی معتبر نیست.");
+        if (input.Kind is CustodyFinanceKind.CustomerRefund or CustodyFinanceKind.OwnerDirectRefund)
+            throw Rule("CUSTODY_REFUND_VIA_RETURN", "استرداد فقط همراهِ سند برگشت فروش ثبت می‌شود.");
 
         CustodySale? sale = null;
         CustodyFinanceEntry? charge = null;
@@ -512,6 +529,12 @@ public sealed class CustodySaleService(
                 if (await ProviderPaidAsync(entry.Id, ct) > 0m)
                     throw Rule("CUSTODY_PROVIDER_CHARGE_PAID", "بخشی از این مصرف به خدمات‌دهنده پرداخت شده است؛ اول پرداخت‌ها را لغو کنید.");
             }
+            if (entry.Kind is CustodyFinanceKind.CustomerRefund or CustodyFinanceKind.OwnerDirectRefund)
+                throw Rule("CUSTODY_REFUND_VIA_RETURN", "استرداد فقط همراهِ لغوِ همان برگشتِ فروش لغو می‌شود.");
+            if (entry.Kind is CustodyFinanceKind.Collection or CustodyFinanceKind.DirectToOwner && entry.CustodySaleId.HasValue
+                && await db.CustodyFinanceEntries.AnyAsync(e => e.CustodySaleId == entry.CustodySaleId && e.Status == CustodyDocumentStatus.Posted
+                    && (e.Kind == CustodyFinanceKind.CustomerRefund || e.Kind == CustodyFinanceKind.OwnerDirectRefund), ct))
+                throw Rule("CUSTODY_COLLECTION_HAS_REFUNDS", "برای این فروش استرداد ثبت شده است؛ اول برگشتِ دارای استرداد را لغو کنید.");
 
             // لغوِ وصولِ نقدی پولِ مالک نزد شرکت را کم می‌کند؛ اگر قبلاً همان پول به مالک پرداخت
             // شده باشد، مانده منفی می‌شود — اول باید پرداخت به مالک اصلاح شود. ماندهٔ منفی بدونِ
@@ -526,33 +549,91 @@ public sealed class CustodySaleService(
                     throw Rule("CUSTODY_CANCEL_OVERPAID", "این پول قبلاً به مالک پرداخت شده است؛ اول «پرداخت به مالک» مربوط را لغو کنید.");
             }
 
-            var reference = entry.CustodySaleId.HasValue
-                ? await db.CustodySales.Where(s => s.Id == entry.CustodySaleId).Select(s => s.SaleNumber).FirstAsync(ct)
-                : $"AF-{entry.Id:D5}";
-            if (entry.PaymentTransactionId.HasValue)
-            {
-                var reversal = await NewPaymentAsync(entry, reference, reversal: true, ct);
-                await db.SaveChangesAsync(ct);
-                entry.ReversalPaymentTransactionId = reversal.Id;
-            }
-
-            await ReverseLedgerRowsAsync(FinanceSourceType(entry.Kind), entry.Id, $"لغو: {reason.Trim()}", reference, ct);
-            var companyId = await systemCompany.GetOwnerCompanyIdAsync(ct);
-            await accounting.TryReverseAsync(
-                CustodyAccountingAdapter.FinanceEventId(entry.Id),
-                CustodyAccountingAdapter.FinanceJournalNumber(companyId, entry.Id),
-                DateTime.UtcNow,
-                $"Cancel custody {entry.Kind} {reference}",
-                ct);
-
-            entry.Status = CustodyDocumentStatus.Cancelled;
-            entry.CancelledAtUtc = DateTime.UtcNow;
-            entry.CancelledByUserId = currentUser?.UserId;
-            entry.CancellationReason = reason.Trim();
-            await audit.LogAsync(FinanceEntity, entry.Id, AuditAction.Reverse, diff: Describe(new { Kind = entry.Kind.ToString(), Reason = reason.Trim() }), ct: ct);
-            await db.SaveChangesAsync(ct);
+            await ReverseFinanceCoreAsync(entry, reason.Trim(), ct);
             return 0;
         }, ct);
+
+    /// <summary>برگشتِ اثرِ یک سند مالی امانی: پرداخت معکوس، سطرهای دفتر طرف‌ها و ژورنال.</summary>
+    private async Task ReverseFinanceCoreAsync(CustodyFinanceEntry entry, string reason, CancellationToken ct)
+    {
+        var reference = entry.CustodySaleId.HasValue
+            ? await db.CustodySales.Where(s => s.Id == entry.CustodySaleId).Select(s => s.SaleNumber).FirstAsync(ct)
+            : $"AF-{entry.Id:D5}";
+        if (entry.PaymentTransactionId.HasValue)
+        {
+            var reversal = await NewPaymentAsync(entry, reference, reversal: true, ct);
+            await db.SaveChangesAsync(ct);
+            entry.ReversalPaymentTransactionId = reversal.Id;
+        }
+
+        await ReverseLedgerRowsAsync(FinanceSourceType(entry.Kind), entry.Id, $"لغو: {reason}", reference, ct);
+        var companyId = await systemCompany.GetOwnerCompanyIdAsync(ct);
+        await accounting.TryReverseAsync(
+            CustodyAccountingAdapter.FinanceEventId(entry.Id),
+            CustodyAccountingAdapter.FinanceJournalNumber(companyId, entry.Id),
+            DateTime.UtcNow,
+            $"Cancel custody {entry.Kind} {reference}",
+            ct);
+
+        entry.Status = CustodyDocumentStatus.Cancelled;
+        entry.CancelledAtUtc = DateTime.UtcNow;
+        entry.CancelledByUserId = currentUser?.UserId;
+        entry.CancellationReason = reason.Length > 500 ? reason[..500] : reason;
+        await audit.LogAsync(FinanceEntity, entry.Id, AuditAction.Reverse, diff: Describe(new { Kind = entry.Kind.ToString(), Reason = reason }), ct: ct);
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>سند استرداد همراهِ برگشت؛ همان مسیرِ پرداخت، دفتر طرف‌ها و ژورنالِ اسناد مالی امانی.</summary>
+    private async Task<int> PostRefundAsync(CustodySale sale, CustodySaleReturn saleReturn, CustodyFinanceKind kind, decimal amount,
+        int? cashAccountId, string? documentNumber, string description, CancellationToken ct)
+    {
+        var entry = new CustodyFinanceEntry
+        {
+            Kind = kind,
+            CustodySaleId = sale.Id,
+            CustodySaleReturnId = saleReturn.Id,
+            CustodyLotId = sale.CustodyLotId,
+            OwnerPartyType = sale.OwnerPartyType,
+            OwnerPartyId = sale.OwnerPartyId,
+            CustomerId = sale.CustomerId,
+            EntryDate = saleReturn.ReturnDate,
+            AmountUsd = amount,
+            Currency = "USD",
+            CashAccountId = kind == CustodyFinanceKind.CustomerRefund ? cashAccountId : null,
+            DocumentNumber = Clean(documentNumber),
+            Description = description,
+            CreatedByUserId = currentUser?.UserId
+        };
+        db.CustodyFinanceEntries.Add(entry);
+        await db.SaveChangesAsync(ct);
+        if (entry.CashAccountId.HasValue)
+        {
+            var payment = await NewPaymentAsync(entry, sale.SaleNumber, reversal: false, ct);
+            await db.SaveChangesAsync(ct);
+            entry.PaymentTransactionId = payment.Id;
+        }
+        foreach (var row in BuildFinanceRows(entry, sale.SaleNumber))
+            ledger.Post(row);
+        await db.SaveChangesAsync(ct);
+        RequireJournal(await accounting.TryPostFinanceAsync(entry, sale, ct));
+        await audit.LogAsync(FinanceEntity, entry.Id, AuditAction.Insert, diff: Describe(new
+        {
+            Kind = entry.Kind.ToString(), sale.SaleNumber, saleReturn.ReturnNumber, entry.AmountUsd, entry.CashAccountId,
+            entry.PaymentTransactionId, entry.DocumentNumber
+        }), ct: ct);
+        await db.SaveChangesAsync(ct);
+        return entry.Id;
+    }
+
+    private async Task RequireUsdCashAccountAsync(int cashAccountId, CancellationToken ct)
+    {
+        var cash = await db.CashAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == cashAccountId, ct)
+            ?? throw Rule("CUSTODY_CASH_ACCOUNT", "صندوق یا بانک پیدا نشد.");
+        if (!cash.IsActive)
+            throw Rule("CUSTODY_CASH_INACTIVE", "این صندوق/بانک غیرفعال است.");
+        if (cash.AccountType != CashAccountType.Mixed && !string.Equals(cash.Currency, "USD", StringComparison.OrdinalIgnoreCase))
+            throw Rule("CUSTODY_CASH_CURRENCY", "این صندوق/بانک دالری نیست.");
+    }
 
     // ---------------------------------------------------------------- برگشتِ قسمیِ فروش
 
@@ -616,9 +697,35 @@ public sealed class CustodySaleService(
 
             var collected = await CollectedAsync(sale.Id, excludeEntryId: null, ct);
             var outstanding = netAmountBefore - collected;
-            if (amount > outstanding)
-                throw Rule("CUSTODY_RETURN_COLLECTED",
-                    $"مبلغ این برگشت ({Usd(amount)}) از ماندهٔ وصول‌نشدهٔ فروش ({Usd(outstanding)}) بیشتر است؛ پولِ وصول‌شده با برگشت خودکار مسترد نمی‌شود.");
+            // بخشی از مبلغ برگشت که پولش قبلاً وصول شده، باید در همین سند و با سند واقعی مسترد شود.
+            var refundDue = Math.Max(amount - outstanding, 0m);
+            var refundCompany = input.RefundFromCompanyUsd;
+            var refundOwner = input.RefundByOwnerUsd;
+            if (refundCompany < 0m || refundOwner < 0m || decimal.Round(refundCompany, 2) != refundCompany || decimal.Round(refundOwner, 2) != refundOwner)
+                throw Rule("CUSTODY_REFUND_AMOUNT", "مبلغ استرداد معتبر نیست.");
+            if (refundCompany + refundOwner != refundDue)
+                throw Rule("CUSTODY_RETURN_COLLECTED", refundDue == 0m
+                    ? "برای این برگشت پولی وصول نشده است؛ استرداد ثبت نمی‌شود."
+                    : $"مبلغ این برگشت ({Usd(amount)}) از ماندهٔ وصول‌نشدهٔ فروش ({Usd(outstanding)}) بیشتر است؛ دقیقاً {Usd(refundDue)} باید با سند واقعی مسترد شود (از صندوق شرکت و/یا مستقیم توسط مالک).");
+            if (refundCompany > 0m)
+            {
+                var companyCollected = await NetCollectedAsync(sale.Id, CustodyFinanceKind.Collection, CustodyFinanceKind.CustomerRefund, ct);
+                if (refundCompany > companyCollected)
+                    throw Rule("CUSTODY_REFUND_EXCEEDS", $"پولی که از این فروش نزد صندوق شرکت آمده {Usd(companyCollected)} است؛ استرداد بیشتر از آن ممکن نیست.");
+                if (!input.RefundCashAccountId.HasValue)
+                    throw Rule("CUSTODY_CASH_ACCOUNT", "صندوق یا بانکِ استرداد را انتخاب کنید.");
+                if (string.IsNullOrWhiteSpace(input.RefundDocumentNumber))
+                    throw Rule("CUSTODY_REFUND_DOCUMENT", "شمارهٔ سند واقعیِ پرداختِ استرداد الزامی است.");
+                await RequireUsdCashAccountAsync(input.RefundCashAccountId.Value, ct);
+            }
+            if (refundOwner > 0m)
+            {
+                var ownerCollected = await NetCollectedAsync(sale.Id, CustodyFinanceKind.DirectToOwner, CustodyFinanceKind.OwnerDirectRefund, ct);
+                if (refundOwner > ownerCollected)
+                    throw Rule("CUSTODY_REFUND_EXCEEDS", $"پولی که مشتری مستقیم به مالک داده {Usd(ownerCollected)} است؛ استردادِ مالک بیشتر از آن ممکن نیست.");
+                if (string.IsNullOrWhiteSpace(input.OwnerRefundReference))
+                    throw Rule("CUSTODY_REFUND_DOCUMENT", "سندِ استردادِ مستقیمِ مالک به مشتری الزامی است.");
+            }
 
             // کمیشن با همان روشِ فروش روی مقدار/مبلغِ باقی دوباره سنجیده می‌شود. کمیشنِ ثابت مربوط
             // به خودِ معامله است و تا برگشتِ کامل باقی می‌ماند.
@@ -640,9 +747,29 @@ public sealed class CustodySaleService(
             }
             else
             {
-                // کمیشنی که از پولِ قبلاً وصول‌شده درآمد شده، با برگشتِ بخشِ وصول‌نشده برنمی‌گردد.
-                var recognizedOnCollections = await CommissionOnCollectionsAsync(sale.Id, ct);
-                commissionReduction = Math.Min(commissionReduction, Math.Max(netCommissionBefore - recognizedOnCollections, 0m));
+                // کمیشنِ درآمدشده باید با پولِ وصول‌شدهٔ باقی (بعد از استرداد) و کمیشنِ مقدارِ باقی هم‌خوان
+                // بماند؛ مازادش معکوس می‌شود. بدون استرداد، کمیشنِ پولِ وصول‌شده دست نمی‌خورد.
+                var recognized = await CommissionOnCollectionsAsync(sale.Id, ct);
+                var collectedAfter = collected - refundDue;
+                var target = netAmountAfter == 0m ? 0m
+                    : collectedAfter == netAmountAfter ? netCommissionAfter
+                    : Math.Min(recognized, Money(netCommissionAfter * collectedAfter / netAmountAfter));
+                recognizedReversal = Math.Min(Math.Max(recognized - target, 0m), commissionReduction);
+            }
+
+            // استرداد از صندوق، پولِ مالک نزد شرکت را کم می‌کند. اگر آن پول قبلاً به مالک پرداخت شده،
+            // بدون تأیید و سندِ قابل وصول از مالک، طلبِ حدسی از مالک ساخته نمی‌شود.
+            if (refundCompany > 0m)
+            {
+                var fundsAfter = await OwnerFundsBalanceAsync(owner, ct) - refundCompany + recognizedReversal;
+                if (fundsAfter < 0m && await db.CustodyFinanceEntries.AnyAsync(e =>
+                        e.OwnerPartyType == owner.PartyType && e.OwnerPartyId == owner.PartyId
+                        && e.Kind == CustodyFinanceKind.OwnerPayout && e.Status == CustodyDocumentStatus.Posted, ct)
+                    && (!input.OwnerRecoveryConfirmed || string.IsNullOrWhiteSpace(input.OwnerRecoveryReference)))
+                {
+                    throw Rule("CUSTODY_REFUND_OWNER_PAID",
+                        $"پولِ این فروش قبلاً به مالک پرداخت شده و استرداد حساب مالک را {Usd(-fundsAfter)} بدهکار می‌کند؛ فقط با تأیید صریح و سندِ قابل وصول از مالک ممکن است.");
+                }
             }
 
             var stockKey = await custody.RecordSaleReturnInAsync(
@@ -679,11 +806,29 @@ public sealed class CustodySaleService(
             }
             await db.SaveChangesAsync(ct);
             RequireJournal(await accounting.TryPostReturnAsync(saleReturn, sale, ct));
+
+            var refundIds = new List<int>();
+            if (refundCompany > 0m)
+            {
+                refundIds.Add(await PostRefundAsync(sale, saleReturn, CustodyFinanceKind.CustomerRefund, refundCompany,
+                    input.RefundCashAccountId, input.RefundDocumentNumber,
+                    input.OwnerRecoveryConfirmed && !string.IsNullOrWhiteSpace(input.OwnerRecoveryReference)
+                        ? $"استرداد برگشت {saleReturn.ReturnNumber}؛ قابل وصول از مالک: {input.OwnerRecoveryReference!.Trim()}"
+                        : $"استرداد برگشت {saleReturn.ReturnNumber}", ct));
+            }
+            if (refundOwner > 0m)
+            {
+                refundIds.Add(await PostRefundAsync(sale, saleReturn, CustodyFinanceKind.OwnerDirectRefund, refundOwner,
+                    null, input.OwnerRefundReference, $"مالک مستقیم به مشتری پس داد — برگشت {saleReturn.ReturnNumber}", ct));
+            }
+
             await audit.LogAsync(ReturnEntity, saleReturn.Id, AuditAction.Insert, diff: Describe(new
             {
                 saleReturn.ReturnNumber, sale.SaleNumber,
                 Lines = requested.Select(r => new { r.Key.LotId, r.Key.TerminalId, r.Key.StorageTankId, r.Quantity }),
-                saleReturn.QuantityMt, saleReturn.AmountUsd, saleReturn.CommissionUsd, saleReturn.RecognizedCommissionReversedUsd
+                saleReturn.QuantityMt, saleReturn.AmountUsd, saleReturn.CommissionUsd, saleReturn.RecognizedCommissionReversedUsd,
+                RefundFromCompany = refundCompany, RefundByOwner = refundOwner, Refunds = refundIds,
+                OwnerRecovery = input.OwnerRecoveryConfirmed ? input.OwnerRecoveryReference : null
             }), ct: ct);
             await db.SaveChangesAsync(ct);
             return saleReturn.Id;
@@ -705,6 +850,13 @@ public sealed class CustodySaleService(
                     && r.Status == CustodyDocumentStatus.Posted && r.Id > saleReturn.Id, ct))
                 throw Rule("CUSTODY_RETURN_NOT_LATEST", "برگشت‌های بعدیِ همین فروش را اول لغو کنید.");
             var sale = await db.CustodySales.AsNoTracking().SingleAsync(s => s.Id == saleReturn.CustodySaleId, ct);
+
+            // استردادهای همین برگشت با آن برمی‌گردند؛ پرداخت معکوس، دفتر و ژورنال هر کدام برگشت می‌خورد.
+            var refunds = await db.CustodyFinanceEntries
+                .Where(e => e.CustodySaleReturnId == saleReturn.Id && e.Status == CustodyDocumentStatus.Posted)
+                .OrderByDescending(e => e.Id).ToListAsync(ct);
+            foreach (var refund in refunds)
+                await ReverseFinanceCoreAsync(refund, $"لغو برگشت {saleReturn.ReturnNumber}: {reason.Trim()}", ct);
 
             await custody.ReverseSaleReturnInAsync(saleReturn.StockOperationKey, $"لغو برگشت {saleReturn.ReturnNumber}: {reason.Trim()}", ct);
             await ReverseLedgerRowsAsync(ReturnSourceType, saleReturn.Id, $"لغو برگشت فروش امانی {saleReturn.ReturnNumber}", saleReturn.ReturnNumber, ct);
@@ -801,22 +953,36 @@ public sealed class CustodySaleService(
             - Amount(CustodyFinanceKind.ReimbursableExpense)
             - Amount(CustodyFinanceKind.ProviderCharge)
             - Amount(CustodyFinanceKind.ServiceFee)
-            - Amount(CustodyFinanceKind.OwnerPayout);
+            - Amount(CustodyFinanceKind.OwnerPayout)
+            - Amount(CustodyFinanceKind.CustomerRefund);
     }
 
     private Task<decimal> OwnerFundsBalanceAsync(CustodyOwner owner, CancellationToken ct) => OwnerFundsBalanceAsync(db, owner, ct);
 
+    /// <summary>وصولِ خالص فروش (نزد شرکت و مستقیم به مالک) منهای استردادها.</summary>
     private Task<decimal> CollectedAsync(int saleId, int? excludeEntryId, CancellationToken ct)
         => db.CustodyFinanceEntries.AsNoTracking()
             .Where(e => e.CustodySaleId == saleId && e.Status == CustodyDocumentStatus.Posted
-                && (e.Kind == CustodyFinanceKind.Collection || e.Kind == CustodyFinanceKind.DirectToOwner)
+                && (e.Kind == CustodyFinanceKind.Collection || e.Kind == CustodyFinanceKind.DirectToOwner
+                    || e.Kind == CustodyFinanceKind.CustomerRefund || e.Kind == CustodyFinanceKind.OwnerDirectRefund)
                 && (excludeEntryId == null || e.Id != excludeEntryId))
-            .SumAsync(e => e.AmountUsd, ct);
+            .SumAsync(e => e.Kind == CustodyFinanceKind.CustomerRefund || e.Kind == CustodyFinanceKind.OwnerDirectRefund
+                ? -e.AmountUsd : e.AmountUsd, ct);
 
-    private Task<decimal> CommissionOnCollectionsAsync(int saleId, CancellationToken ct)
+    private Task<decimal> NetCollectedAsync(int saleId, CustodyFinanceKind collection, CustodyFinanceKind refund, CancellationToken ct)
         => db.CustodyFinanceEntries.AsNoTracking()
+            .Where(e => e.CustodySaleId == saleId && e.Status == CustodyDocumentStatus.Posted && (e.Kind == collection || e.Kind == refund))
+            .SumAsync(e => e.Kind == refund ? -e.AmountUsd : e.AmountUsd, ct);
+
+    /// <summary>کمیشنِ درآمدشده از وصول‌ها منهای آنچه برگشت‌ها معکوس کرده‌اند.</summary>
+    private async Task<decimal> CommissionOnCollectionsAsync(int saleId, CancellationToken ct)
+        => await db.CustodyFinanceEntries.AsNoTracking()
             .Where(e => e.CustodySaleId == saleId && e.Status == CustodyDocumentStatus.Posted)
-            .SumAsync(e => e.CommissionUsd, ct);
+            .SumAsync(e => e.CommissionUsd, ct)
+            - await db.CustodySaleReturns.AsNoTracking()
+                .Where(r => r.CustodySaleId == saleId && r.Status == CustodyDocumentStatus.Posted
+                    && r.CustodySale!.CommissionRecognition == CustodyCommissionRecognition.OnCollection)
+                .SumAsync(r => r.RecognizedCommissionReversedUsd, ct);
 
     // ---------------------------------------------------------------- ledger rows
 
@@ -898,6 +1064,15 @@ public sealed class CustodySaleService(
                 yield return ProviderRow(sourceType, entry, reference + ProviderSuffix, LedgerSide.Debit,
                     $"پرداخت مصرف نسیهٔ امانی AF-{entry.SettlesFinanceEntryId:D5}");
                 break;
+            case CustodyFinanceKind.CustomerRefund:
+                // پولِ مالک که نزد شرکت بود به مشتری برگشت؛ تعهد شرکت به مالک کم می‌شود.
+                yield return PartyRow(sourceType, entry.Id, entry.EntryDate, entry.AmountUsd, reference + OwnerSuffix + "-R" + entry.Id,
+                    entry.OwnerPartyType, entry.OwnerPartyId, CompanyFlowEffect.Outflow,
+                    $"استرداد فروش امانی {reference} به مشتری از پول مالک");
+                break;
+            case CustodyFinanceKind.OwnerDirectRefund:
+                // مالک خودش به مشتری پس داد؛ شرکت چیزی به مالک بدهکار نبود.
+                break;
         }
 
         if (entry.CommissionUsd > 0m)
@@ -961,6 +1136,7 @@ public sealed class CustodySaleService(
             CustodyFinanceKind.Collection => "دریافت پول فروش امانی",
             CustodyFinanceKind.OwnerPayout => "پرداخت به مالک امانی",
             CustodyFinanceKind.ProviderPayment => "پرداخت مصرف نسیهٔ امانی به خدمات‌دهنده",
+            CustodyFinanceKind.CustomerRefund => "استرداد فروش امانی به مشتری",
             _ => "مصرف به حساب مالک امانی"
         };
         var payment = new PaymentTransaction

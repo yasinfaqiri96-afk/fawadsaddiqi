@@ -299,6 +299,8 @@ public sealed class CustodyFinanceForm
         CustodyFinanceKind.ServiceFee => "حق خدمات شرکت",
         CustodyFinanceKind.ProviderCharge => "مصرف نسیه به حساب مالک",
         CustodyFinanceKind.ProviderPayment => "پرداخت به خدمات‌دهنده",
+        CustodyFinanceKind.CustomerRefund => "استرداد به مشتری",
+        CustodyFinanceKind.OwnerDirectRefund => "استرداد مستقیم مالک به مشتری",
         _ => "سند امانی"
     };
 
@@ -336,6 +338,15 @@ public sealed class CustodySaleReturnForm
     public List<CustodySourceQuantity> Lines { get; set; } = [];
     [MaxLength(100)] public string? DocumentNumber { get; set; }
     [MaxLength(1000)] public string? Notes { get; set; }
+
+    // استرداد پولِ وصول‌شده (فقط وقتی مبلغ برگشت از ماندهٔ وصول‌نشده بیشتر است)
+    public decimal? RefundFromCompanyUsd { get; set; }
+    public int? RefundCashAccountId { get; set; }
+    [MaxLength(100)] public string? RefundDocumentNumber { get; set; }
+    public decimal? RefundByOwnerUsd { get; set; }
+    [MaxLength(100)] public string? OwnerRefundReference { get; set; }
+    public bool OwnerRecoveryConfirmed { get; set; }
+    [MaxLength(300)] public string? OwnerRecoveryReference { get; set; }
 }
 
 public sealed class CustodySaleReturnViewModel
@@ -343,6 +354,7 @@ public sealed class CustodySaleReturnViewModel
     public required CustodySaleReturnForm Form { get; init; }
     public required CustodySaleRow Sale { get; init; }
     public IReadOnlyList<CustodySourceOption> Sources { get; init; } = [];
+    public IReadOnlyList<(int Id, string Name)> CashAccounts { get; init; } = [];
 }
 
 public sealed class CustodyConversionForm

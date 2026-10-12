@@ -167,10 +167,10 @@
                                         {
                                             <a class="btn btn-sm btn-light ak-secondary-action" asp-action="Finance" asp-route-key="@key" asp-route-kind="@CustodyFinanceKind.Collection" asp-route-saleId="@s.Id">@UiText.T(Context, "دریافت", "Collect")</a>
                                             <a class="btn btn-sm btn-light ak-secondary-action" asp-action="Finance" asp-route-key="@key" asp-route-kind="@CustodyFinanceKind.DirectToOwner" asp-route-saleId="@s.Id">@UiText.T(Context, "پرداخت به مالک شد", "Paid to owner")</a>
-                                            @if (s.NetQuantityMt > 0m)
-                                            {
-                                                <a class="btn btn-sm btn-light ak-secondary-action" asp-action="SaleReturn" asp-route-id="@s.Id" asp-route-key="@key">@UiText.T(Context, "برگشت", "Return")</a>
-                                            }
+                                        }
+                                        @if (s.NetQuantityMt > 0m)
+                                        {
+                                            <a class="btn btn-sm btn-light ak-secondary-action" asp-action="SaleReturn" asp-route-id="@s.Id" asp-route-key="@key">@UiText.T(Context, "برگشت", "Return")</a>
                                         }
                                         <form asp-action="CancelSale" asp-route-id="@s.Id" method="post" class="ak-list-toolbar-actions"
                                               data-ptg-confirm="true"

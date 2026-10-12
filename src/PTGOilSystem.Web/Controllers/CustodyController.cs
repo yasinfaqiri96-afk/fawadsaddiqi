@@ -733,7 +733,14 @@ public class CustodyController(
                     Lines = lines,
                     DocumentNumber = form.DocumentNumber,
                     Notes = form.Notes,
-                    FormToken = formToken
+                    FormToken = formToken,
+                    RefundFromCompanyUsd = form.RefundFromCompanyUsd ?? 0m,
+                    RefundCashAccountId = form.RefundCashAccountId,
+                    RefundDocumentNumber = form.RefundDocumentNumber,
+                    RefundByOwnerUsd = form.RefundByOwnerUsd ?? 0m,
+                    OwnerRefundReference = form.OwnerRefundReference,
+                    OwnerRecoveryConfirmed = form.OwnerRecoveryConfirmed,
+                    OwnerRecoveryReference = form.OwnerRecoveryReference
                 });
                 TempData["ok"] = "برگشت فروش ثبت شد؛ تیل به بار مالک برگشت و طلب مشتری و کمیشن اصلاح شد.";
                 return RedirectToAction(nameof(Owner), new { key = form.OwnerKey });
@@ -770,7 +777,11 @@ public class CustodyController(
             .OrderBy(x => x.LotNumber).ToList();
         if (form.Lines.Count == 0)
             form.Lines = sources.Select(x => new CustodySourceQuantity { Key = x.Key }).ToList();
-        return new CustodySaleReturnViewModel { Form = form, Sale = sale, Sources = sources };
+        return new CustodySaleReturnViewModel
+        {
+            Form = form, Sale = sale, Sources = sources,
+            CashAccounts = sale.CollectedByCompanyUsd > 0m ? await UsdCashAccountsAsync() : []
+        };
     }
 
     private async Task<IReadOnlyList<CustodySourceOption>> OtherSaleSourcesAsync(CustodyLotSummary lot)

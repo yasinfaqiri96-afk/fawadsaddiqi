@@ -314,7 +314,8 @@ public sealed class PartyStatementReadService : IPartyStatementReadService
     {
         var salesQuery = _db.CustodySales.AsNoTracking().Where(s => s.CustomerId == customerId);
         var financeQuery = _db.CustodyFinanceEntries.AsNoTracking().Where(e => e.CustomerId == customerId
-            && (e.Kind == CustodyFinanceKind.Collection || e.Kind == CustodyFinanceKind.DirectToOwner));
+            && (e.Kind == CustodyFinanceKind.Collection || e.Kind == CustodyFinanceKind.DirectToOwner
+                || e.Kind == CustodyFinanceKind.CustomerRefund || e.Kind == CustodyFinanceKind.OwnerDirectRefund));
         var returnsQuery = _db.CustodySaleReturns.AsNoTracking().Where(r => r.CustomerId == customerId);
         if (filter.ToDate.HasValue)
         {
@@ -333,7 +334,8 @@ public sealed class PartyStatementReadService : IPartyStatementReadService
         foreach (var sale in sales)
         {
             var ownerKey = new PartyKey(sale.OwnerPartyType == AccountingPartyType.Customer ? PartyStatementPartyType.Customer : PartyStatementPartyType.Supplier, sale.OwnerPartyId);
-            var paid = finance.Where(e => e.CustodySaleId == sale.Id && e.Status == CustodyDocumentStatus.Posted).Sum(e => e.AmountUsd)
+            var paid = finance.Where(e => e.CustodySaleId == sale.Id && e.Status == CustodyDocumentStatus.Posted)
+                    .Sum(e => e.Kind is CustodyFinanceKind.CustomerRefund or CustodyFinanceKind.OwnerDirectRefund ? -e.AmountUsd : e.AmountUsd)
                 + returns.Where(r => r.CustodySaleId == sale.Id && r.Status == CustodyDocumentStatus.Posted).Sum(r => r.AmountUsd);
             rows.Add(new PartyStatementRow
             {
@@ -348,7 +350,13 @@ public sealed class PartyStatementReadService : IPartyStatementReadService
         foreach (var entry in finance)
         {
             var reference = sales.FirstOrDefault(s => s.Id == entry.CustodySaleId)?.SaleNumber ?? $"AF-{entry.Id:D5}";
-            var title = entry.Kind == CustodyFinanceKind.DirectToOwner ? "پرداخت مستقیم مشتری به مالک" : "دریافت مشتری برای مالک امانی";
+            var title = entry.Kind switch
+            {
+                CustodyFinanceKind.DirectToOwner => "پرداخت مستقیم مشتری به مالک",
+                CustodyFinanceKind.CustomerRefund => "استرداد پول فروش امانی به مشتری",
+                CustodyFinanceKind.OwnerDirectRefund => "استرداد مستقیم مالک به مشتری",
+                _ => "دریافت مشتری برای مالک امانی"
+            };
             if (entry.Status == CustodyDocumentStatus.Cancelled) title += " — لغو شده";
             rows.Add(new PartyStatementRow
             {
