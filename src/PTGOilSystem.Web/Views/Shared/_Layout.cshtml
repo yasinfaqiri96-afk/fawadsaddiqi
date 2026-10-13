@@ -80,6 +80,7 @@
     var foundationResourceControllers = new[] { "Terminals", "StorageTanks", "Trucks", "Wagons", "Drivers", "Vessels" };
     var businessPartyControllers = new[] { "Partners", "Companies", "Suppliers", "Customers", "ServiceProviders", "Sarrafs" };
     var hrControllers = PTGOilSystem.Web.Security.RoleAccessRules.HumanResourcesControllers;
+    var inventoryControllers = new[] { "Inventory", "Custody", "CommodityLoans" };
     var isFoundationCompactPage = foundationDefinitionControllers
         .Concat(foundationResourceControllers)
         .Any(controller => string.Equals(currentController, controller, StringComparison.OrdinalIgnoreCase));
@@ -245,6 +246,7 @@
         simplePurchaseEnabled && !ClientModules.IsControllerEnabled("Loading")
             ? NavNode("Expenses", "Index", T("عملیات", "Operations"), "nav-operations", active: operationTabControllers)
             : NavNode("Loading", "Index", T("عملیات", "Operations"), "nav-operations", active: operationTabControllers),
+        NavNode("Inventory", "Index", T("موجودی", "Inventory"), "nav-assets", active: inventoryControllers),
         NavNode("OperationalAssets", "Index", T("دارایی‌ها", "Assets"), "nav-assets"),
         NavNode("Finance", "Index", T("مالی", "Finance"), "nav-finance",
             active: financeNavControllers),
@@ -636,10 +638,10 @@
                     </div>
 
                     <div class="boltz-topbar-end ptg-header-cluster">
-                        @* مشعل آفلاین: وضعیت اتصال و عملیات ارسال‌نشده (pwa-register.js آیکن و عنوان را به‌روز می‌کند). *@
-                        <a class="ptg-h3d" href="~/offline/index.html" data-offline-chip
-                           title="@T("مشعل آفلاین", "Mashal offline")"
-                           aria-label="@T("مشعل آفلاین", "Mashal offline")">
+                        @* وضعیت اتصال و عملیات ارسال‌نشده (pwa-register.js آیکن و عنوان را به‌روز می‌کند)؛ فقط مدیریت عملیات/بکاپ، نه محیط جدا. *@
+                        <a class="ptg-h3d" href="~/offline/index.html#/ops" data-offline-chip
+                           title="@T("عملیات آفلاین", "Offline operations")"
+                           aria-label="@T("عملیات آفلاین", "Offline operations")">
                             <i class="bi bi-cloud-check" aria-hidden="true" data-offline-chip-icon></i>
                         </a>
                         @if (onboardingEnabled)

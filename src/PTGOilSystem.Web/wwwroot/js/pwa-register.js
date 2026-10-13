@@ -5,7 +5,18 @@
 
     if ('serviceWorker' in navigator && window.isSecureContext) {
         window.addEventListener('load', function () {
-            navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' }).catch(function () { });
+            navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' }).then(function (registration) {
+                // برنامهٔ نصب‌شده با ناوبری SPA روزها بدون ناوبری کامل باز می‌ماند و مرورگر خودش SW تازه را نمی‌گیرد؛
+                // با هر بازگشت به برنامه (حداکثر هر ۳۰ دقیقه) نسخهٔ تازه بررسی می‌شود. نصب نسخهٔ تازه هیچ معلومات
+                // محلی (IndexedDB، عملیات Pending، رمزگذاری) را پاک نمی‌کند.
+                var lastCheck = Date.now();
+                document.addEventListener('visibilitychange', function () {
+                    if (document.visibilityState === 'visible' && navigator.onLine && Date.now() - lastCheck > 30 * 60 * 1000) {
+                        lastCheck = Date.now();
+                        registration.update().catch(function () { });
+                    }
+                });
+            }).catch(function () { });
         });
     }
 
@@ -29,7 +40,7 @@
         var status = readStatus();
         var pending = Number(status.pending) || 0;
         var problems = Number(status.conflicts) || 0;
-        var label = 'مشعل آفلاین';
+        var label = 'عملیات آفلاین';
         var iconClass = 'bi-cloud-check';
 
         // دسترسی واقعی به سرور (form-bridge.js) بر navigator.onLine مقدم است.

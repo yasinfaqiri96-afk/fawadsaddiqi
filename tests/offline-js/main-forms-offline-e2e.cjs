@@ -338,7 +338,12 @@ async function pollSql(query, expected, timeout = 90000) {
     });
     await quick.fill('form [name="Name"]', 'E2E Quick Customer');
     await quick.click('form button[type="submit"]');
-    await page.waitForFunction(() => window.__quickCreated.length === 1, null, { timeout: 30000 });
+    await page.waitForFunction(() => window.__quickCreated.length === 1, null, { timeout: 30000 }).catch(async (e) => {
+      await page.screenshot({ path: path.join(output, 'quick-create-save-failed.png'), fullPage: true });
+      const body = await quick.evaluate(() => [...document.querySelectorAll('[data-offline-panel], [data-offline-notice], .alert')]
+        .map((el) => el.innerText.trim()).filter(Boolean).join(' | ')).catch((err) => 'eval failed ' + err.message);
+      throw new Error(`quick-create save did not reach the parent: ${quick.url()} | ${body} | ${e.message}`);
+    });
     const quickItem = await page.evaluate(() => window.__quickCreated[0]);
     check('QUICK-CREATE', 'quick-create modal works offline: saved to the device and the parent form gets the pending record',
       String(quickItem.id).startsWith('op:') && quickItem.label.includes('E2E Quick Customer'), JSON.stringify(quickItem));

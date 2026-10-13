@@ -12,14 +12,14 @@
 // رمز محلی در هر نشست فقط یک‌بار (session.js).
 
 import { IdbStore, isQuotaError, profileDbName } from './store.js';
-import { Sealer, unlockProfile } from './vault.js';
+import { PageSealer, Sealer, createProfile, unlockProfile, validatePin } from './vault.js';
 import { ApiClient } from './api.js';
 import { ConnectivityMonitor } from './connectivity.js';
 import { SyncEngine } from './sync-engine.js';
 import { DeviceAuth } from './device-auth.js';
 import { FORM_SUBMIT, OutboxRepo, Status, canResubmit, typeLabel } from './operations.js';
 import { formatDateTime, formatNumber, relativeAge, todayIso, uuid } from './util.js';
-import { SESSION_IDLE_MS, forgetSession, hasSession, loadProfiles, openRegistry, rememberSession, restoreSession, touchSession } from './session.js';
+import { SESSION_IDLE_MS, ensurePageKeys, forgetSession, hasSession, loadProfiles, openRegistry, rememberSession, rememberShellStyles, restoreSession, touchSession } from './session.js';
 import { PageVault } from './page-vault.js';
 
 const STATUS_KEY = 'mashal.offline.status';
@@ -28,6 +28,8 @@ const PAGE_REFRESH_MS = 10 * 60_000;
 const SHELL_REFRESH_MS = 6 * 60 * 60_000;
 const WARM_EVERY_MS = 6 * 60 * 60_000;
 const OPS_LINK = '<a href="/offline/index.html#/ops">عملیات آفلاین</a>';
+const OFFER_KEY = 'mashal.offline.offer.';
+const OFFER_SNOOZE_MS = 30 * 24 * 60 * 60_000;
 const TONES = ['alert-info', 'alert-warning', 'alert-success', 'alert-danger'];
 const ATTR_COPY = 'data-ptg-offline-copy';
 
@@ -165,8 +167,12 @@ async function unlockWithPin(pin) {
 
 async function openSession(profile, dataKey) {
   closeSession(false);
+  closeDrop();
   const store = await IdbStore.open(profileDbName(profile.companyId, profile.userId));
   const sealer = new Sealer(dataKey);
+  // صندوق صفحات (یک‌بار): از این پس صفحات بدون رمز محلی هم آماده و فقط با رمز خوانده می‌شوند.
+  const keyed = (await ensurePageKeys(profile.id, sealer).catch(() => null)) || profile;
+  const pageSealer = (await PageSealer.forProfile(keyed, sealer)) || sealer;
   const repo = new OutboxRepo(store, sealer, profile);
   const deviceAuth = new DeviceAuth({
     store,
@@ -186,7 +192,7 @@ async function openSession(profile, dataKey) {
     deviceName: navigator.userAgentData?.platform || navigator.platform || 'مرورگر',
     onEvent: (event) => { if (event.type === 'sync-end') onSyncEnd(event.summary); }
   });
-  state.session = { profile, store, repo, engine, vault: new PageVault(store, sealer) };
+  state.session = { profile, store, repo, engine, vault: new PageVault(store, pageSealer) };
   await engine.recoverInterrupted();
   if (monitor.reachable) engine.run();
 }
@@ -197,6 +203,35 @@ function closeSession(forget = true) {
   api.setAuth(null);
   state.session.store.close();
   state.session = null;
+}
+
+// ---------------------------------------------------------------- page writer (no PIN needed)
+
+let dropPromise = null;
+
+/**
+ * نوشتن نسخهٔ صفحات: با نشست باز همان صندوق نشست؛ بدون نشست فقط با کلید عمومی صندوق صفحات (vault.js PageSealer).
+ * پس نصب‌شدهٔ PWA که بدون رمز باز شد هم صفحات را برای قطع سرور آماده می‌کند؛ خواندن همیشه پس از رمز محلی است.
+ */
+async function pageWriter() {
+  if (state.session) return state.session.vault;
+  if (!dropPromise) {
+    dropPromise = (async () => {
+      const profile = await profileForUser();
+      const sealer = profile ? await PageSealer.forProfile(profile) : null;
+      if (!sealer) return null;
+      const store = await IdbStore.open(profileDbName(profile.companyId, profile.userId));
+      return { profile, store, vault: new PageVault(store, sealer) };
+    })().catch(() => null);
+  }
+  const drop = await dropPromise;
+  return state.session ? state.session.vault : drop?.vault || null;
+}
+
+function closeDrop() {
+  const pending = dropPromise;
+  dropPromise = null;
+  pending?.then((drop) => drop?.store.close()).catch(() => {});
 }
 
 function onSyncEnd(summary) {
@@ -278,7 +313,7 @@ function paint(host, tone, parts) {
 /** رمزی که کاربر در حال نوشتن است، با بازسازی پیام پاک نشود. */
 function isTypingPin(host) {
   const active = document.activeElement;
-  return !!active && host.contains(active) && active.matches('[data-offline-pin]') && !!active.value;
+  return !!active && host.contains(active) && active.matches('[data-offline-pin], [data-offline-new-pin]') && !!active.value;
 }
 
 function noticeHost() {
@@ -317,7 +352,7 @@ async function renderNotice(profile) {
   } else if (!monitor.reachable && monitor.lastCheckAt && !formPanels) {
     parts.push(profile
       ? 'سرور در دسترس نیست. صفحات و فورم‌هایی که پیش‌تر باز شده‌اند بدون سرور باز می‌شوند؛ ثبت‌های مجاز در دستگاه می‌ماند و پس از اتصال خودکار فرستاده می‌شود.'
-      : 'سرور در دسترس نیست و این دستگاه برای کار آفلاین فعال نشده است (فعال‌سازی: یک‌بار با اینترنت «مشعل آفلاین»).');
+      : 'سرور در دسترس نیست و کار بدون سرور در این دستگاه فعال نشده است (فعال‌سازی: یک‌بار با اینترنت، در داشبورد مشعل).');
     if (!state.pageMessage) tone = 'warning';
   }
   const needsPin = profile && !state.session
@@ -327,8 +362,86 @@ async function renderNotice(profile) {
       ? 'برای بازکردن نسخهٔ ذخیره‌شده، رمز محلی را وارد کنید (در این نشست فقط یک‌بار).'
       : `${formatNumber(state.counts.pending)} عملیات آفلاین منتظر ارسال است؛ برای ارسال خودکار، رمز محلی را وارد کنید.`);
     parts.push(pinHtml(profile, state.pendingNav ? 'بازکردن' : 'تأیید رمز'));
+  } else if (!state.session && !hasSession() && monitor.reachable && !formPanels && offerSetup()) {
+    if (!profile) {
+      parts.push('<strong>کار بدون سرور در این دستگاه فعال نیست.</strong> با یک رمز محلی، همین مشعل (داشبورد، منو، صفحات و '
+        + 'فورم‌های مجاز شما) هنگام قطع سرور هم باز می‌شود و ثبت‌های مجاز پس از اتصال خودکار فرستاده می‌شوند.');
+      parts.push(activationHtml());
+    } else if (!profile.pageKeys) {
+      parts.push('برای آماده‌کردن صفحات مشعل در این دستگاه برای زمان قطع سرور، یک‌بار رمز محلی را وارد کنید.');
+      parts.push(pinHtml(profile, 'تأیید رمز') + laterHtml());
+    }
   }
   paint(host, tone, parts);
+}
+
+/**
+ * پیشنهاد فعال‌سازی/آماده‌سازی در همان مشعل: در برنامهٔ نصب‌شده (PWA) در هر صفحه، در مرورگر فقط در داشبورد؛
+ * «بعداً» آن را ۳۰ روز پنهان می‌کند. داخل مودال/iframe هرگز.
+ */
+function offerSetup() {
+  if (window.top !== window || !('indexedDB' in window) || !window.isSecureContext) return false;
+  try {
+    const snoozed = Number(localStorage.getItem(OFFER_KEY + CONFIG.userId)) || 0;
+    if (Date.now() - snoozed < OFFER_SNOOZE_MS) return false;
+  } catch {
+    // حالت خصوصی؛ پیشنهاد نشان داده می‌شود.
+  }
+  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+  return standalone || location.pathname === '/' || location.pathname.toLowerCase() === '/home';
+}
+
+function laterHtml() {
+  return ' <button type="button" class="ak-cancel mt-2" data-offline-later>بعداً</button>';
+}
+
+function activationHtml() {
+  const id = ++pinSeq;
+  return `<div class="ak-field mt-2">
+      <label class="ak-label" for="ptg-offline-new-${id}">رمز محلی (حداقل ۶ حرف یا رقم؛ فقط روی همین دستگاه)</label>
+      <input class="ak-input" id="ptg-offline-new-${id}" type="password" autocomplete="new-password" data-offline-new-pin />
+    </div>
+    <div class="ak-field mt-2">
+      <label class="ak-label" for="ptg-offline-new2-${id}">تکرار رمز محلی</label>
+      <input class="ak-input" id="ptg-offline-new2-${id}" type="password" autocomplete="new-password" data-offline-new-pin />
+    </div>
+    <button type="button" class="ak-save mt-2" data-offline-activate>فعال‌سازی کار بدون سرور</button>${laterHtml()}`;
+}
+
+/** فعال‌سازی دستگاه در همان مشعل (همان createProfile و Registry برنامهٔ آفلاین؛ چیزی موازی ساخته نمی‌شود). */
+async function onActivate(host) {
+  const [pin1, pin2] = host.querySelectorAll('[data-offline-new-pin]');
+  const button = host.querySelector('[data-offline-activate]');
+  if (!pin1 || !pin2 || !button || !pin1.value) return;
+  const fail = (message) => { state.pageMessage = { tone: 'danger', html: h(message) }; };
+  button.disabled = true;
+  try {
+    if (pin1.value !== pin2.value) return fail('دو رمز یکسان نیست.');
+    const pinError = validatePin(pin1.value);
+    if (pinError) return fail(pinError);
+    const session = await api.session();
+    if (!session.ok || !session.data || Number(session.data.userId) !== CONFIG.userId) {
+      return fail('نشست ورود سرور تأیید نشد؛ صفحه را تازه کنید و دوباره تلاش کنید.');
+    }
+    const { profile, dataKey, rawKey } = await createProfile({ session: session.data, pin: pin1.value, deviceId: uuid() });
+    await (await openRegistry()).put('profiles', profile);
+    pin1.value = '';
+    pin2.value = '';
+    const persisted = rememberSession(profile, rawKey);
+    await openSession(profile, dataKey);
+    state.session.persisted = persisted;
+    navigator.storage?.persist?.().catch(() => {});
+    state.pageMessage = {
+      tone: 'success',
+      html: 'کار بدون سرور در این دستگاه فعال شد. داشبورد، صفحات منو و فورم‌های مجاز شما در پس‌زمینه آماده می‌شوند.'
+    };
+    afterUnlock();
+  } catch (e) {
+    fail(isQuotaError(e) ? 'فضای ذخیره‌سازی دستگاه کافی نیست.' : (e?.message || 'فعال‌سازی انجام نشد.'));
+  } finally {
+    button.disabled = false;
+    await refreshAll();
+  }
 }
 
 function setPageMessage(tone, html) {
@@ -481,7 +594,7 @@ function refreshPanel(ctx, profile) {
     parts.push(profile
       ? 'سرور در دسترس نیست. «ذخیره» همین فورم را در این دستگاه نگه می‌دارد و پس از اتصال، خودکار در سیستم ثبت می‌کند.'
       : 'سرور در دسترس نیست و این دستگاه برای ثبت آفلاین فعال نشده است؛ معلومات فورم فقط تا وقتی این صفحه باز است می‌ماند. '
-        + 'فعال‌سازی: یک‌بار با اینترنت «مشعل آفلاین» (آیکن ابر سربرگ) را باز کنید.');
+        + 'فعال‌سازی: یک‌بار با اینترنت، در داشبورد مشعل.');
   }
   const counts = state.counts;
   if (counts?.pending) {
@@ -779,7 +892,8 @@ async function onSubmit(event) {
   const pendingRef = hasPendingReference(form);
   if (ctx.quick && !pendingRef && state.edit?.form !== form) {
     // ثبت سریع آنلاین همان جریان core.js (JSON به فورم اصلی) است؛ فقط وقتی سرور در دسترس نیست این‌جا ذخیره می‌شود.
-    if (monitor.reachable || !monitor.lastCheckAt) return;
+    // نسخهٔ ذخیره‌شدهٔ مودال (بدون سرور باز شده) پیش از نخستین بررسی اتصال هم به‌جای ارسال کور، اول می‌سنجد.
+    if (monitor.reachable && (monitor.lastCheckAt || !isCopy())) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     if (await monitor.check()) {
@@ -872,9 +986,22 @@ function afterUnlock() {
 // ---------------------------------------------------------------- pages (encrypted copies)
 
 async function capturePage(url, html, full = false) {
-  if (!state.session || !html || !url || !cacheable(url) || !/<main[\s>]/i.test(html)) return;
-  await state.session.vault.put(url, html, { full }).catch(() => {});
+  if (!html || !url || !cacheable(url) || !/<main[\s>]/i.test(html)) return;
+  const vault = await pageWriter();
+  if (!vault) return;
+  await vault.put(url, html, { full }).catch(() => {});
   warmAssets(html, url);
+}
+
+/** پوستهٔ کامل Layout (منو، سربرگ) + فایل‌های CSS/JSِ آن؛ نشانی CSSها برای صفحهٔ رمزِ بدون سرور. */
+async function captureShell(vault, html) {
+  await vault.putShell(html);
+  warmAssets(html, location.href);
+  const styles = [...html.matchAll(/<link\b[^>]*\brel="stylesheet"[^>]*>/gi)]
+    .map((m) => /\bhref="([^"]+)"/i.exec(m[0])?.[1]?.replace(/&amp;/g, '&'))
+    .filter((href) => href && href.startsWith('/') && !href.startsWith('//'));
+  const profile = await profileForUser();
+  if (profile && styles.length) await rememberShellStyles(profile.id, styles).catch(() => {});
 }
 
 /** CSS/JSِ همان صفحه به Service Worker سپرده می‌شود تا نسخهٔ ذخیره‌شده بدون سرور هم با همان ظاهر و رفتار باز شود. */
@@ -897,23 +1024,24 @@ const isHtml = (response) => response.ok && !response.redirected && (response.he
 
 /** صفحهٔ فعلی (و پوستهٔ کامل Layout) اگر نسخهٔ تازه ندارد، یک‌بار در پس‌زمینه گرفته و رمزگذاری می‌شود. */
 async function captureCurrent() {
-  const session = state.session;
-  if (!session || isCopy() || !monitor.reachable || !cacheable(location.href)) return;
+  if (isCopy() || !monitor.reachable || !cacheable(location.href)) return;
+  const vault = await pageWriter();
+  if (!vault) return;
   try {
     if (isModalUrl(location.href)) {
       // صفحهٔ مودال: سند کامل خودش (بدون پوستهٔ منو) نگه داشته می‌شود.
-      const savedAt = await session.vault.savedAt(location.href);
+      const savedAt = await vault.savedAt(location.href);
       if (savedAt && Date.now() - new Date(savedAt).getTime() < PAGE_REFRESH_MS) return;
       const response = await fetch(location.href, { credentials: 'same-origin', cache: 'no-store' });
       if (isHtml(response)) await capturePage(location.href, await response.text(), true);
       return;
     }
-    const shell = (await session.vault.index()).find((e) => e.key === 'shell');
+    const shell = (await vault.index()).find((e) => e.key === 'shell');
     if (!shell || Date.now() - new Date(shell.savedAt).getTime() > SHELL_REFRESH_MS) {
       const response = await fetch(location.href, { credentials: 'same-origin', cache: 'no-store' });
-      if (isHtml(response)) await session.vault.putShell(await response.text());
+      if (isHtml(response)) await captureShell(vault, await response.text());
     }
-    const savedAt = await session.vault.savedAt(location.href);
+    const savedAt = await vault.savedAt(location.href);
     if (savedAt && Date.now() - new Date(savedAt).getTime() < PAGE_REFRESH_MS) return;
     const response = await fetch(location.href, { credentials: 'same-origin', cache: 'no-store', headers: { 'X-PTG-SPA': '1' } });
     if (isHtml(response)) await capturePage(location.href, await response.text());
@@ -922,35 +1050,62 @@ async function captureCurrent() {
   }
 }
 
-/** آماده‌سازی کار آفلاین: داشبورد، فورم‌های مجاز و فهرست ماژول‌های آن‌ها (هر ۶ ساعت یک‌بار، آرام و در پس‌زمینه). */
+/**
+ * صفحاتی که برای کار بدون سرور آماده می‌شوند: داشبورد، همهٔ گزینه‌های منوی کناری همین کاربر (سرور فقط گزینه‌های مجاز نقش
+ * او را می‌سازد)، فورم‌های مجاز ثبت آفلاین، فهرست ماژول آن‌ها و فورم‌های ثبت سریع (مودال).
+ */
+function warmUrls() {
+  const urls = new Set(['/']);
+  for (const link of document.querySelectorAll('#boltzSidebar .boltz-sidebar-nav a[href]')) {
+    try {
+      const url = new URL(link.getAttribute('href'), location.href);
+      if (cacheable(url.href)) urls.add(url.pathname + url.search);
+    } catch {
+      // نادیده
+    }
+  }
+  for (const path of CONFIG.forms) {
+    urls.add(path);
+    urls.add('/' + path.split('/')[1]);
+  }
+  // ثبت سریعِ طرف‌حساب/وسیله از داخل فورم‌های دیگر (مودال)، همان نشانی که core.js باز می‌کند.
+  for (const path of new Set(Object.values(REFERENCE_FORMS))) {
+    if (CONFIG.forms.has(path)) urls.add(`${path}?modal=1&quickCreate=1`);
+  }
+  return [...urls];
+}
+
+/**
+ * آماده‌سازی کار بدون سرور (آرام، پشت‌سرهم، در پس‌زمینه): هر ۶ ساعت یا وقتی فهرست منو/فورم‌ها عوض شود. صفحه‌ای که
+ * کمتر از ۳ ساعت پیش ذخیره شده دوباره گرفته نمی‌شود. بدون رمز محلی هم کار می‌کند (pageWriter).
+ */
 async function warmUp() {
-  const session = state.session;
-  if (!session || state.warming || !monitor.reachable || document.visibilityState === 'hidden') return;
-  const meta = await session.store.get('meta', 'pageWarmup');
-  if (meta && Date.now() - new Date(meta.at).getTime() < WARM_EVERY_MS) return;
+  if (state.warming || isCopy() || !monitor.reachable || document.visibilityState === 'hidden') return;
+  let vault = await pageWriter();
+  if (!vault) return;
+  const urls = warmUrls();
+  const signature = urls.join('|');
+  const meta = await vault.store.get('meta', 'pageWarmup').catch(() => null);
+  if (meta && meta.signature === signature && Date.now() - new Date(meta.at).getTime() < WARM_EVERY_MS) return;
   state.warming = true;
   try {
-    const urls = new Set(['/']);
-    for (const path of CONFIG.forms) {
-      urls.add(path);
-      urls.add('/' + path.split('/')[1]);
-    }
-    // ثبت سریعِ طرف‌حساب/وسیله از داخل فورم‌های دیگر (مودال)، همان نشانی که core.js باز می‌کند.
-    for (const path of new Set(Object.values(REFERENCE_FORMS))) {
-      if (CONFIG.forms.has(path)) urls.add(`${path}?modal=1&quickCreate=1`);
-    }
     for (const url of urls) {
-      if (state.session !== session || !monitor.reachable) return;
+      if (!monitor.reachable) return;
+      vault = await pageWriter();
+      if (!vault) return;
+      const absolute = new URL(url, location.href).href;
       try {
+        const savedAt = await vault.savedAt(absolute);
+        if (savedAt && Date.now() - new Date(savedAt).getTime() < WARM_EVERY_MS / 2) continue;
         const modal = isModalUrl(url);
         const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: modal ? {} : { 'X-PTG-SPA': '1' } });
-        if (isHtml(response)) await capturePage(new URL(url, location.href).href, await response.text(), modal);
+        if (isHtml(response)) await capturePage(absolute, await response.text(), modal);
       } catch {
         // صفحهٔ بعدی.
       }
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
-    await session.store.put('meta', { key: 'pageWarmup', at: new Date().toISOString() });
+    await vault.store.put('meta', { key: 'pageWarmup', at: new Date().toISOString(), signature }).catch(() => {});
   } finally {
     state.warming = false;
   }
@@ -1010,8 +1165,8 @@ function installLookupCache() {
     try {
       const response = await nativeFetch(input, init);
       const type = response.headers.get('Content-Type') || '';
-      if (response.ok && type.includes('json') && state.session) {
-        response.clone().text().then((body) => state.session?.vault.putData(url.href, body, type)).catch(() => {});
+      if (response.ok && type.includes('json')) {
+        response.clone().text().then(async (body) => (await pageWriter())?.putData(url.href, body, type)).catch(() => {});
       } else if (response.status >= 502 && response.status <= 504) {
         return (await fromVault(url)) || response;
       }
@@ -1105,7 +1260,7 @@ async function scan() {
   injectPendingOptions();
   editFromUrl();
   await refreshAll();
-  if (state.session && monitor.reachable) {
+  if (monitor.reachable) {
     captureCurrent();
     warmUp();
   }
@@ -1136,6 +1291,18 @@ function start() {
       onPin(host);
       return;
     }
+    const activateHost = event.target.closest?.('[data-offline-activate]')?.closest('[data-offline-pin-host]');
+    if (activateHost) {
+      event.preventDefault();
+      onActivate(activateHost);
+      return;
+    }
+    if (event.target.closest?.('[data-offline-later]')) {
+      event.preventDefault();
+      try { localStorage.setItem(OFFER_KEY + CONFIG.userId, String(Date.now())); } catch { /* حالت خصوصی */ }
+      refreshAll();
+      return;
+    }
     if (event.target.closest?.('[data-offline-reload]')) {
       event.preventDefault();
       document.documentElement.removeAttribute(ATTR_COPY);
@@ -1143,11 +1310,13 @@ function start() {
     }
   }, true);
   document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Enter' || !event.target.matches?.('[data-offline-pin]')) return;
+    if (event.key !== 'Enter' || !event.target.matches?.('[data-offline-pin], [data-offline-new-pin]')) return;
     // Enter در فیلد رمز نباید فورم اصلی را بفرستد.
     event.preventDefault();
     const host = event.target.closest('[data-offline-pin-host]');
-    if (host) onPin(host);
+    if (!host) return;
+    if (event.target.matches('[data-offline-new-pin]')) onActivate(host);
+    else onPin(host);
   }, true);
   for (const type of ['pointerdown', 'keydown', 'touchstart']) {
     document.addEventListener(type, () => {
@@ -1168,8 +1337,8 @@ function start() {
   monitor.onChange(() => {
     const cameOnline = monitor.reachable && !wasReachable;
     wasReachable = monitor.reachable;
-    if (cameOnline && state.session) {
-      state.session.engine.run();
+    if (cameOnline) {
+      state.session?.engine.run();
       captureCurrent();
     }
     refreshAll();

@@ -12,11 +12,12 @@
  */
 'use strict';
 
-const VERSION = 'mashal-offline-v6';
+const VERSION = 'mashal-offline-v7';
 const SHELL_CACHE = VERSION + '-shell';
 const OFFLINE_URL = '/offline/index.html';
 const PAGE_LOADER_URL = '/offline/page.html';
 const NAVIGATION_TIMEOUT_MS = 9000;
+const SHELL_TIMEOUT_MS = 5000;
 
 // نام بدون نسخه تا با به‌روزرسانی SW فایل‌های صفحات از دست نروند.
 const PAGE_ASSETS_CACHE = 'mashal-page-assets';
@@ -133,9 +134,14 @@ async function pageAsset(event) {
     return (await store.match(request.url, { ignoreVary: true }))
       || store.match(request.url, { ignoreSearch: true, ignoreVary: true });
   };
+  if (serverDown()) {
+    const cached = await fromCache();
+    if (cached) return cached;
+  }
   try {
     const response = await fetch(request);
     if (GATEWAY_DOWN.includes(response.status)) {
+      markDown();
       return (await fromCache()) || response;
     }
     if (response.ok && response.type === 'basic') {
@@ -143,6 +149,7 @@ async function pageAsset(event) {
     }
     return response;
   } catch (error) {
+    markDown();
     const cached = await fromCache();
     if (cached) {
       return cached;
@@ -155,21 +162,44 @@ function isShellAsset(url) {
   return SHELL_ASSETS.includes(url.pathname) || url.pathname.startsWith('/offline/');
 }
 
-async function cacheFirst(request) {
+/**
+ * پوستهٔ آفلاین (/offline/*، manifest، آیکن): اول شبکه با اعتبارسنجی (ETag) تا پس از هر نشر همان نسخهٔ سرور اجرا شود؛
+ * نسخهٔ ذخیره فقط وقتی سرور در دسترس نیست یا دیر جواب می‌دهد. پیش‌تر نسخهٔ ذخیره اول داده می‌شد و ماژول‌های
+ * بدون ?v= (store.js، vault.js، …) تا یک بارگذاری بعد قدیمی می‌ماندند؛ مخلوط نسخهٔ قدیم/جدید در موبایل.
+ */
+async function shellAsset(event) {
+  const request = event.request;
   const cache = await caches.open(SHELL_CACHE);
-  const cached = await cache.match(request, { ignoreSearch: true });
-  const network = fetch(request).then((response) => {
-    if (response && response.ok && response.type === 'basic') {
-      cache.put(request, response.clone()).catch(() => {});
+  const fromCache = () => cache.match(request, { ignoreSearch: true });
+  if (serverDown()) {
+    // سرور همین حالا جواب نداد: ماژول‌های پوسته بی‌درنگ از نسخهٔ ذخیره (هر ماژول منتظر شکست شبکه نماند).
+    const cached = await fromCache();
+    if (cached) return cached;
+  }
+  try {
+    const response = await withTimeout(fetch(request, { cache: 'no-cache' }), SHELL_TIMEOUT_MS);
+    if (GATEWAY_DOWN.includes(response.status)) {
+      markDown();
+      return (await fromCache()) || response;
+    }
+    markUp();
+    if (response.ok && response.type === 'basic') {
+      const url = new URL(request.url);
+      event.waitUntil(cache.put(url.origin + url.pathname, response.clone()).catch(() => {}));
     }
     return response;
-  }).catch(() => null);
-  if (cached) {
-    return cached;
+  } catch {
+    markDown();
+    return (await fromCache()) || Response.error();
   }
-  const response = await network;
-  return response || Response.error();
 }
+
+// آخرین شکست سرور (ناوبری یا فایل پوسته): تا ۱۵ ثانیه فایل‌های پوسته و صفحه اول از نسخهٔ ذخیره داده می‌شوند.
+const DOWN_WINDOW_MS = 15000;
+let downUntil = 0;
+const serverDown = () => Date.now() < downUntil;
+const markDown = () => { downUntil = Date.now() + DOWN_WINDOW_MS; };
+const markUp = () => { downUntil = 0; };
 
 function withTimeout(promise, ms) {
   return new Promise((resolve, reject) => {
@@ -184,10 +214,12 @@ async function navigate(request) {
     // صفحهٔ MVC همیشه از شبکه؛ هرگز cache نمی‌شود. پروکسیِ بدون سرور (502/503/504) هم یعنی آفلاین.
     const response = await withTimeout(fetch(request), NAVIGATION_TIMEOUT_MS);
     if (!GATEWAY_DOWN.includes(response.status)) {
+      markUp();
       return response;
     }
     throw new Error('gateway');
   } catch {
+    markDown();
     // همان آدرس از نسخهٔ رمزگذاری‌شدهٔ کاربر (page-loader.js) با همان ظاهر و منو.
     const cache = await caches.open(SHELL_CACHE);
     const loader = (await cache.match(PAGE_LOADER_URL)) || (await cache.match(OFFLINE_URL));
@@ -214,7 +246,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (isShellAsset(url)) {
-    event.respondWith(cacheFirst(request));
+    event.respondWith(shellAsset(event));
     return;
   }
 

@@ -9,7 +9,7 @@ import { DeviceAuth } from './device-auth.js';
 import { OPERATION_FORMS, OPERATION_REFERENCE_PREFIX, OutboxRepo, STATUS_LABELS, STATUS_SHORT, Status, canResubmit, isOperationReference, normalizePayload, typeLabel, validatePayload } from './operations.js';
 import { MIN_BACKUP_PASSWORD, backupFileName, backupWarning, createBackup, mergeBackup, openBackup } from './backup.js';
 import { formatDateTime, formatNumber, relativeAge, todayIso, uuid } from './util.js';
-import { forgetSession, rememberSession, restoreSession } from './session.js';
+import { ensurePageKeys, forgetSession, rememberSession, restoreSession } from './session.js';
 import { FORM_SUBMIT } from './operations.js';
 
 const IDLE_LOCK_MS = 15 * 60_000;
@@ -356,6 +356,8 @@ async function openProfile(profile, dataKey, firstTime = false) {
   app.profile = profile;
   app.store = store;
   app.sealer = new Sealer(dataKey);
+  // صندوق صفحات (session.js): صفحات مشعل از این پس بدون رمز محلی هم آماده می‌شوند.
+  await ensurePageKeys(profile.id, app.sealer).catch(() => null);
   app.repo = new OutboxRepo(store, app.sealer, profile);
   app.deviceAuth = new DeviceAuth({
     store,
@@ -383,7 +385,7 @@ async function openProfile(profile, dataKey, firstTime = false) {
   $('[data-tabs]').hidden = false;
   $('[data-profile-name]').textContent = `${profile.fullName} — ${profile.companyName}`;
   updateConnUi();
-  if (!location.hash || location.hash === '#' || location.hash === '#/lock') location.hash = '#/home';
+  if (!location.hash || location.hash === '#' || location.hash === '#/lock') location.hash = '#/ops';
   else route();
   app.engine.run({ refreshSnapshot: firstTime });
 }
@@ -459,8 +461,9 @@ function autoSync() {
 // ---------------------------------------------------------------- routing
 
 function currentRoute() {
-  const parts = (location.hash || '#/home').replace(/^#\/?/, '').split('/');
-  return { name: parts[0] || 'home', args: parts.slice(1).map(decodeURIComponent) };
+  // پیش‌فرض «عملیات»: این صفحه فقط مدیریت Pending/خطای همگام‌سازی/بکاپ است؛ کار اصلی در خود مشعل.
+  const parts = (location.hash || '#/ops').replace(/^#\/?/, '').split('/');
+  return { name: parts[0] || 'ops', args: parts.slice(1).map(decodeURIComponent) };
 }
 
 async function route() {
@@ -470,8 +473,8 @@ async function route() {
   }
   const { name, args } = currentRoute();
   const renderers = { home: renderHome, new: renderNew, edit: renderEdit, ops: renderOps, op: renderOp, backup: renderBackup, settings: renderSettings };
-  const render = renderers[name] || renderHome;
-  setActiveTab(name === 'op' || name === 'edit' ? 'ops' : (renderers[name] ? name : 'home'));
+  const render = renderers[name] || renderOps;
+  setActiveTab(name === 'op' || name === 'edit' || name === 'home' || name === 'new' ? 'ops' : (renderers[name] ? name : 'ops'));
   try {
     await render(...args);
   } catch (e) {
@@ -567,13 +570,12 @@ async function renderEdit(id) {
 async function renderNew(type, draftId, editRecord = null) {
   app.authMeta = await readMeta('auth');
   if (!type) {
+    // ثبت تازه در همان فورم‌های اصلی مشعل (با و بدون سرور)؛ این صفحه فقط پیش‌نویس‌ها و اصلاح عملیات موجود را باز می‌کند.
     main.innerHTML = `
       <section class="ox-card">
         <h2>ثبت جدید</h2>
-        <p class="ox-hint">همهٔ ثبت‌ها ابتدا در دستگاه ذخیره و پس از اتصال برای تأیید به سرور فرستاده می‌شوند.</p>
-        <ul class="ox-list">
-          ${allowedTypes().map((k) => `<li><a class="ox-item" href="#/new/${encodeURIComponent(k)}"><div><strong>${h(OPERATION_FORMS[k].label)}</strong><span class="ox-muted">${h(OPERATION_FORMS[k].hint)}</span></div></a></li>`).join('')}
-        </ul>
+        <p>ثبت جدید در همان فورم‌های اصلی مشعل انجام می‌شود؛ بدون سرور هم همان فورم در دستگاه ذخیره و پس از اتصال خودکار فرستاده می‌شود.</p>
+        <div class="ox-actions"><a class="ox-btn" href="/">بازکردن مشعل</a><a class="ox-btn ox-btn--ghost" href="#/ops">عملیات آفلاین</a></div>
       </section>`;
     return;
   }
@@ -653,7 +655,7 @@ async function renderNew(type, draftId, editRecord = null) {
         <div class="ox-actions">
           <button class="ox-btn" type="submit" ${missingRefs.length ? 'disabled' : ''}>${editRecord ? 'ذخیره و ارسال دوباره' : 'ثبت در دستگاه'}</button>
           ${editRecord ? '' : '<button class="ox-btn ox-btn--ghost" type="button" data-save-draft>ذخیرهٔ پیش‌نویس</button>'}
-          <a class="ox-btn ox-btn--ghost" href="#/new">انصراف</a>
+          <a class="ox-btn ox-btn--ghost" href="#/ops">انصراف</a>
         </div>
       </form>
     </section>`;

@@ -4,8 +4,8 @@
 // با همان ناوبری SPA (PTG.spaApplyHtml). رمز محلی فقط اگر در این نشست هنوز وارد نشده باشد پرسیده می‌شود.
 
 import { IdbStore, profileDbName } from './store.js';
-import { Sealer, unlockProfile } from './vault.js';
-import { loadProfiles, openRegistry, rememberSession, restoreSession } from './session.js';
+import { PageSealer, Sealer, unlockProfile } from './vault.js';
+import { ensurePageKeys, loadProfiles, openRegistry, rememberSession, restoreSession } from './session.js';
 import { PageVault } from './page-vault.js';
 import { formatDateTime, relativeAge } from './util.js';
 
@@ -21,6 +21,30 @@ function show(html) {
   if (root) root.innerHTML = `<section class="ox-card">${html}</section>`;
 }
 
+/**
+ * صفحهٔ رمز محلی با همان ظاهر ورود مشعل: نشانی CSSهای پوستهٔ مشعل (form-bridge.js، آشکار و بدون معلومات) بارگذاری و
+ * فرم با همان کلاس‌های صفحهٔ ورود ساخته می‌شود. اگر هنوز ذخیره نشده، همان کارت ساده می‌ماند.
+ */
+function showLogin(profiles, html) {
+  const styles = profiles.map((p) => p.shellStyles || []).find((list) => list.length) || [];
+  if (!styles.length || !root) {
+    show(html);
+    return;
+  }
+  for (const href of styles) {
+    if (!href.startsWith('/') || href.startsWith('//') || document.querySelector(`link[data-ptg-shell-style="${CSS.escape(href)}"]`)) continue;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    link.dataset.ptgShellStyle = href;
+    document.head.appendChild(link);
+  }
+  document.body.className = 'app-body boltz-shell app-shell-public boltz-rtl';
+  root.innerHTML = `<div class="ptg-login-page"><div class="ptg-login-card">
+      <section class="ptg-login-art"><img class="ptg-login-brand" src="/mashal-icon-512.png" alt="مشعل" width="160" height="160" /></section>
+      <section class="ptg-login-panel">${html}</section></div></div>`;
+}
+
 async function boot() {
   let profiles;
   try {
@@ -31,7 +55,7 @@ async function boot() {
   }
   if (!profiles.length) {
     show(`<h2>سرور در دسترس نیست</h2>
-      <p>این دستگاه هنوز برای کار آفلاین فعال نشده است. یک‌بار با اینترنت وارد مشعل شوید و «مشعل آفلاین» را فعال کنید.</p>
+      <p>کار بدون سرور در این دستگاه هنوز فعال نشده است. یک‌بار با اینترنت وارد مشعل شوید و در داشبورد «فعال‌سازی کار بدون سرور» را بزنید.</p>
       <div class="ox-actions"><a class="ox-btn" href="${h(location.href)}">تلاش دوباره</a></div>`);
     return;
   }
@@ -40,7 +64,7 @@ async function boot() {
     const last = JSON.parse(sessionStorage.getItem(LOOP_KEY) || 'null');
     if (last && last.url === location.href && Date.now() - last.at < 4000) {
       show(`<h2>نمایش نسخهٔ ذخیره‌شده ممکن نشد</h2><div class="ox-actions"><a class="ox-btn" href="${h(location.href)}">تلاش دوباره</a>
-        <a class="ox-btn ox-btn--ghost" href="/offline/index.html">مشعل آفلاین</a></div>`);
+        <a class="ox-btn ox-btn--ghost" href="/offline/index.html#/ops">عملیات آفلاین</a></div>`);
       sessionStorage.removeItem(LOOP_KEY);
       return;
     }
@@ -58,16 +82,21 @@ async function boot() {
 }
 
 function renderLock(profiles, message = '') {
-  show(`<h2>سرور در دسترس نیست — نسخهٔ ذخیره‌شدهٔ مشعل</h2>
-    <p class="ox-hint">برای بازکردن صفحات و فورم‌هایی که پیش‌تر ذخیره شده‌اند، رمز محلی را وارد کنید (در این نشست فقط یک‌بار).</p>
-    ${message ? `<p class="ox-error">${message}</p>` : ''}
-    <form class="ox-form" data-loader-unlock>
-      ${profiles.length > 1 ? `<div class="ox-field"><label for="ox-profile">کاربر</label>
-        <select class="ox-input" id="ox-profile">${profiles.map((p) => `<option value="${h(p.id)}">${h(p.fullName || p.username)} — ${h(p.companyName || '')}</option>`).join('')}</select></div>` : ''}
-      <div class="ox-field"><label for="ox-pin">رمز محلی${profiles.length === 1 ? ` — ${h(profiles[0].fullName || profiles[0].username)}` : ''}</label>
-        <input class="ox-input" id="ox-pin" type="password" autocomplete="current-password" required /></div>
-      <div class="ox-actions"><button class="ox-btn" type="submit">بازکردن</button>
-        <a class="ox-btn ox-btn--ghost" href="${h(location.href)}">تلاش دوباره با سرور</a></div>
+  showLogin(profiles, `<form class="ptg-login-form ox-form" data-loader-unlock>
+      <header class="ptg-login-heading">
+        <h1 class="ptg-login-title">مشعل</h1>
+        <p class="ptg-login-subtitle">سرور در دسترس نیست — برای بازکردن همان مشعل (داشبورد، منو، صفحات و فورم‌ها) رمز محلی را وارد کنید (در این نشست فقط یک‌بار).</p>
+      </header>
+      ${message ? `<div class="ptg-login-alert ox-error" role="alert">${message}</div>` : ''}
+      <div class="ptg-login-fields">
+        ${profiles.length > 1 ? `<div class="ptg-login-field ox-field"><select class="ptg-login-input ox-input" id="ox-profile" aria-label="کاربر">${profiles.map((p) => `<option value="${h(p.id)}">${h(p.fullName || p.username)} — ${h(p.companyName || '')}</option>`).join('')}</select></div>` : ''}
+        <div class="ptg-login-field ox-field">
+          <input class="ptg-login-input ox-input" id="ox-pin" type="password" autocomplete="current-password" required placeholder=" " />
+          <label class="ptg-login-label" for="ox-pin">رمز محلی${profiles.length === 1 ? ` — ${h(profiles[0].fullName || profiles[0].username)}` : ''}</label>
+        </div>
+      </div>
+      <button class="ptg-login-submit ox-btn" type="submit">بازکردن مشعل</button>
+      <a class="ptg-login-help ox-btn ox-btn--ghost" href="${h(location.href)}">تلاش دوباره با سرور</a>
     </form>`);
   const form = root.querySelector('[data-loader-unlock]');
   root.querySelector('#ox-pin')?.focus();
@@ -97,8 +126,10 @@ function renderLock(profiles, message = '') {
 async function open(profile, dataKey) {
   const store = await IdbStore.open(profileDbName(profile.companyId, profile.userId));
   try {
-    const vault = new PageVault(store, new Sealer(dataKey));
-    const [page, shell] = await Promise.all([vault.get(location.href), vault.getShell()]);
+    const sealer = new Sealer(dataKey);
+    const keyed = (await ensurePageKeys(profile.id, sealer).catch(() => null)) || profile;
+    const vault = new PageVault(store, (await PageSealer.forProfile(keyed, sealer)) || sealer);
+    const [page, shell] = await Promise.all([vault.get(location.href).catch(() => null), vault.getShell().catch(() => null)]);
     if (page?.full) {
       // صفحهٔ مودال/ثبت سریع: همان سند کامل خودش.
       writeDocument(page.html, page.savedAt);
@@ -109,6 +140,11 @@ async function open(profile, dataKey) {
       return;
     }
     const pages = (await vault.list()).sort((a, b) => (a.title || '').localeCompare(b.title || '', 'fa'));
+    if (shell) {
+      // همان پوسته (منو، سربرگ، سایدبار) با پیام در بخش اصلی؛ ناوبری منو به صفحات ذخیره‌شده ادامه دارد.
+      render(shell.html, null, missingHtml(pages), shell.savedAt);
+      return;
+    }
     show(`<h2>این صفحه بدون سرور در دسترس نیست</h2>
       <p>این صفحه هنوز روی این دستگاه ذخیره نشده است. صفحات و فورم‌هایی که یک‌بار آنلاین باز شوند، بدون سرور هم باز می‌شوند.</p>
       ${pages.length ? `<ul class="ox-list">${pages.map((p) => `<li><a class="ox-item" href="${h(p.url)}"><div><strong>${h(p.title || p.url)}</strong>
@@ -132,19 +168,33 @@ function writeDocument(html, savedAt) {
  * پوستهٔ Layout (همان منو و سربرگ کاربر) با main خالی نوشته می‌شود؛ سپس page-apply.js محتوای صفحه را با همان
  * swapِ ناوبری SPA جای‌گذاری می‌کند تا CSS/JSِ مخصوص صفحه هم مثل حالت آنلاین بارگذاری شود.
  */
-function render(shellHtml, page) {
+function render(shellHtml, page, mainHtml = '', savedAt = null) {
   storedPage = page;
   const doc = new DOMParser().parseFromString(shellHtml, 'text/html');
-  doc.documentElement.setAttribute(ATTR_COPY, page.savedAt);
+  doc.documentElement.setAttribute(ATTR_COPY, page?.savedAt || savedAt || new Date().toISOString());
   const main = doc.querySelector('main');
-  if (main) main.innerHTML = '';
-  const apply = doc.createElement('script');
-  apply.type = 'module';
-  apply.src = '/offline/js/page-apply.js';
-  doc.body.appendChild(apply);
+  if (main) main.innerHTML = mainHtml;
+  if (page) {
+    const apply = doc.createElement('script');
+    apply.type = 'module';
+    apply.src = '/offline/js/page-apply.js';
+    doc.body.appendChild(apply);
+  }
   document.open();
   document.write('<!DOCTYPE html>\n' + doc.documentElement.outerHTML);
   document.close();
+}
+
+/** پیام «این صفحه هنوز آماده نشده» داخل همان بخش اصلی مشعل، با پیوند صفحات آماده‌شده. */
+function missingHtml(pages) {
+  const items = pages.slice(0, 150).map((p) => `<li><a href="${h(p.url)}">${h(p.title || p.url)}</a>
+    <small class="text-muted">— ${h(formatDateTime(p.savedAt))} (${h(relativeAge(p.savedAt))})</small></li>`).join('');
+  return `<div class="alert ak-form-alert alert-warning" role="status">
+      <div class="mb-1"><strong>این صفحه هنوز روی این دستگاه آماده نشده است.</strong></div>
+      <div class="mb-1">سرور در دسترس نیست. منوی مشعل و صفحاتی که آماده شده‌اند بدون سرور باز می‌شوند؛ صفحات منو هنگام اتصال خودکار آماده می‌شوند.</div>
+      <div class="mb-1"><a href="/">داشبورد</a> · <a href="/offline/index.html#/ops">عملیات آفلاین</a> · <a href="${h(location.href)}">تلاش دوباره با سرور</a></div>
+    </div>
+    ${items ? `<div class="alert ak-form-alert alert-info"><div class="mb-1">صفحات آماده برای کار بدون سرور:</div><ul class="mb-0">${items}</ul></div>` : ''}`;
 }
 
 export async function applyStoredPage() {

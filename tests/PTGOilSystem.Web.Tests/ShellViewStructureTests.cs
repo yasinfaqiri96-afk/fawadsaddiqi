@@ -544,6 +544,19 @@ public class ShellViewStructureTests
         Assert.DoesNotContain("NavNode(\"StorageTanks\", \"Index\", T(\"تعاریف پایه\", \"Base Definitions\")", layout);
     }
 
+    [Fact]
+    public void Inventory_Navigation_Opens_The_Existing_Shared_Tabs()
+    {
+        var layout = ReadRepoFile("src/PTGOilSystem.Web/Views/Shared/_Layout.cshtml");
+        var tabs = ReadRepoFile("src/PTGOilSystem.Web/Views/Shared/_SectionTabs.cshtml");
+
+        Assert.Contains("var inventoryControllers = new[] { \"Inventory\", \"Custody\", \"CommodityLoans\" };", layout);
+        Assert.Contains("NavNode(\"Inventory\", \"Index\", T(\"موجودی\", \"Inventory\"), \"nav-assets\", active: inventoryControllers)", layout);
+        Assert.Contains("(\"Inventory\",  \"Index\",        T(\"حرکت‌های موجودی\", \"Inventory Movements\")", tabs);
+        Assert.Contains("(\"Custody\",    \"Index\",        T(\"امانی\",           \"Custody\")", tabs);
+        Assert.Contains("(\"CommodityLoans\", \"Index\",    T(\"قرض جنسی\",        \"Commodity loans\")", tabs);
+    }
+
     [Theory]
     [InlineData(".ptg-app")]
     [InlineData(".ptg-page-frame")]

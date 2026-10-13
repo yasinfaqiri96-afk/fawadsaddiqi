@@ -571,6 +571,39 @@ test('page vault: pages are encrypted at rest, found by normalised URL, oldest e
   assert.ok(MAX_PAGES >= 100);
 });
 
+test('page vault without PIN: pages written with the public page key, readable only after unlock, old format still opens', async () => {
+  const vaultModule = await import('../../src/PTGOilSystem.Web/wwwroot/offline/js/vault.js');
+  const store = await MemoryStore.open('pages');
+  const { profile, dataKey } = await createProfile({ session: SESSION, pin: PIN, deviceId: 'dev-1' });
+  const sealer = new Sealer(dataKey);
+  const keyed = { ...profile, pageKeys: await vaultModule.createPageKeys(sealer) };
+  assert.ok(!JSON.stringify(keyed.pageKeys).includes('"d"'), 'private key never stored in clear');
+
+  // نشست بسته (برنامهٔ نصب‌شده بدون رمز): فقط نوشتن.
+  const locked = await vaultModule.PageSealer.forProfile(keyed);
+  assert.equal(locked.canOpen, false);
+  const writer = new PageVault(store, locked);
+  await writer.put('http://h/Reports/Stock', '<html><head><title>راپور</title></head><body><main>موجودی ۵۰۰</main></body></html>');
+  await writer.putShell('<html><body><nav>منوی کامل</nav><main></main></body></html>');
+  assert.ok(!JSON.stringify(await store.getAll('pages')).includes('موجودی'), 'locked write is encrypted');
+  await assert.rejects(() => writer.get('http://h/Reports/Stock'), /locked/);
+
+  // پس از رمز محلی: هر دو قالب (کلید عمومی و کلید داده) باز می‌شوند.
+  const unlocked = await unlockProfile(keyed, PIN);
+  const reader = new PageVault(store, await vaultModule.PageSealer.forProfile(unlocked.profile, new Sealer(unlocked.dataKey)));
+  assert.equal((await reader.get('http://h/reports/stock')).title, 'راپور');
+  assert.ok((await reader.getShell()).html.includes('منوی کامل'));
+  await reader.put('http://h/Sales', '<html><head><title>فروش</title></head><body><main>x</main></body></html>');
+  assert.equal((await new PageVault(store, sealer).get('http://h/Sales')).title, 'فروش', 'unlocked writes keep the data-key format');
+
+  // کلید عمومی کاربر دیگر نمی‌تواند صفحات این کاربر را باز کند.
+  const other = await createProfile({ session: { ...SESSION, userId: SESSION.userId + 1 }, pin: PIN, deviceId: 'dev-2' });
+  const otherKeys = { ...other.profile, pageKeys: await vaultModule.createPageKeys(new Sealer(other.dataKey)) };
+  const otherReader = new PageVault(store, await vaultModule.PageSealer.forProfile(otherKeys, new Sealer(other.dataKey)));
+  await assert.rejects(() => otherReader.get('http://h/Reports/Stock'));
+  assert.equal(await vaultModule.PageSealer.forProfile(profile), null, 'no page keys and no session: nothing is written');
+});
+
 test('session: local PIN once per session; expires after idle, never crosses users, forget on logout', async () => {
   const bag = new Map();
   globalThis.sessionStorage = {

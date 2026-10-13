@@ -159,3 +159,74 @@ export class Sealer {
     return JSON.parse(fromUtf8(await decryptBytes(this.key, sealed)));
   }
 }
+
+// ---------------------------------------------------------------- صندوق صفحات (بدون رمز محلی قابل نوشتن)
+//
+// صفحات مشعل باید وقتی کاربر آنلاین است (حتی اگر در این نشست رمز محلی را وارد نکرده باشد) برای کار بدون سرور
+// آماده شوند. برای این کار هر پروفایل یک جفت کلید RSA-OAEP دارد: کلید عمومی آشکار در پروفایل (فقط رمزگذاری) و کلید
+// خصوصی رمزگذاری‌شده با کلید دادهٔ همان پروفایل. هر صفحه با یک کلید AES تصادفی رمزگذاری و آن کلید با کلید عمومی
+// پیچیده می‌شود؛ پس نوشتن بدون رمز ممکن است ولی خواندن فقط پس از رمز محلی. Outbox و معلومات دیگر دست نمی‌خورند.
+
+const PAGE_RSA = { name: 'RSA-OAEP', hash: 'SHA-256' };
+
+export async function createPageKeys(sealer) {
+  const pair = await subtle.generateKey({ ...PAGE_RSA, modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]) },
+    true, ['encrypt', 'decrypt']);
+  return {
+    alg: 'RSA-OAEP-256',
+    publicJwk: await subtle.exportKey('jwk', pair.publicKey),
+    privateSealed: await sealer.seal(await subtle.exportKey('jwk', pair.privateKey))
+  };
+}
+
+/**
+ * رمزگذاری صفحات: با کلید داده (نشست باز) یا فقط با کلید عمومی (نشست بسته)؛ بازکردن هر دو قالب پس از رمز محلی.
+ * همان رابط Sealer (seal/open) برای PageVault.
+ */
+export class PageSealer {
+  constructor({ sealer = null, publicKey = null, privateKey = null } = {}) {
+    this.sealer = sealer;
+    this.publicKey = publicKey;
+    this.privateKey = privateKey;
+  }
+
+  /** @returns {Promise<PageSealer | null>} null یعنی این پروفایل هنوز صندوق صفحات ندارد و نشست هم باز نیست. */
+  static async forProfile(profile, sealer = null) {
+    const keys = profile?.pageKeys;
+    const publicKey = keys?.publicJwk
+      ? await subtle.importKey('jwk', keys.publicJwk, PAGE_RSA, false, ['encrypt']).catch(() => null)
+      : null;
+    let privateKey = null;
+    if (sealer && keys?.privateSealed) {
+      privateKey = await sealer.open(keys.privateSealed)
+        .then((jwk) => subtle.importKey('jwk', jwk, PAGE_RSA, false, ['decrypt']))
+        .catch(() => null);
+    }
+    return sealer || publicKey ? new PageSealer({ sealer, publicKey, privateKey }) : null;
+  }
+
+  get canOpen() {
+    return !!this.sealer;
+  }
+
+  async seal(value) {
+    if (this.sealer) return this.sealer.seal(value);
+    const key = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+    const raw = new Uint8Array(await subtle.exportKey('raw', key));
+    const wk = toBase64(await subtle.encrypt(PAGE_RSA, this.publicKey, raw));
+    raw.fill(0);
+    return { ...(await encryptBytes(key, utf8(JSON.stringify(value)))), wk };
+  }
+
+  async open(sealed) {
+    if (!sealed?.wk) {
+      if (!this.sealer) throw new Error('locked');
+      return this.sealer.open(sealed);
+    }
+    if (!this.privateKey) throw new Error('locked');
+    const raw = new Uint8Array(await subtle.decrypt(PAGE_RSA, this.privateKey, fromBase64(sealed.wk)));
+    const key = await subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']);
+    raw.fill(0);
+    return JSON.parse(fromUtf8(await decryptBytes(key, sealed)));
+  }
+}

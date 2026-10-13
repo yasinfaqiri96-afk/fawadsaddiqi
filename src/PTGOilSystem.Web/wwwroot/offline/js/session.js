@@ -7,7 +7,7 @@
 //   معلومات بازشده دارد). رمز محلی و کلیدِ رمزگذاری‌شدهٔ پروفایل هرگز این‌جا نیستند.
 
 import { IdbStore, REGISTRY_DB, REGISTRY_STORES } from './store.js';
-import { importRawKey } from './vault.js';
+import { createPageKeys, importRawKey } from './vault.js';
 
 export const SESSION_KEY = 'mashal.offline.session';
 export const SESSION_IDLE_MS = 15 * 60_000;
@@ -99,4 +99,32 @@ export async function loadProfiles(userId = null) {
   return (await registry.getAll('profiles'))
     .filter((p) => userId === null || Number(p.userId) === Number(userId))
     .sort((a, b) => (a.lastUnlockAt < b.lastUnlockAt ? 1 : -1));
+}
+
+/**
+ * صندوق صفحات پروفایل (vault.js PageSealer) یک‌بار پس از رمز محلی ساخته می‌شود؛ پروفایل تازه از Registry خوانده و فقط
+ * همین فیلد افزوده می‌شود تا شمارندهٔ تلاش و زمان ورودی که هم‌زمان نوشته شده بازنویسی نشود.
+ */
+export async function ensurePageKeys(profileId, sealer) {
+  const registry = await openRegistry();
+  const current = await registry.get('profiles', profileId);
+  if (!current || current.pageKeys) return current || null;
+  const pageKeys = await createPageKeys(sealer);
+  const latest = await registry.get('profiles', profileId);
+  if (!latest || latest.pageKeys) return latest || null;
+  const updated = { ...latest, pageKeys };
+  await registry.put('profiles', updated);
+  return updated;
+}
+
+/**
+ * نشانی فایل‌های CSS پوستهٔ مشعل (نه محتوا؛ معلومات حساس ندارد) آشکار در پروفایل، تا صفحهٔ رمز محلیِ بدون سرور با
+ * همان ظاهر ورود مشعل نمایش داده شود.
+ */
+export async function rememberShellStyles(profileId, styles) {
+  const registry = await openRegistry();
+  const current = await registry.get('profiles', profileId);
+  const list = [...new Set(styles)].slice(0, 80);
+  if (!current || JSON.stringify(current.shellStyles || []) === JSON.stringify(list)) return;
+  await registry.put('profiles', { ...current, shellStyles: list });
 }
