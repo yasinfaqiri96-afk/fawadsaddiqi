@@ -185,9 +185,10 @@
     };
     // Apply already-fetched HTML (e.g. the redirect target of a modal save) so
     // we don't issue a second GET that would consume read-once TempData flash.
-    window.PTG.spaApplyHtml = function (url, html) {
+    // push=false: ثبت ناموفق (اعتبارسنجی) ورودی تاریخچه نمی‌سازد، مثل go().
+    window.PTG.spaApplyHtml = function (url, html, push) {
         try {
-            return Promise.resolve(swap(html, url, true)).catch(function () { fallback(url); });
+            return Promise.resolve(swap(html, url, push !== false)).catch(function () { fallback(url); });
         } catch (_) {
             fallback(url);
         }
@@ -235,6 +236,7 @@
             var cached = freshCacheEntry(url);
             if (cached) {
                 delete prefetchCache[url];
+                publishPageHtml(cached.finalUrl, cached.html);
                 Promise.resolve(swap(cached.html, cached.finalUrl, push))
                     .catch(function () { if (!isStale()) fallback(url); })
                     .finally(settle);
@@ -253,7 +255,13 @@
         fetch(url, opts)
             .then(function (res) {
                 if (isStale()) { releaseBody(res); return null; }
-                if (!res.ok && res.status >= 500) { releaseBody(res); fallback(url); return null; }
+                if (!res.ok && res.status >= 500) {
+                    releaseBody(res);
+                    // پروکسیِ بدون سرور (502/503/504): همان رفتار قطع شبکه.
+                    if (res.status >= 502 && res.status <= 504 && offlineFallback(url, method, push)) return null;
+                    fallback(url);
+                    return null;
+                }
                 // دانلود/جریان فایل: بدنه را نمی‌خوانیم، مرورگر خودش می‌برد.
                 if (!isSwappableHtml(res)) { releaseBody(res); fallback(url); return null; }
                 return res.text().then(function (html) {
@@ -265,14 +273,33 @@
                 // ثبت ناموفق (اعتبارسنجی) یک صفحهٔ تازه نیست؛ ورودی تاریخچه نمی‌سازد
                 // وگرنه Back کاربر را به همان فرم برمی‌گرداند.
                 var pushEntry = push && !(method === "POST" && !result.redirected);
+                if (method === "GET" && !body) publishPageHtml(result.finalUrl, result.html);
                 return swap(result.html, result.finalUrl, pushEntry);
             })
             .catch(function (error) {
                 if (isStale()) return;
                 if (error && error.name === "AbortError") return;
+                if (offlineFallback(url, method, push)) return;
                 fallback(url);
             })
             .finally(settle);
+    }
+
+    // مشعل آفلاین (offline/js/form-bridge.js): صفحهٔ GET دریافت‌شده برای خواندن بدون سرور (رمزگذاری‌شده) نگه داشته
+    // می‌شود؛ وقتی سرور در دسترس نیست، نسخهٔ ذخیره‌شده نمایش داده می‌شود و POSTِ ناموفق فورم را پاک نمی‌کند.
+    function publishPageHtml(url, html) {
+        try {
+            window.dispatchEvent(new CustomEvent("ptg:page-html", { detail: { url: url, html: html } }));
+        } catch (_) { /* شنونده نباید ناوبری را بشکند */ }
+    }
+
+    function offlineFallback(url, method, push) {
+        try {
+            var hook = method === "POST" ? window.PTG.offlinePostFailed : window.PTG.offlineNavigate;
+            return typeof hook === "function" && hook(url, push) === true;
+        } catch (_) {
+            return false;
+        }
     }
 
     function abortInFlight() {
@@ -369,6 +396,11 @@
     // تعویض واقعی محتوا. hideDuringSwap فقط در مسیر بدون View Transitions لازم
     // است؛ در مسیر گذر، عکس صفحهٔ قدیم جای آن را می‌گیرد.
     function applySwap(doc, curMain, newMain, url, push, hideDuringSwap) {
+        // آخرین فرصت اسکریپت‌ها (مثلاً پیش‌نویس خودکار فرم) پیش از برداشتن محتوای صفحهٔ فعلی.
+        try {
+            window.dispatchEvent(new CustomEvent("ptg:before-swap", { detail: { url: url } }));
+        } catch (_) { /* شنونده نباید ناوبری را بشکند */ }
+
         // Clean up Bootstrap overlays & mobile sidebar before DOM swap
         cleanupBootstrapOverlays();
         syncDocumentShell(doc);

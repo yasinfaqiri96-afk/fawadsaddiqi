@@ -13,6 +13,7 @@ using PTGOilSystem.Web.Services.Audit;
 using PTGOilSystem.Web.Services.DeleteSafety;
 using PTGOilSystem.Web.Services.PartyStatements;
 using PTGOilSystem.Web.Models.PartyStatements;
+using PTGOilSystem.Web.Models.Reports;
 
 namespace PTGOilSystem.Web.Controllers;
 
@@ -23,17 +24,20 @@ public partial class CustomersController : Controller
     private readonly IAuditService _audit;
     private readonly MasterDataDeleteSafetyService _deleteSafety;
     private readonly IPartyStatementReadService _partyStatements;
+    private readonly IPartyBalanceReadService _partyBalances;
 
     public CustomersController(
         ApplicationDbContext db,
         IAuditService audit,
         MasterDataDeleteSafetyService deleteSafety,
-        IPartyStatementReadService? partyStatements = null)
+        IPartyStatementReadService? partyStatements = null,
+        IPartyBalanceReadService? partyBalances = null)
     {
         _db = db;
         _audit = audit;
         _deleteSafety = deleteSafety;
         _partyStatements = partyStatements ?? PartyStatementReadService.CreateDefault(db);
+        _partyBalances = partyBalances ?? PartyBalanceReadService.CreateDefault(db);
     }
 
     public async Task<IActionResult> Index(string? q, int page = 1, [FromQuery(Name = "pageSize")] int? perPage = null)
@@ -61,21 +65,37 @@ public partial class CustomersController : Controller
         ViewData["PageCount"] = pageCount;
         ViewData["TotalCount"] = totalCount;
 
-        return View(await query
+        var pageRows = await query
             .OrderBy(p => p.Name)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(p => new CustomerIndexItemViewModel
+            .Select(p => new
             {
-                Id = p.Id,
-                Name = p.Name,
-                NamePersian = p.NamePersian,
-                Country = p.Country,
-                ContactPerson = p.ContactPerson,
-                Phone = p.Phone,
-                IsActive = p.IsActive
+                p.Id,
+                p.Name,
+                p.NamePersian,
+                p.Country,
+                p.Phone,
+                p.IsActive
             })
-            .ToListAsync());
+            .ToListAsync();
+
+        var balances = (await _partyBalances.GetBalancesAsync(
+                new ManagementReportFilterViewModel(),
+                HttpContext?.RequestAborted ?? CancellationToken.None,
+                [PartyStatementPartyType.Customer]))
+            .ToDictionary(row => row.PartyId, row => row.ClosingBalanceUsd);
+
+        return View(pageRows.Select(p => new CustomerIndexItemViewModel
+        {
+            Id = p.Id,
+            Name = p.Name,
+            NamePersian = p.NamePersian,
+            Country = p.Country,
+            BalanceUsd = balances.GetValueOrDefault(p.Id),
+            Phone = p.Phone,
+            IsActive = p.IsActive
+        }).ToList());
     }
 
     public async Task<IActionResult> Details(int id, int? contractId = null, string? tab = null)

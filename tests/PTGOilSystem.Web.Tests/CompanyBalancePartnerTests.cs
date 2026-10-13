@@ -242,8 +242,9 @@ public sealed class CompanyBalancePartnerTests
             Assert.Contains("آخرین حرکت", export.Document.TitleFa);
             var balancesExport = Assert.IsType<PTGOilSystem.Web.Services.Exports.TabularExportResult>(
                 await controller.ReceivablesPayablesExport(format, filter));
-            Assert.Equal(report.TotalReceivableUsd, balancesExport.Document.Totals!.Cells[10].Value);
-            Assert.Equal(report.TotalPayableUsd, balancesExport.Document.Totals.Cells[11].Value);
+            Assert.Equal(report.Rows.Count, balancesExport.Document.Rows.Count());
+            Assert.Equal(report.Rows.Sum(r => r.PeriodMovementUsd), balancesExport.Document.Totals!.Cells[6].Value);
+            Assert.DoesNotContain(balancesExport.Document.Columns, c => c.TitleFa.Contains("تعدیل ارزی"));
         }
         var profile = await new PartnershipStatementService(db).BuildForPartnerAsync(s.PartnerIds[1]);
         Assert.True(profile!.UnsoldCostShareUsd > 0m);

@@ -324,7 +324,7 @@ public sealed class TabularExportService : ITabularExportService
             writer,
             1,
             totalColumnCount,
-            _options.OrganizationName,
+            isEnglish ? _options.OrganizationNameEn : _options.OrganizationName,
             ExcelDesignSystem.OrganizationStyle,
             ExcelDesignSystem.OrganizationRowHeight);
         WriteReportTitleRow(

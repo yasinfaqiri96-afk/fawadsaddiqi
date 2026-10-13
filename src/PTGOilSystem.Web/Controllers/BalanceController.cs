@@ -9,9 +9,11 @@ using PTGOilSystem.Web.Models.ContractJourney;
 using PTGOilSystem.Web.Models.Entities;
 using PTGOilSystem.Web.Models.PartyStatements;
 using PTGOilSystem.Web.Models.Reports;
+using PTGOilSystem.Web.Services;
 using PTGOilSystem.Web.Services.CompanyFlow;
 using PTGOilSystem.Web.Services.PartyStatements;
 using PTGOilSystem.Web.Services.Parties;
+using PTGOilSystem.Web.Services.Reporting;
 
 namespace PTGOilSystem.Web.Controllers;
 
@@ -21,10 +23,19 @@ public partial class BalanceController : Controller
     private const int IndexPageSize = 20;
     private readonly ApplicationDbContext _db;
     private readonly IPartyBalanceReadService _partyBalances;
+    private readonly IProfitAndLossService _profitAndLoss;
+    private readonly PartyCashSettlementReader _cashSettlements;
 
-    public BalanceController(ApplicationDbContext db, IPartyBalanceReadService? partyBalances = null)
+    public BalanceController(
+        ApplicationDbContext db,
+        IPartyBalanceReadService? partyBalances = null,
+        IProfitAndLossService? profitAndLoss = null)
     {
         _db = db;
+        // ارزش خرید قرارداد فقط از همان موتور مالیِ «مفاد قراردادها» خوانده می‌شود.
+        _profitAndLoss = profitAndLoss ?? new ProfitAndLossService(
+            db, new PurchaseAggregationService(db), new SaleContractAttributionReader(db));
+        _cashSettlements = new PartyCashSettlementReader(db);
         _partyBalances = partyBalances ?? new PartyBalanceReadService(
             db,
             new PartyStatementPolicyResolver(),
@@ -546,6 +557,10 @@ public partial class BalanceController : Controller
                 })
             .ToDictionaryAsync(x => x.CustomerId, x => x.TotalUsd);
 
+        // پول واقعیِ دریافت‌شده، مستقل از ارزش فروش (نقد، بانک، حوالهٔ صراف و تسویهٔ سه‌جانبه).
+        var receivedSummary = await _cashSettlements.GetCustomerNetReceiptsAsync(
+            customerIds, filter.FromDate, filter.ToDate, HttpContext?.RequestAborted ?? CancellationToken.None);
+
         var directLedgerQuery = _db.LedgerEntries
             .AsNoTracking()
             .Where(l => l.CustomerId.HasValue && customerIds.Contains(l.CustomerId.Value));
@@ -597,6 +612,7 @@ public partial class BalanceController : Controller
                 ClosedContractsCount = contracts?.ClosedCount ?? 0,
                 TotalSalesUsd = salesTotal,
                 TotalExpensesUsd = expensesTotal,
+                TotalReceivedUsd = receivedSummary.GetValueOrDefault(customer.Id),
                 RelatedLedgerCount = (directLedger?.Count ?? 0) + (contractLedger?.Count ?? 0),
                 // مانده نمایشی مطابق قرارداد صورت‌حساب: Σ(داده − گرفته).
                 BaseBalanceUsd = officialCustomerBalances.TryGetValue(customer.Id, out var officialBalance)
@@ -607,6 +623,7 @@ public partial class BalanceController : Controller
 
         return View(new CustomersBalanceViewModel
         {
+            FilteredTotalReceivedUsd = receivedSummary.Values.Sum(),
             FilteredTotalSalesUsd = salesSummary.Values.Sum(),
             FilteredTotalExpensesUsd = expensesSummary.Values.Sum(),
             FilteredBalanceUsd = officialCustomerBalances.Values.Sum(row => row.ClosingBalanceUsd),
@@ -697,21 +714,40 @@ public partial class BalanceController : Controller
                 })
                 .ToDictionaryAsync(x => x.SupplierId, x => x.Summary);
 
+        // «جمع فروش» فقط فروشی است که خودِ تأمین‌کننده خریدار آن است. فروشِ نفتِ قرارداد خرید او
+        // به یک مشتری دیگر فروش به تأمین‌کننده نیست و این‌جا شمرده نمی‌شود.
+        var supplierSalesQuery = _db.SalesTransactions
+            .AsNoTracking()
+            .Where(s => !s.IsCancelled && s.SupplierId.HasValue && supplierIds.Contains(s.SupplierId.Value));
+        if (filter.FromDate.HasValue) supplierSalesQuery = supplierSalesQuery.Where(s => s.SaleDate >= filter.FromDate.Value);
+        if (filter.ToDate.HasValue) supplierSalesQuery = supplierSalesQuery.Where(s => s.SaleDate <= filter.ToDate.Value);
         var salesSummary = supplierIds.Count == 0
             ? new Dictionary<int, decimal>()
-            : await (
-                from s in _db.SalesTransactions.AsNoTracking()
-                join c in filteredContractsQuery on s.ContractId equals c.Id
-                where !s.IsCancelled
-                    && (!filter.FromDate.HasValue || s.SaleDate >= filter.FromDate.Value)
-                    && (!filter.ToDate.HasValue || s.SaleDate <= filter.ToDate.Value)
-                group s by c.SupplierId!.Value into g
-                select new
-                {
-                    SupplierId = g.Key,
-                    TotalUsd = g.Sum(x => x.TotalUsd)
-                })
-            .ToDictionaryAsync(x => x.SupplierId, x => x.TotalUsd);
+            : await supplierSalesQuery
+                .GroupBy(s => s.SupplierId!.Value)
+                .Select(g => new { SupplierId = g.Key, TotalUsd = g.Sum(x => x.TotalUsd) })
+                .ToDictionaryAsync(x => x.SupplierId, x => x.TotalUsd);
+
+        // «جمع خرید» = ارزش خرید واقعیِ بارهای قیمت‌دارِ قراردادهای خرید همین تأمین‌کننده، از همان
+        // موتور مالیِ «مفاد قراردادها». مبلغ قراردادِ اجرا‌نشده خرید قطعی حساب نمی‌شود.
+        var purchaseContracts = await filteredContractsQuery
+                .Where(c => c.ContractType == ContractType.Purchase)
+                .Select(c => new { c.Id, SupplierId = c.SupplierId!.Value })
+                .ToListAsync();
+        var purchaseEconomics = purchaseContracts.Count == 0
+            ? new Dictionary<int, ContractEconomicsSnapshot>()
+            : await _profitAndLoss.BuildContractEconomicsAsync(
+                purchaseContracts.Select(c => c.Id).ToList(),
+                HttpContext?.RequestAborted ?? CancellationToken.None);
+        var purchaseSummary = purchaseContracts
+            .GroupBy(c => c.SupplierId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Sum(c => purchaseEconomics.GetValueOrDefault(c.Id)?.PurchaseValueUsd ?? 0m));
+
+        // «جمع پرداخت» = پول واقعیِ پرداخت‌شده (نقد، بانک، حوالهٔ صراف و تسویهٔ سه‌جانبه).
+        var paidSummary = await _cashSettlements.GetSupplierNetPaymentsAsync(
+            supplierIds, filter.FromDate, filter.ToDate, HttpContext?.RequestAborted ?? CancellationToken.None);
 
         var expensesSummary = supplierIds.Count == 0
             ? new Dictionary<int, decimal>()
@@ -780,6 +816,8 @@ public partial class BalanceController : Controller
                 ClosedContractsCount = contracts?.ClosedCount ?? 0,
                 TotalSalesUsd = salesTotal,
                 TotalExpensesUsd = expensesTotal,
+                TotalPurchaseUsd = purchaseSummary.GetValueOrDefault(supplier.Id),
+                TotalPaidUsd = paidSummary.GetValueOrDefault(supplier.Id),
                 RelatedLedgerCount = (directLedger?.Count ?? 0) + (contractLedger?.Count ?? 0),
                 // مانده نمایشی مطابق قرارداد صورت‌حساب: Σ(داده − گرفته) = پرداخت‌ها − بار.
                 BaseBalanceUsd = officialSupplierBalances.TryGetValue(supplier.Id, out var officialBalance)
@@ -790,6 +828,8 @@ public partial class BalanceController : Controller
 
         return View(new SuppliersBalanceViewModel
         {
+            FilteredTotalPurchaseUsd = purchaseSummary.Values.Sum(),
+            FilteredTotalPaidUsd = paidSummary.Values.Sum(),
             FilteredTotalSalesUsd = salesSummary.Values.Sum(),
             FilteredTotalExpensesUsd = expensesSummary.Values.Sum(),
             FilteredBalanceUsd = officialSupplierBalances.Values.Sum(row => row.ClosingBalanceUsd),

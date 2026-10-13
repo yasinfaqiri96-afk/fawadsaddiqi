@@ -4,12 +4,14 @@
 // تراکنشِ چند-store دارد (ذخیرهٔ اتمی معامله + دستور ارسال)، کتابخانه یا WASM اضافی و هدرهای
 // COOP/COEP نمی‌خواهد و با بسته‌شدن برنامه/Restart باقی می‌ماند. ارتقای نسخه هرگز store را حذف نمی‌کند.
 
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 export const STORES = {
   meta: { keyPath: 'key' },
   outbox: { keyPath: 'clientOperationId', indexes: [['status', 'status'], ['createdAt', 'createdAt']] },
-  snapshot: { keyPath: 'key' }
+  snapshot: { keyPath: 'key' },
+  // نسخهٔ رمزگذاری‌شدهٔ صفحات MVC برای خواندن بدون سرور (نسخهٔ ۲؛ ارتقا هیچ store موجودی را دست نمی‌زند).
+  pages: { keyPath: 'key' }
 };
 
 export const REGISTRY_DB = 'mashal-offline-registry';

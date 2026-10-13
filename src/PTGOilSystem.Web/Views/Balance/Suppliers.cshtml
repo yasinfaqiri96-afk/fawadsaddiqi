@@ -1,8 +1,9 @@
 ﻿@model PTGOilSystem.Web.Models.Balance.SuppliersBalanceViewModel
 @{
     ViewData["Title"] = UiText.T(Context,"گردش حساب تأمین‌کننده‌ها","Supplier Accounts");
+    var totalPurchaseUsd = Model.FilteredTotalPurchaseUsd;
+    var totalPaidUsd = Model.FilteredTotalPaidUsd;
     var totalSalesUsd = Model.FilteredTotalSalesUsd;
-    var totalExpensesUsd = Model.FilteredTotalExpensesUsd;
     var totalBaseBalanceUsd = Model.FilteredBalanceUsd;
     var hasAdvancedFilter = Model.Filter.FromDate.HasValue || Model.Filter.ToDate.HasValue
         || Model.Filter.SupplierId.Length > 0 || Model.Filter.Country.Length > 0;
@@ -12,12 +13,12 @@
     <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
              model="@((UiText.T(Context,"گردش حساب تأمین‌کننده‌ها","Supplier Accounts"), false,
                        (string?)null, (string?)null, (string?)null, (string?)null,
-                       (string?)null, (string?)null, (string?)null))" />
+                       UiText.T(Context, "گزارش‌ها", "Reports"), "bi-arrow-right", Url.Action("Index", "Reports")))" />
 
     <section class="ak-stat-grid" aria-label="@UiText.T(Context, "آمار بیلانس تأمین‌کنندگان", "Supplier balance metrics")">
-        <vc:stat-card title="@UiText.T(Context,"تأمین‌کنندگان","Suppliers")" value="@Model.TotalCount.ToString("N0")" unit="@UiText.T(Context,"تأمین‌کننده","suppliers")" avatar="suppliers"></vc:stat-card>
+        <vc:stat-card title="@UiText.T(Context,"جمع خرید","Total Purchases")" value="@totalPurchaseUsd.ToString("N2")" unit="USD" avatar="purchase-value"></vc:stat-card>
+        <vc:stat-card title="@UiText.T(Context,"جمع پرداخت","Total Paid")" value="@totalPaidUsd.ToString("N2")" unit="USD" avatar="payments-out"></vc:stat-card>
         <vc:stat-card title="@UiText.T(Context,"جمع فروش","Total Sales")" value="@totalSalesUsd.ToString("N2")" unit="USD" avatar="sales-value"></vc:stat-card>
-        <vc:stat-card title="@UiText.T(Context,"جمع مصرف","Total Expenses")" value="@totalExpensesUsd.ToString("N2")" unit="USD" avatar="expenses"></vc:stat-card>
         <vc:stat-card title="@UiText.T(Context,"مانده","Balance")" value="@totalBaseBalanceUsd.ToString("N2")" unit="USD" avatar="statement"></vc:stat-card>
     </section>
 
@@ -48,13 +49,11 @@
             <table class="ak-table">
                 <thead>
                     <tr>
-                        <th class="ak-col-grow">@UiText.T(Context,"تأمین‌کننده","Supplier")</th>
-                        <th>@UiText.T(Context,"کشور","Country")</th>
+                        <th class="ak-col-grow">@UiText.T(Context,"نام تأمین‌کننده","Supplier")</th>
                         <th class="ak-col-num">@UiText.T(Context,"قراردادها","Contracts")</th>
-                        <th>@UiText.T(Context,"فعال / بسته","Active / Closed")</th>
+                        <th class="ak-col-num">@UiText.T(Context,"جمع خرید","Total Purchases")</th>
+                        <th class="ak-col-num">@UiText.T(Context,"جمع پرداخت","Total Paid")</th>
                         <th class="ak-col-num">@UiText.T(Context,"جمع فروش","Total Sales")</th>
-                        <th class="ak-col-num">@UiText.T(Context,"جمع مصرف","Total Expenses")</th>
-                        <th class="ak-col-num">@UiText.T(Context,"اسناد","Entries")</th>
                         <th class="ak-col-num">@UiText.T(Context,"مانده","Balance")</th>
                         <th class="ak-col-actions">@UiText.T(Context,"عملیات","Operations")</th>
                     </tr>
@@ -64,19 +63,21 @@
                     {
                         <tr>
                             <td class="ak-col-grow"><a class="ak-name" asp-controller="Suppliers" asp-action="Details" asp-route-id="@item.Id">@item.Name</a></td>
-                            <td>@(item.Country ?? "-")</td>
-                            <td class="ak-col-num ak-num">@item.RelatedContractsCount</td>
-                            <td>@item.ActiveContractsCount / @item.ClosedContractsCount</td>
+                            <td class="ak-col-num ak-num">@item.RelatedContractsCount.ToString("N0")</td>
+                            <td class="ak-col-num ak-num">@item.TotalPurchaseUsd.ToString("N2")</td>
+                            <td class="ak-col-num ak-num">@item.TotalPaidUsd.ToString("N2")</td>
                             <td class="ak-col-num ak-num">@item.TotalSalesUsd.ToString("N2")</td>
-                            <td class="ak-col-num ak-num">@item.TotalExpensesUsd.ToString("N2")</td>
-                            <td class="ak-col-num ak-num">@item.RelatedLedgerCount</td>
                             <td class="ak-col-num ak-num @(item.BaseBalanceUsd < 0m ? "ak-number--negative" : null)">@item.BaseBalanceUsd.ToString("N2")</td>
-                            <td class="ak-col-actions"><a asp-controller="PartyStatements" asp-action="Supplier" asp-route-id="@item.Id">@UiText.T(Context,"گردش حساب","Statement")</a></td>
+                            <td class="ak-col-actions">
+                                <a asp-controller="PartyStatements" asp-action="Supplier" asp-route-id="@item.Id">@UiText.T(Context,"گردش حساب","Statement")</a>
+                                ·
+                                <a asp-controller="Suppliers" asp-action="Details" asp-route-id="@item.Id">@UiText.T(Context,"جزئیات","Details")</a>
+                            </td>
                         </tr>
                     }
                     @if (!Model.Items.Any())
                     {
-                        <tr><td colspan="9"><div class="ak-empty"><i class="bi bi-building"></i> @UiText.T(Context,"تأمین‌کننده‌ای برای نمایش گردش حساب پیدا نشد","No suppliers found for this view")</div></td></tr>
+                        <tr><td colspan="7"><div class="ak-empty"><i class="bi bi-building"></i> @UiText.T(Context,"تأمین‌کننده‌ای برای نمایش گردش حساب پیدا نشد","No suppliers found for this view")</div></td></tr>
                     }
                 </tbody>
             </table>

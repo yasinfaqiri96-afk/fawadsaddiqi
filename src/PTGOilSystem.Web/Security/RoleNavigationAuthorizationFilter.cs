@@ -55,7 +55,10 @@ public sealed class RoleNavigationAuthorizationFilter : IAsyncActionFilter
         // «راهنمای هوشمند» یک صفحهٔ قابل‌ناوبری نیست و کلید ناوبری ندارد، پس این فیلتر
         // آن را برای همه — حتی Admin — به AccessDenied می‌فرستاد. برای هر کاربر واردشده
         // باز است؛ دسترسی واقعی همچنان با [Authorize] روی خودِ Controller کنترل می‌شود.
-        if (string.Equals(controller, "Assistant", StringComparison.OrdinalIgnoreCase))
+        // «پیش‌نویس‌ها» هم کلید ناوبری مستقل ندارد؛ هر اکشن آن دسترسی همان فرمِ پیش‌نویس
+        // (کنترلر فرم + ثبت داده) را خودش می‌سنجد و فقط پیش‌نویس‌های همان کاربر را نشان می‌دهد.
+        if (string.Equals(controller, "Assistant", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(controller, "FormDrafts", StringComparison.OrdinalIgnoreCase))
         {
             await next();
             return;

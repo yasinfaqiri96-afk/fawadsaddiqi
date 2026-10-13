@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import { MemoryStore, isQuotaError, profileDbName } from '../../src/PTGOilSystem.Web/wwwroot/offline/js/store.js';
 import { Sealer, createProfile, unlockProfile, changePin, lockDurationMs, validatePin } from '../../src/PTGOilSystem.Web/wwwroot/offline/js/vault.js';
-import { OutboxRepo, Status, canResubmit, validatePayload } from '../../src/PTGOilSystem.Web/wwwroot/offline/js/operations.js';
+import { OutboxRepo, Status, canResubmit, normalizePayload, validatePayload } from '../../src/PTGOilSystem.Web/wwwroot/offline/js/operations.js';
 import { SyncEngine, retryDelayMs, MAX_BATCHES_PER_RUN } from '../../src/PTGOilSystem.Web/wwwroot/offline/js/sync-engine.js';
 import { createBackup, openBackup, mergeBackup, backupWarning } from '../../src/PTGOilSystem.Web/wwwroot/offline/js/backup.js';
 import { sha256Hex, uuid } from '../../src/PTGOilSystem.Web/wwwroot/offline/js/util.js';
@@ -142,6 +142,17 @@ test('validation mirrors the server contract', () => {
   assert.match(validatePayload('Expense.Request', { expenseTypeId: 2, amount: 10, currency: 'USD' }), /شرح/);
   assert.match(validatePayload('MoneyTransfer.Request', { amount: 5 }), /پشتیبانی/);
   assert.match(validatePayload('Ledger.Post', {}), /پشتیبانی/);
+});
+
+test('main customer form fields (Customers/Create) are kept with stable types; isActive is always a boolean', () => {
+  const payload = normalizePayload('Customer.Draft',
+    { code: ' c-01 ', name: ' مشتری ', country: 'AF', phone: '0700', isActive: false, Unrelated: 'x' });
+  assert.deepEqual(payload, { code: 'c-01', name: 'مشتری', country: 'AF', phone: '0700', isActive: false });
+  assert.equal(normalizePayload('Customer.Draft', { name: 'a', isActive: 'true' }).isActive, true);
+  assert.equal(normalizePayload('Customer.Draft', { name: 'a', isActive: 'false' }).isActive, false);
+  assert.equal('isActive' in normalizePayload('Customer.Draft', { name: 'a' }), false);
+  assert.equal(validatePayload('Customer.Draft', payload), null);
+  assert.match(validatePayload('Customer.Draft', { code: 'c-01', isActive: true }), /نام/);
 });
 
 test('TEST 06/07/08 (simulated): data survives app restart and re-unlock with the PIN', async () => {
@@ -502,4 +513,83 @@ test('device auth: tokens are stored encrypted, refreshed once for concurrent ca
   mode = 'revoked';
   assert.equal(await auth.refresh(), null);
   assert.equal(await auth.has(), false, 'revoked/disabled user → back to normal login');
+});
+
+// ---------------------------------------------------------------- فورم‌های اصلی MVC، صفحات ذخیره‌شده، نشست
+
+import { FORM_SUBMIT, referencedOperations } from '../../src/PTGOilSystem.Web/wwwroot/offline/js/operations.js';
+import { PageVault, normalizePageUrl, MAX_PAGES } from '../../src/PTGOilSystem.Web/wwwroot/offline/js/page-vault.js';
+
+test('main form (Form.Submit): exact field pairs kept in order, path normalised, op: references become dependencies', async () => {
+  const opId = '0b8f4b9e-7a43-4b6f-9a61-1f1f9c8c1a10';
+  const payload = normalizePayload(FORM_SUBMIT, {
+    path: '/Payments/Create/?x=1', label: ' دریافت ', fields: [['CustomerId', `op:${opId}`], ['IsActive', 'true'], ['IsActive', 'false'], ['', 'x'], ['Amount', 5]],
+    query: [['returnUrl', '/Payments']]
+  });
+  assert.deepEqual(payload, {
+    path: '/payments/create', label: 'دریافت',
+    fields: [['CustomerId', `op:${opId}`], ['IsActive', 'true'], ['IsActive', 'false'], ['Amount', '5']],
+    query: [['returnUrl', '/Payments']]
+  });
+  assert.equal(validatePayload(FORM_SUBMIT, payload), null);
+  assert.match(validatePayload(FORM_SUBMIT, { path: '/x', fields: [] }), /خالی/);
+  assert.deepEqual(referencedOperations(payload), [opId]);
+
+  const store = await MemoryStore.open('t');
+  const { dataKey } = await createProfile({ session: SESSION, pin: PIN, deviceId: 'dev-1' });
+  const repo = new OutboxRepo(store, new Sealer(dataKey), { ...SESSION, deviceId: 'dev-1' });
+  const record = await repo.submit(FORM_SUBMIT, payload, '2026-10-13');
+  assert.deepEqual(record.dependencies, [opId]);
+  assert.equal(record.payloadHash, await sha256Hex(JSON.stringify(record.payload)));
+});
+
+test('page vault: pages are encrypted at rest, found by normalised URL, oldest evicted, shell kept', async () => {
+  const store = await MemoryStore.open('pages');
+  const { dataKey } = await createProfile({ session: SESSION, pin: PIN, deviceId: 'dev-1' });
+  let t = Date.parse('2026-10-13T08:00:00Z');
+  const vault = new PageVault(store, new Sealer(dataKey), { clock: () => new Date(t += 1000), maxPages: 2 });
+  const html = (n) => `<html><head><title>صفحه ${n}</title></head><body><main>مانده ${n}</main></body></html>`;
+
+  await vault.putShell('<html><body><nav>منو</nav><main>x</main></body></html>');
+  await vault.put('http://h/Customers?page=2&q=a', html(1));
+  await vault.put('http://h/Sales', html(2));
+  assert.equal((await vault.get('http://h/customers/?q=a&page=2&source=pwa')).title, 'صفحه 1');
+  assert.ok(!JSON.stringify(await store.getAll('pages')).includes('مانده'), 'stored page must be encrypted');
+
+  await vault.put('http://h/Payments', html(3)); // سقف ۲ صفحه: قدیمی‌ترین می‌رود
+  assert.equal(await vault.get('http://h/Customers?page=2&q=a'), null);
+  assert.ok(await vault.get('http://h/Sales'));
+  assert.ok((await vault.getShell()).html.includes('منو'));
+  assert.deepEqual((await vault.list()).map((p) => p.url).sort(), ['/payments', '/sales']);
+  assert.equal(normalizePageUrl('/?source=pwa', 'http://h/'), '/');
+
+  // پاسخ JSONِ فهرست وابسته: رمزگذاری‌شده، با سقف جدا (صفحات را بیرون نمی‌کند)، و در فهرست صفحات نمی‌آید.
+  await vault.putData('http://h/Payments/ContractPartnerOptions?contractId=5', '[{"id":7,"name":"شریک"}]', 'application/json');
+  assert.equal((await vault.getData('http://h/payments/contractpartneroptions?contractId=5')).body, '[{"id":7,"name":"شریک"}]');
+  assert.ok(await vault.get('http://h/Sales'), 'data entries do not evict pages');
+  assert.ok(!(await vault.list()).some((p) => p.url.includes('contractpartneroptions')));
+  assert.ok(MAX_PAGES >= 100);
+});
+
+test('session: local PIN once per session; expires after idle, never crosses users, forget on logout', async () => {
+  const bag = new Map();
+  globalThis.sessionStorage = {
+    getItem: (k) => (bag.has(k) ? bag.get(k) : null), setItem: (k, v) => bag.set(k, String(v)), removeItem: (k) => bag.delete(k)
+  };
+  const session = await import('../../src/PTGOilSystem.Web/wwwroot/offline/js/session.js');
+  const { profile, rawKey } = await createProfile({ session: SESSION, pin: PIN, deviceId: 'dev-1' });
+  const now = Date.now();
+  assert.equal(session.rememberSession(profile, rawKey, now), true);
+
+  const restored = await session.restoreSession(SESSION.userId, now + 60_000);
+  const sealed = await new Sealer(restored.dataKey).seal({ ok: 1 });
+  assert.deepEqual(await new Sealer((await unlockProfile(profile, PIN)).dataKey).open(sealed), { ok: 1 }, 'same data key as the PIN unlock');
+  assert.equal(await session.restoreSession(999, now), null, 'another user never gets this key');
+  assert.equal(await session.restoreSession(SESSION.userId, now + session.SESSION_IDLE_MS + 1), null, 'idle session expires');
+  assert.equal(session.hasSession(), false);
+
+  session.rememberSession(profile, rawKey, now);
+  session.forgetSession();
+  assert.equal(await session.restoreSession(SESSION.userId, now), null);
+  delete globalThis.sessionStorage;
 });

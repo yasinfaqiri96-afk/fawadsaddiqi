@@ -45,7 +45,14 @@ public sealed class FinancialReportsViewStructureTests
         Assert.Contains("asp-controller=\"ContractJourney\"", view);
         // کارت‌ها باید همان دامنه‌ای را جمع بزنند که جدول نشان می‌دهد، نه قراردادهای فروش.
         Assert.Contains("Model.TotalDirectSaleRevenueUsd", view);
-        Assert.Contains("Model.TotalDirectSaleGrossMarginUsd", view);
+        Assert.Contains("Model.TotalContractValueUsd", view);
+        Assert.Contains("Model.TotalContractExpensesUsd", view);
+        Assert.Contains("Model.TotalContractProfitUsd", view);
+        // قیمت خرید و مصارف جدا؛ فیصدی و سود محقق از جدول برداشته شده‌اند.
+        Assert.Contains("row.PurchaseValueUsd", view);
+        Assert.Contains("row.ExpensesUsd", view);
+        Assert.DoesNotContain("row.RealizedNetProfitUsd", view);
+        Assert.DoesNotContain("row.MarginPercent", view);
         Assert.DoesNotContain("Model.TotalSalesRevenueUsd", view);
         Assert.DoesNotContain("Model.SaleRows", view);
         Assert.DoesNotContain("قراردادهای فروش", view);

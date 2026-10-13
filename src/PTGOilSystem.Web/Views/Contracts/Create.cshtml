@@ -38,6 +38,7 @@
         <div >
             @Html.AntiForgeryToken()
             @Html.FormToken()
+            @Html.FormDraft("Contracts.Create")
             <div asp-validation-summary="ModelOnly" class="alert alert-danger ak-form-alert"></div>
 
             <div >

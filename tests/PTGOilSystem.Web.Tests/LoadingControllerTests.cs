@@ -19,12 +19,37 @@ using PTGOilSystem.Web.Models.Entities;
 using PTGOilSystem.Web.Models.Loading;
 using PTGOilSystem.Web.Security;
 using PTGOilSystem.Web.Services;
+using PTGOilSystem.Web.Services.Exports;
 using Xunit;
 
 namespace PTGOilSystem.Web.Tests;
 
 public class LoadingControllerTests
 {
+    [Fact]
+    public async Task Export_Includes_Driver_Name_And_Phone()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var db = new ApplicationDbContext(options);
+        SeedPurchaseLoadingScenario(db);
+        var loading = await db.LoadingRegisters.SingleAsync();
+        loading.DriverName = "Ahmad Driver";
+        loading.DriverPhone = "0700000000";
+        await db.SaveChangesAsync();
+
+        var controller = NewLoadingController(db);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+
+        var export = Assert.IsType<TabularExportResult>(await controller.Export("excel"));
+        Assert.Contains(export.Document.Columns, column => column.TitleEn == "Driver name");
+        Assert.Contains(export.Document.Columns, column => column.TitleEn == "Driver phone");
+        var row = Assert.Single(export.Document.Rows);
+        Assert.Contains(row.Cells, cell => Equals(cell.Value, "Ahmad Driver"));
+        Assert.Contains(row.Cells, cell => Equals(cell.Value, "0700000000"));
+    }
+
     [Fact]
     public async Task Index_Defaults_To_Ten_Ignores_Legacy_Cookie_And_Honors_Explicit_Page_Size()
     {

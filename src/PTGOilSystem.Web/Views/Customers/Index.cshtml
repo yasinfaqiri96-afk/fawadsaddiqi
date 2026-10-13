@@ -42,7 +42,7 @@
                         <th class="ak-col-check"><input type="checkbox" class="ak-check" aria-label="@UiText.T(Context, "انتخاب همه", "Select all")" /></th>
                         <th class="ak-col-grow">@UiText.T(Context, "نام", "Name")</th>
                         <th>@UiText.T(Context, "کشور", "Country")</th>
-                        <th>@UiText.T(Context, "طرف تماس", "Contact")</th>
+                        <th class="ak-col-num">@UiText.T(Context, "مانده حساب (USD)", "Balance (USD)")</th>
                         <th>@UiText.T(Context, "تلفن", "Phone")</th>
                         <th class="ak-col-spacer"></th>
                         <th>@UiText.T(Context, "وضعیت", "Status")</th>
@@ -56,7 +56,7 @@
                             <td class="ak-col-check"><input type="checkbox" class="ak-check" aria-label="@UiText.T(Context, "انتخاب", "Select")" /></td>
                             <td class="ak-col-grow"><partial name="~/Views/Shared/Partials/_PersonCell.cshtml" model="@((p.Name, (string?)Url.Action("Details", new { id = p.Id }), (string?)null))" /></td>
                             <td>@(string.IsNullOrWhiteSpace(p.Country) ? "-" : p.Country)</td>
-                            <td>@(string.IsNullOrWhiteSpace(p.ContactPerson) ? "-" : p.ContactPerson)</td>
+                            <td class="ak-col-num ak-num @(p.BalanceUsd < 0m ? "ak-number--negative" : null)">@p.BalanceUsd.ToString("N2")</td>
                             <td class="ak-num">@(string.IsNullOrWhiteSpace(p.Phone) ? "-" : p.Phone)</td>
                             <td class="ak-col-spacer"></td>
                             <td>

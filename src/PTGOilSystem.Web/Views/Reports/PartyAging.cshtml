@@ -81,7 +81,6 @@
                         <th class="ak-col-num">@T("طلب (USD)", "Receivable (USD)")</th>
                         <th class="ak-col-num">@T("بدهی (USD)", "Payable (USD)")</th>
                         <th>@T("آخرین حرکت", "Last movement")</th>
-                        <th class="ak-col-num">@T("روز بدون حرکت", "Days idle")</th>
                         <th>@T("دسته", "Bucket")</th>
                     </tr>
                 </thead>
@@ -94,14 +93,13 @@
                             <td class="ak-col-num ak-num">@(row.ReceivableUsd > 0m ? row.ReceivableUsd.ToString("N2") : "—")</td>
                             <td class="ak-col-num ak-num">@(row.PayableUsd > 0m ? row.PayableUsd.ToString("N2") : "—")</td>
                             <td>@(row.LastEntryDate?.ToDisplayDate() ?? T("بدون حرکت", "No movement"))</td>
-                            <td class="ak-col-num ak-num">@(row.LastEntryDate is null ? "—" : row.DaysIdle.ToString("N0"))</td>
                             <td><span class="ak-status @BucketTone(row.Bucket)">@BucketLabel(row.Bucket)</span></td>
                         </tr>
                     }
                     @if (Model.Rows.Count == 0)
                     {
                         <tr>
-                            <td colspan="7">
+                            <td colspan="6">
                                 <div class="ak-empty">
                                     <i class="bi bi-people"></i>
                                     @T("هیچ مانده‌ای پیدا نشد؛ فیلترها را تغییر دهید.", "No balance found; change the filters.")

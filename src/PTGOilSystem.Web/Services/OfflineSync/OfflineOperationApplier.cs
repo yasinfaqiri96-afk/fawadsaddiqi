@@ -13,7 +13,10 @@ public sealed record OfflineApplyPlan(
     string Action,
     IReadOnlyDictionary<string, string?> Fields,
     string ReferenceType,
-    bool UsesFormToken);
+    bool UsesFormToken,
+    IReadOnlyList<KeyValuePair<string, string?>>? FieldList = null,
+    IReadOnlyList<KeyValuePair<string, string?>>? Query = null,
+    string? FormToken = null);
 
 /// <summary>نتیجهٔ ساخت نقشه: یا نقشه، یا «سند لازم نیست» (یادداشت)، یا خطای قابل اصلاح، یا «پشتیبانی نمی‌شود».</summary>
 public sealed record OfflinePlanResult(OfflineApplyPlan? Plan, bool NoDocument, string? Error, bool Unsupported);
@@ -58,6 +61,9 @@ public sealed class OfflineOperationApplier(ApplicationDbContext db)
         {
             case OfflineOperationTypes.GeneralNote:
                 return new OfflinePlanResult(null, NoDocument: true, null, false);
+
+            case OfflineOperationTypes.FormSubmit:
+                return await FormSubmitPlanAsync(payload, operation.UserId, ct);
 
             case OfflineOperationTypes.MoneyTransferRequest:
                 return new OfflinePlanResult(null, false,
@@ -176,16 +182,89 @@ public sealed class OfflineOperationApplier(ApplicationDbContext db)
             }
 
             case OfflineOperationTypes.CustomerDraft:
+                // همان فیلدهای فورم اصلی Customers/Create؛ isActive نبودن = فعال (عملیات قدیمی دستگاه).
                 return Plan("Customers", "Create", nameof(Customer), usesFormToken: false, new()
                 {
+                    ["Code"] = Text(payload, "code"),
                     ["Name"] = Text(payload, "name"),
+                    ["Country"] = Text(payload, "country"),
                     ["Phone"] = Text(payload, "phone"),
                     ["Notes"] = Text(payload, "description"),
-                    ["IsActive"] = "true"
+                    ["IsActive"] = payload.TryGetProperty("isActive", out var isActive) && isActive.ValueKind == JsonValueKind.False
+                        ? "false"
+                        : "true"
                 });
 
             default:
                 return new OfflinePlanResult(null, false, "نوع عملیات پشتیبانی نمی‌شود.", Unsupported: true);
+        }
+    }
+
+    /// <summary>
+    /// فورم اصلی: همان جفت‌های نام/مقدار فورم به همان اکشن. توکن‌های Antiforgery/ضد تکرارِ صفحه کنار گذاشته
+    /// می‌شوند (سرور خودش می‌سازد)؛ مقدار <c>op:{id}</c> (رکوردی که فورم آفلاین قبلی همین کاربر ساخت، مثلاً مشتری تازه)
+    /// به شناسهٔ واقعی آن رکورد تبدیل می‌شود.
+    /// </summary>
+    private async Task<OfflinePlanResult> FormSubmitPlanAsync(JsonElement payload, int userId, CancellationToken ct)
+    {
+        var target = OfflineFormRegistry.Find(Text(payload, "path"));
+        if (target is null)
+        {
+            return new OfflinePlanResult(null, false, "این فورم برای ثبت آفلاین مجاز نیست.", Unsupported: true);
+        }
+
+        var fields = new List<KeyValuePair<string, string?>>();
+        foreach (var pair in Pairs(payload, "fields"))
+        {
+            if (pair.Key.StartsWith("__RequestVerificationToken", StringComparison.Ordinal)
+                || string.Equals(pair.Key, MvcFormDispatcher.FormTokenField, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var value = pair.Value;
+            if (value is not null && value.StartsWith(OperationReferencePrefix, StringComparison.Ordinal))
+            {
+                if (!Guid.TryParse(value[OperationReferencePrefix.Length..], out var dependencyId))
+                {
+                    return Error("شناسهٔ عملیات پیش‌نیاز معتبر نیست.");
+                }
+
+                var dependency = await db.OfflineSyncOperations.AsNoTracking()
+                    .Where(o => o.ClientOperationId == dependencyId && o.UserId == userId)
+                    .Select(o => new { o.Status, o.AppliedReferenceId })
+                    .FirstOrDefaultAsync(ct);
+                if (dependency is not { Status: OfflineSyncStatus.Applied, AppliedReferenceId: not null })
+                {
+                    return Error("رکورد پیش‌نیاز (مثلاً طرف‌حساب تازه) هنوز ثبت قطعی نشده است.");
+                }
+
+                value = dependency.AppliedReferenceId;
+            }
+
+            fields.Add(new(pair.Key, value));
+        }
+
+        var token = Text(payload, "formToken");
+        return new OfflinePlanResult(
+            new OfflineApplyPlan(target.Controller, target.Action, new Dictionary<string, string?>(), target.ReferenceType,
+                target.UsesFormToken, fields, Pairs(payload, "query").ToList(), target.UsesFormToken ? token : null),
+            false, null, false);
+    }
+
+    private static IEnumerable<KeyValuePair<string, string?>> Pairs(JsonElement payload, string name)
+    {
+        if (!payload.TryGetProperty(name, out var list) || list.ValueKind != JsonValueKind.Array)
+        {
+            yield break;
+        }
+
+        foreach (var pair in list.EnumerateArray())
+        {
+            if (pair.ValueKind == JsonValueKind.Array && pair.GetArrayLength() == 2 && pair[0].ValueKind == JsonValueKind.String)
+            {
+                yield return new(pair[0].GetString()!, pair[1].ValueKind == JsonValueKind.String ? pair[1].GetString() : null);
+            }
         }
     }
 

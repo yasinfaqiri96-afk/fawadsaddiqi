@@ -34,25 +34,23 @@
                        (string?)null, (string?)null, (string?)null, (string?)null,
                        T("گزارش‌ها","Reports"), "bi-arrow-right", Url.Action("Index")))" />
 
-    @* کارت‌ها همان چیزی را جمع می‌زنند که جدول پایین نشان می‌دهد (قراردادهای خرید و فروش
-       مستقیم از آن‌ها). پیش از این کارت‌ها از قراردادهای «فروش» خوانده می‌شدند که در این
-       صفحه اصلاً فهرست نمی‌شوند — به همین دلیل صفر می‌ماندند. *@
+    @* چهار کارت همان جمع جدول پایین است: مبلغ ثبت‌شدهٔ قرارداد، مصارف بدون قیمت خرید،
+       فروش منتسب (هر فروش فقط به سهم اثبات‌شدهٔ هر قرارداد) و مفاد قطعیِ همان سطرها. *@
     <section class="ak-stat-grid" aria-label="@T("آمار مفاد قراردادها", "Contract profit metrics")">
-        <vc:stat-card title="@T("جمع مصارف قراردادها", "Total contract cost")"
-                      value="@StatCardFormatter.Number(Model.TotalPurchaseCostUsd, 0)"
-                      unit="USD" avatar="report-purchase"></vc:stat-card>
-        <vc:stat-card title="@T("درآمد فروش", "Sales revenue")"
+        <vc:stat-card title="@T("مجموع مبلغ قراردادها", "Total contract value")"
+                      value="@StatCardFormatter.Number(Model.TotalContractValueUsd, 0)"
+                      unit="USD" avatar="purchase-contracts"></vc:stat-card>
+        <vc:stat-card title="@T("مجموع مصارف قراردادها", "Total contract expenses")"
+                      value="@StatCardFormatter.Number(Model.TotalContractExpensesUsd, 0)"
+                      unit="USD" avatar="contract-expenses"></vc:stat-card>
+        <vc:stat-card title="@T("مجموع فروشات", "Total sales")"
                       value="@StatCardFormatter.Number(Model.TotalDirectSaleRevenueUsd, 0)"
-                      unit="USD" avatar="report-sales"></vc:stat-card>
-        <vc:stat-card title="@T("مفاد چرخهٔ کامل", "Lifecycle profit")"
-                      value="@StatCardFormatter.Number(Model.TotalDirectSaleGrossMarginUsd, 0)"
+                      unit="USD" avatar="contract-sales"></vc:stat-card>
+        <vc:stat-card title="@T("مجموع مفاد قراردادها", "Total contract profit")"
+                      value="@StatCardFormatter.Number(Model.TotalContractProfitUsd, 0)"
                       unit="USD"
-                      state="@(Model.TotalDirectSaleGrossMarginUsd < 0m ? "warning" : null)"
-                      avatar="report-finance"></vc:stat-card>
-        <vc:stat-card title="@T("فیصدی مفاد", "Profit margin")"
-                      value="@StatCardFormatter.Number(Model.DirectSaleMarginPercent, 1)"
-                      unit="@(Model.DirectSaleMarginPercent.HasValue ? "%" : "")"
-                      avatar="report-analysis"></vc:stat-card>
+                      state="@(Model.TotalContractProfitUsd < 0m || Model.PendingPriceProfitCount > 0 ? "warning" : null)"
+                      avatar="contract-profit"></vc:stat-card>
     </section>
 
     <div class="ak-list">
@@ -66,6 +64,8 @@
                 {
                     new("Filter.FromDate", T("بازه تاریخ", "Date range"), "daterange", null,
                         Model.Filter.FromDate?.ToString("yyyy-MM-dd"), "Filter.ToDate", Model.Filter.ToDate?.ToString("yyyy-MM-dd")),
+                    new("Filter.ContractId", T("قرارداد", "Contract"), "select", PnlOpts(ViewBag.Contracts),
+                        Model.Filter.ContractId?.ToString()),
                     new("Filter.ProductId", T("جنس", "Product"), "select", PnlOpts(ViewBag.Products),
                         Model.Filter.ProductId?.ToString()),
                     new("Filter.SupplierId", T("تأمین‌کننده", "Supplier"), "select", PnlOpts(ViewBag.Suppliers),
@@ -91,17 +91,16 @@
                             <th class="ak-col-w-sm">@T("تأمین‌کننده","Supplier")</th>
                             <th class="ak-col-w-md">@T("وضعیت","Status")</th>
                             <th class="ak-col-num">@T("بارگیری MT","Loaded MT")</th>
-                            <th class="ak-col-num">@T("جمع مصارف (USD)","Total cost (USD)")</th>
-                            <th class="ak-col-num">@T("درآمد (USD)","Revenue (USD)")</th>
-                            <th class="ak-col-num">@T("مفاد چرخهٔ کامل (USD)","Lifecycle profit (USD)")</th>
-                            <th class="ak-col-num">@T("سود محقق (USD)","Realized profit (USD)")</th>
-                            <th class="ak-col-num">@T("فیصدی","Margin")</th>
+                            <th class="ak-col-num">@T("قیمت خرید (USD)","Purchase price (USD)")</th>
+                            <th class="ak-col-num">@T("جمع مصارف (USD)","Total expenses (USD)")</th>
+                            <th class="ak-col-num">@T("فروش (USD)","Sales (USD)")</th>
+                            <th class="ak-col-num">@T("مفاد قرارداد (USD)","Contract profit (USD)")</th>
                         </tr>
                     </thead>
                     <tbody>
                         @if (!Model.PurchaseRows.Any())
                         {
-                            <tr><td colspan="9"><div class="ak-empty"><i class="bi bi-file-earmark-x"></i> @T("قراردادی یافت نشد.","No contracts found.")</div></td></tr>
+                            <tr><td colspan="8"><div class="ak-empty"><i class="bi bi-file-earmark-x"></i> @T("قراردادی یافت نشد.","No contracts found.")</div></td></tr>
                         }
                         @foreach (var row in Model.PurchaseRows)
                         {
@@ -126,16 +125,28 @@
                                     }
                                 </td>
                                 <td class="ak-col-num ak-num">@NumberDisplay.Quantity(row.TotalLoadedMt)</td>
-                                <td class="ak-col-num ak-num fw-bold">@Money(row.TotalCostUsd)</td>
+                                <td class="ak-col-num ak-num">
+                                    @Money(row.PurchaseValueUsd)
+                                    @if (row.HasPendingPurchasePrice)
+                                    {
+                                        <div class="ak-cell-note">@T($"{NumberDisplay.Quantity(row.PendingLoadedMt)} MT بدون قیمت", $"{NumberDisplay.Quantity(row.PendingLoadedMt)} MT unpriced")</div>
+                                    }
+                                </td>
+                                <td class="ak-col-num ak-num">@Money(row.ExpensesUsd)</td>
                                 <td class="ak-col-num ak-num">@Money(row.TotalRevenueUsd)</td>
-                                <td class="ak-col-num ak-num @(row.GrossMarginUsd < 0m ? "ak-number--negative" : null)">
-                                    @(row.TotalRevenueUsd > 0m ? row.GrossMarginUsd.ToString("N2") : "—")
-                                </td>
-                                <td class="ak-col-num ak-num @(row.RealizedNetProfitUsd < 0m ? "ak-number--negative" : null)">
-                                    @(row.TotalRevenueUsd > 0m ? row.RealizedNetProfitUsd.ToString("N2") : "—")
-                                </td>
-                                <td class="ak-col-num ak-num @(row.MarginPercent < 0m ? "ak-number--negative" : null)">
-                                    @(row.MarginPercent.HasValue ? row.MarginPercent.Value.ToString("N1") + "%" : "—")
+                                <td class="ak-col-num ak-num fw-bold @(row.ContractProfitUsd < 0m ? "ak-number--negative" : row.ContractProfitUsd > 0m ? "ak-number--positive" : null)">
+                                    @if (row.ContractProfitUsd.HasValue)
+                                    {
+                                        @row.ContractProfitUsd.Value.ToString("N2")
+                                    }
+                                    else if (row.TotalRevenueUsd > 0m)
+                                    {
+                                        <span class="ak-cell-note">@T("قیمت نامشخص", "Price pending")</span>
+                                    }
+                                    else
+                                    {
+                                        <text>—</text>
+                                    }
                                 </td>
                             </tr>
                         }

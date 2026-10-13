@@ -526,7 +526,7 @@ public sealed class PartyStatementTradeViewTests
             {
                 ExcelMaxRows = 1_000,
                 PdfMaxRows = 1_000,
-                CompanyLogoPath = "/images/logo1-sidebar.png",
+                CompanyLogoPath = "/images/mashal-logo-blue.webp",
                 QuestPdfLicense = "Community"
             }),
             environment);

@@ -4,8 +4,11 @@ using PTGOilSystem.Web.Controllers;
 using PTGOilSystem.Web.Data;
 using PTGOilSystem.Web.Models.Customers;
 using PTGOilSystem.Web.Models.Entities;
+using PTGOilSystem.Web.Models.PartyStatements;
+using PTGOilSystem.Web.Models.Reports;
 using PTGOilSystem.Web.Services;
 using PTGOilSystem.Web.Services.DeleteSafety;
+using PTGOilSystem.Web.Services.PartyStatements;
 using Xunit;
 
 namespace PTGOilSystem.Web.Tests;
@@ -75,6 +78,46 @@ public class CustomersControllerTests
             });
     }
 
-    private static CustomersController BuildController(ApplicationDbContext db)
-        => new(db, new AuditService(db), new MasterDataDeleteSafetyService(db));
+    [Fact]
+    public async Task Index_Shows_Official_Customer_Balance_Instead_Of_Contact_Person()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+
+        await using var db = new ApplicationDbContext(options);
+        db.Customers.Add(new Customer { Id = 1, Name = "Customer A", ContactPerson = "Legacy contact" });
+        await db.SaveChangesAsync();
+
+        var view = Assert.IsType<ViewResult>(await BuildController(db, new FixedCustomerBalanceReader(750m)).Index(null));
+        var rows = Assert.IsAssignableFrom<IEnumerable<CustomerIndexItemViewModel>>(view.Model);
+
+        Assert.Equal(750m, Assert.Single(rows).BalanceUsd);
+    }
+
+    private static CustomersController BuildController(
+        ApplicationDbContext db,
+        IPartyBalanceReadService? balances = null)
+        => new(db, new AuditService(db), new MasterDataDeleteSafetyService(db), partyBalances: balances);
+
+    private sealed class FixedCustomerBalanceReader(decimal balance) : IPartyBalanceReadService
+    {
+        public Task<IReadOnlyList<PartyBalanceSnapshot>> GetBalancesAsync(
+            ManagementReportFilterViewModel filter,
+            CancellationToken ct = default,
+            IReadOnlyCollection<PartyStatementPartyType>? partyTypes = null)
+            => Task.FromResult<IReadOnlyList<PartyBalanceSnapshot>>
+            ([
+                new(PartyStatementPartyType.Customer, 1, "Customer A", 0m, 0m, 0m, 0m,
+                    balance, null, "", "Customers")
+            ]);
+
+        public Task<IReadOnlyDictionary<int, ContractBalanceSummary>> GetContractBalancesAsync(
+            IReadOnlyCollection<int> contractIds,
+            DateTime? asOfDate = null,
+            CancellationToken ct = default,
+            bool resolveNames = true)
+            => Task.FromResult<IReadOnlyDictionary<int, ContractBalanceSummary>>(
+                new Dictionary<int, ContractBalanceSummary>());
+    }
 }

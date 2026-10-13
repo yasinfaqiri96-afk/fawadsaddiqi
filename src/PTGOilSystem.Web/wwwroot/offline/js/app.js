@@ -9,6 +9,8 @@ import { DeviceAuth } from './device-auth.js';
 import { OPERATION_FORMS, OPERATION_REFERENCE_PREFIX, OutboxRepo, STATUS_LABELS, STATUS_SHORT, Status, canResubmit, isOperationReference, normalizePayload, typeLabel, validatePayload } from './operations.js';
 import { MIN_BACKUP_PASSWORD, backupFileName, backupWarning, createBackup, mergeBackup, openBackup } from './backup.js';
 import { formatDateTime, formatNumber, relativeAge, todayIso, uuid } from './util.js';
+import { forgetSession, rememberSession, restoreSession } from './session.js';
+import { FORM_SUBMIT } from './operations.js';
 
 const IDLE_LOCK_MS = 15 * 60_000;
 const AUTO_SYNC_MS = 60_000;
@@ -111,7 +113,7 @@ function publishStatus() {
 
 function pendingRecordName(value) {
   const record = app.records.find((r) => OPERATION_REFERENCE_PREFIX + r.clientOperationId === value);
-  return record ? `${record.payload?.name || typeLabel(record.operationType)} (تازه)` : 'رکورد تازه';
+  return record ? `${record.payload?.name || typeLabel(record.operationType, record.payload)} (تازه)` : 'رکورد تازه';
 }
 
 function refName(source, id) {
@@ -125,10 +127,28 @@ function fieldDisplay(field, value) {
   if (value === undefined || value === null || value === '') return '—';
   if (field.kind === 'ref') return refName(field.source, value);
   if (field.kind === 'number') return formatNumber(value);
+  if (field.kind === 'flag') return value === true || value === 'true' ? 'بلی' : 'خیر';
   return String(value);
 }
 
+/** عملیاتِ ثبت‌شده در فورم اصلی مشعل: اصلاح در همان فورم (همان شناسه). */
+function mainFormUrl(record) {
+  const p = record.payload || {};
+  const url = new URL(p.path || '/', location.origin);
+  for (const [name, value] of p.query || []) url.searchParams.append(name, value ?? '');
+  url.searchParams.set('offlineEdit', record.clientOperationId);
+  return url.pathname + url.search;
+}
+
+function formSubmitDetails(p) {
+  const shown = (p.fields || []).filter(([name, value]) => value && !/^(__|.*\.Index$)/.test(name)).slice(0, 40);
+  return `<dt>فورم</dt><dd><code>${h(p.path || '')}</code></dd>
+    ${shown.map(([name, value]) => `<dt>${h(name)}</dt><dd>${h(String(value).slice(0, 200))}</dd>`).join('')}
+    ${(p.fields || []).length > shown.length ? `<dt>فیلدهای دیگر</dt><dd>${formatNumber((p.fields || []).length - shown.length)}</dd>` : ''}`;
+}
+
 function summarize(record) {
+  if (record.operationType === FORM_SUBMIT) return record.payload?.path || '';
   const form = OPERATION_FORMS[record.operationType];
   if (!form) return '';
   const p = record.payload || {};
@@ -283,6 +303,8 @@ async function renderLock(message = '') {
           error.hidden = false;
           return;
         }
+        // همان نشست برای صفحات اصلی مشعل: رمز محلی در این نشست دوباره پرسیده نمی‌شود.
+        rememberSession(result.profile, result.rawKey);
         await openProfile(result.profile, result.dataKey);
       } catch (e) {
         error.textContent = e.message || 'ورود انجام نشد.';
@@ -314,8 +336,9 @@ async function renderLock(message = '') {
       }
       button.disabled = true;
       try {
-        const { profile, dataKey } = await createProfile({ session: app.pendingSession, pin, deviceId: uuid() });
+        const { profile, dataKey, rawKey } = await createProfile({ session: app.pendingSession, pin, deviceId: uuid() });
         await app.registry.put('profiles', profile);
+        rememberSession(profile, rawKey);
         await openProfile(profile, dataKey, true);
         toast('دستگاه فعال شد. معلومات مرجع دریافت می‌شود…');
       } catch (e) {
@@ -366,6 +389,7 @@ async function openProfile(profile, dataKey, firstTime = false) {
 }
 
 function lock(message = '') {
+  forgetSession();
   api.setAuth(null);
   if (app.store) app.store.close();
   Object.assign(app, { profile: null, store: null, repo: null, sealer: null, engine: null, snapshot: null, records: [] });
@@ -458,7 +482,7 @@ async function route() {
 function allowedTypes() {
   const auth = app.authMeta;
   const keys = auth?.operationTypes?.length ? auth.operationTypes.map((t) => t.key) : Object.keys(OPERATION_FORMS);
-  return keys.filter((k) => OPERATION_FORMS[k]);
+  return keys.filter((k) => OPERATION_FORMS[k] && !OPERATION_FORMS[k].hidden);
 }
 
 // ---------------------------------------------------------------- screens
@@ -516,6 +540,8 @@ async function renderHome() {
       <div class="ox-actions">
         ${allowedTypes().map((k) => `<a class="ox-btn ox-btn--ghost" href="#/new/${encodeURIComponent(k)}">${h(OPERATION_FORMS[k].label)}</a>`).join('')}
       </div>
+      ${allowedTypes().includes('Customer.Draft') ? `<p class="ox-muted">فورم اصلی مشعل که بدون سرور هم باز می‌شود (پس از یک‌بار بازکردن آنلاین):
+        <a href="/Customers/Create">ثبت مشتری</a></p>` : ''}
     </section>
     ${dashboard}
     <section class="ox-card">
@@ -529,6 +555,10 @@ async function renderEdit(id) {
   const record = await app.repo.get(id);
   if (!record || !canResubmit(record)) {
     main.innerHTML = '<section class="ox-card"><p class="ox-error">این عملیات قابل اصلاح نیست.</p></section>';
+    return;
+  }
+  if (record.operationType === FORM_SUBMIT) {
+    location.assign(mainFormUrl(record));
     return;
   }
   await renderNew(record.operationType, null, record);
@@ -577,6 +607,11 @@ async function renderNew(type, draftId, editRecord = null) {
     if (field.kind === 'number') {
       return `<div class="ox-field">${label}<input class="ox-input" id="${id}" name="${field.name}" type="number" inputmode="decimal" step="any" min="0" value="${h(value ?? '')}" ${field.required ? 'required' : ''} /></div>`;
     }
+    if (field.kind === 'flag') {
+      const no = value === false || value === 'false';
+      return `<div class="ox-field">${label}<select class="ox-input" id="${id}" name="${field.name}">
+        <option value="true" ${no ? '' : 'selected'}>بلی</option><option value="false" ${no ? 'selected' : ''}>خیر</option></select></div>`;
+    }
     return `<div class="ox-field">${label}<input class="ox-input" id="${id}" name="${field.name}" maxlength="500" value="${h(value ?? '')}" ${field.required ? 'required' : ''} /></div>`;
   };
 
@@ -611,7 +646,7 @@ async function renderNew(type, draftId, editRecord = null) {
           ${form.fields.map(fieldHtml).join('')}
           ${dependencyOptions.length && !editRecord ? `<div class="ox-field"><label for="f-dependency">پس از این عملیات ارسال شود (اختیاری)</label>
             <select class="ox-input" id="f-dependency" name="dependency"><option value="">— ندارد —</option>
-            ${dependencyOptions.map((r) => `<option value="${h(r.clientOperationId)}">${h(typeLabel(r.operationType))} · ${h(summarize(r))} · ${h(formatDateTime(r.createdAt))}</option>`).join('')}
+            ${dependencyOptions.map((r) => `<option value="${h(r.clientOperationId)}">${h(typeLabel(r.operationType, r.payload))} · ${h(summarize(r))} · ${h(formatDateTime(r.createdAt))}</option>`).join('')}
             </select></div>` : ''}
         </div>
         <p class="ox-error" data-error hidden></p>
@@ -703,7 +738,7 @@ async function renderOps() {
     <ul class="ox-list">
       ${items.map((r) => `
         <li><a class="ox-item" href="#/op/${encodeURIComponent(r.clientOperationId)}">
-          <div><strong>${h(typeLabel(r.operationType))}</strong>
+          <div><strong>${h(typeLabel(r.operationType, r.payload))}</strong>
             <span class="ox-muted">${h(summarize(r))} · ${h(formatDateTime(r.createdAt))}</span></div>
           <span class="ox-status" data-status="${r.status}">${h(STATUS_SHORT[r.status] || r.status)}</span>
         </a></li>`).join('') || '<li class="ox-card ox-muted">موردی نیست.</li>'}
@@ -728,17 +763,18 @@ async function renderOp(id) {
   const isDraft = record.status === Status.Draft;
   const canRetryNow = record.status === Status.Pending;
   const canFix = canResubmit(record);
-  const canCopy = !canFix && (record.status === Status.Rejected || record.status === Status.Conflict) && !!OPERATION_FORMS[record.operationType];
+  const isMainForm = record.operationType === FORM_SUBMIT;
+  const canCopy = !isMainForm && !canFix && (record.status === Status.Rejected || record.status === Status.Conflict) && !!OPERATION_FORMS[record.operationType];
 
   main.innerHTML = `
     <section class="ox-card">
-      <h2>${h(typeLabel(record.operationType))}</h2>
+      <h2>${h(typeLabel(record.operationType, record.payload))}</h2>
       <p><span class="ox-status" data-status="${record.status}">${h(STATUS_LABELS[record.status] || record.status)}</span></p>
       ${record.serverNote ? `<p>${h(record.serverNote)}</p>` : ''}
       ${record.status !== Status.Applied ? '<p class="ox-hint">این عملیات هنوز ثبت قطعی نشده و در مانده‌ها و موجودی رسمی حساب نیست. پس از اتصال، سرور خودکار با فرم موجود ثبتش می‌کند.</p>' : ''}
       <dl class="ox-dl">
         <dt>تاریخ کاری</dt><dd>${h(record.businessDate)}</dd>
-        ${(form?.fields || []).map((f) => `<dt>${h(f.label)}</dt><dd>${h(fieldDisplay(f, p[f.name]))}</dd>`).join('')}
+        ${isMainForm ? formSubmitDetails(p) : (form?.fields || []).map((f) => `<dt>${h(f.label)}</dt><dd>${h(fieldDisplay(f, p[f.name]))}</dd>`).join('')}
         <dt>ثبت در دستگاه</dt><dd>${h(formatDateTime(record.createdAt))}</dd>
         <dt>تلاش ارسال</dt><dd>${formatNumber(record.attempts || 0)}${record.nextAttemptAt && record.status === Status.Pending ? ` — تلاش بعدی: ${h(formatDateTime(record.nextAttemptAt))}` : ''}</dd>
         ${record.lastError && record.status === Status.Pending ? `<dt>آخرین خطا</dt><dd>${h(record.lastError)}</dd>` : ''}
@@ -748,11 +784,11 @@ async function renderOp(id) {
         <dt>شناسهٔ عملیات</dt><dd><code>${h(record.clientOperationId)}</code></dd>
       </dl>
       <div class="ox-actions">
-        ${isDraft ? `<a class="ox-btn" href="#/new/${encodeURIComponent(record.operationType)}/${encodeURIComponent(record.clientOperationId)}">ادامهٔ پیش‌نویس</a>
+        ${isDraft ? `<a class="ox-btn" href="${isMainForm ? h(mainFormUrl(record)) : `#/new/${encodeURIComponent(record.operationType)}/${encodeURIComponent(record.clientOperationId)}`}">${isMainForm ? 'بررسی و ارسال در فورم اصلی' : 'ادامهٔ پیش‌نویس'}</a>
           <button class="ox-btn ox-btn--danger" type="button" data-discard>حذف پیش‌نویس</button>` : ''}
         ${canRetryNow ? '<button class="ox-btn" type="button" data-retry>ارسال اکنون</button>' : ''}
         ${canReturn ? '<button class="ox-btn ox-btn--ghost" type="button" data-return>بازگشت به پیش‌نویس</button>' : ''}
-        ${canFix ? `<a class="ox-btn" href="#/edit/${encodeURIComponent(record.clientOperationId)}">اصلاح و ارسال دوباره</a>` : ''}
+        ${canFix ? `<a class="ox-btn" href="${isMainForm ? h(mainFormUrl(record)) : `#/edit/${encodeURIComponent(record.clientOperationId)}`}">${isMainForm ? 'اصلاح در فورم اصلی و ارسال دوباره' : 'اصلاح و ارسال دوباره'}</a>` : ''}
         ${canFix && record.status === Status.Conflict ? '<button class="ox-btn ox-btn--ghost" type="button" data-resend>ارسال دوباره بدون تغییر</button>' : ''}
         ${canCopy ? '<button class="ox-btn ox-btn--ghost" type="button" data-copy>ثبت تازه از روی همین</button>' : ''}
         <a class="ox-btn ox-btn--ghost" href="#/ops">بازگشت</a>
@@ -1072,6 +1108,13 @@ async function boot() {
   trackIdle();
   await monitor.start();
   updateConnUi();
+  // نشستی که در صفحات اصلی مشعل با رمز محلی باز شد، همین‌جا هم باز است (رمز در هر نشست یک‌بار).
+  const restored = await restoreSession();
+  const profile = restored && (await loadProfiles()).find((p) => p.id === restored.profileId);
+  if (profile) {
+    await openProfile(profile, restored.dataKey);
+    return;
+  }
   await renderLock();
 }
 

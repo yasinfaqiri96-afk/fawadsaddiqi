@@ -23,7 +23,7 @@
     <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
              model="@(("گزارش جوازهای گمرکی", false,
                        (string?)null, (string?)null, (string?)null, (string?)null,
-                       (string?)null, (string?)null, (string?)null))" />
+                       UiText.T(Context, "گزارش‌ها", "Reports"), "bi-arrow-right", Url.Action("Index", "Reports")))" />
 
     <p class="ak-note">بازهٔ تاریخ، جواز، موتر و نوع گمرک را برای جست‌وجو انتخاب کنید. کلیک روی هر سلولِ مبلغ، بین ارز اصلی و معادل جابه‌جا می‌شود.</p>
 

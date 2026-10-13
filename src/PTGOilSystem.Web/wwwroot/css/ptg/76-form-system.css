@@ -1102,3 +1102,65 @@ form.ak-form .ak-table .ak-entity-input {
         width: 100%;
     }
 }
+
+/* ---- Auto-saved form drafts (form-draft.js) ----------------------- */
+/* Small status beside Save; text always carries the state, colour only reinforces it. */
+.ptg-draft-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 24px;
+    color: var(--ptg-muted);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.ptg-draft-status[hidden] {
+    display: none;
+}
+
+.ptg-draft-status.is-saved .bi {
+    color: var(--success-main);
+}
+
+.ptg-draft-status.is-error {
+    color: var(--ptg-danger-text);
+}
+
+/* Resume notice above a fresh form: reuses .alert-info and .ak-btn; same column as the form. */
+.ak-form-page:has(> form.ak-form) > .ptg-draft-notice {
+    inline-size: min(100%, var(--ak-form-content-max));
+    margin-inline: auto;
+}
+
+.ptg-draft-notice {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.ptg-draft-notice-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.ptg-draft-notice-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.ptg-draft-status-link {
+    margin-inline-start: 4px;
+    color: var(--primary-main);
+    text-decoration: none;
+}
+
+.ptg-draft-status-link:hover,
+.ptg-draft-status-link:focus-visible {
+    text-decoration: underline;
+}

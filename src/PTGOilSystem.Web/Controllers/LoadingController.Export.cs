@@ -28,6 +28,8 @@ public partial class LoadingController
             new("جنس", "Product", TabularExportValueType.Text, 18, "ProductName"),
             new("نوع حمل", "Transport", TabularExportValueType.Text, 15, "TransportTypeLabel"),
             new("وسیله", "Vehicle", TabularExportValueType.Text, 18, "VehicleSummary"),
+            new("نام راننده", "Driver name", TabularExportValueType.Text, 18, "DriverName"),
+            new("شماره تماس راننده", "Driver phone", TabularExportValueType.Text, 17, "DriverPhone"),
             new("مقدار MT", "Quantity MT", TabularExportValueType.Number, 14, "LoadedQuantityMt"),
             new("رسید MT", "Received MT", TabularExportValueType.Number, 14, "TotalReceivedQuantityMt"),
             new("ارزش USD", "Value USD", TabularExportValueType.Number, 15, "LoadingValueUsd"),

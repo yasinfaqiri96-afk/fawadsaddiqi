@@ -259,6 +259,8 @@ public sealed class LoadingListItemViewModel
     public string ProductName { get; init; } = "";
     public string? OriginLocationName { get; init; }
     public string VehicleSummary { get; init; } = "";
+    public string? DriverName { get; init; }
+    public string? DriverPhone { get; init; }
     public decimal LoadedQuantityMt { get; init; }
     public decimal TotalReceivedQuantityMt { get; init; }
     public string? BillOfLadingNumber { get; init; }

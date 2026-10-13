@@ -148,10 +148,10 @@ public sealed class ContractJourneySummaryPdfTests
         {
             ExcelMaxRows = 100,
             PdfMaxRows = 100,
-            CompanyLogoPath = "/images/logo1-sidebar.png",
+            CompanyLogoPath = "/images/mashal-logo-blue.webp",
             CompanyPhone = "+92 21 711 722 399",
-            CompanyEmail = "info@saddiqigroup.com",
-            CompanyWebsite = "www.saddiqigroup.com",
+            CompanyEmail = "",
+            CompanyWebsite = "",
             QuestPdfLicense = "Community"
         });
         return new TabularExportService(options, environment);

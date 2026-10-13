@@ -1,0 +1,101 @@
+@model PTGOilSystem.Web.Controllers.FormDraftIndexViewModel
+@using System.Security.Claims
+@using PTGOilSystem.Web.Controllers
+@{
+    ViewData["Title"] = "پیش‌نویس‌های فرم";
+    var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+}
+
+<div class="ak-list-page">
+    <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+             model="@(("پیش‌نویس‌های فرم", false,
+                       (string?)null, (string?)null, (string?)null, (string?)null,
+                       (string?)null, (string?)null, (string?)null))" />
+
+    @* نسخه‌های محلیِ همگام‌نشده (قطع اینترنت) از همین صفحه هم به سرور فرستاده می‌شوند. *@
+    @Html.AntiForgeryToken()
+    <span hidden data-ptg-draft-sync data-ptg-draft-user="@userId" data-ptg-draft-url="@($"{Context.Request.PathBase}/FormDrafts")"></span>
+
+    <div class="alert alert-info">
+        فرم‌های ثبت هنگام کار خودکار به‌عنوان پیش‌نویس ذخیره می‌شوند. پیش‌نویس هیچ اثری در موجودی، حساب‌ها،
+        دفتر و گزارش‌ها ندارد؛ فقط «ذخیره»ی خودِ فرم ثبت نهایی است. پیش‌نویس‌ها تا وقتی خودتان حذفشان نکنید باقی می‌مانند
+        و فقط برای خود شما دیده می‌شوند.
+    </div>
+
+    <div class="ak-list">
+        <div class="ak-table-wrap">
+            <table class="ak-table" aria-label="لیست پیش‌نویس‌ها">
+                <thead>
+                    <tr>
+                        <th class="ak-col-grow">فرم</th>
+                        <th>خلاصه</th>
+                        <th class="ak-col-num">سطرها</th>
+                        <th>شروع</th>
+                        <th>آخرین ذخیره</th>
+                        <th>وضعیت</th>
+                        <th class="ak-col-actions"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in Model.Items)
+                    {
+                        var isSubmitted = item.Status == FormDraftStatus.Submitted;
+                        <tr>
+                            <td class="ak-col-grow">
+                                @if (isSubmitted)
+                                {
+                                    <span class="ak-name">@item.FormTitle</span>
+                                }
+                                else
+                                {
+                                    <a href="@Url.Content("~" + item.ResumeUrl)" class="ak-name">@item.FormTitle</a>
+                                }
+                            </td>
+                            <td>@(string.IsNullOrWhiteSpace(item.Summary) ? "—" : item.Summary)</td>
+                            <td class="ak-col-num"><bdi>@item.RowCount.ToString("N0")</bdi></td>
+                            <td>@item.CreatedAtUtc.ToDisplayDateTime()</td>
+                            <td>@item.LastSavedAtUtc.ToDisplayDateTime()</td>
+                            <td>
+                                @if (isSubmitted)
+                                {
+                                    <span class="ak-status is-active">ثبت‌شده @(item.SubmittedAtUtc.HasValue ? item.SubmittedAtUtc.ToDisplayDateTime() : "")</span>
+                                }
+                                else if (item.Status == FormDraftStatus.Submitting)
+                                {
+                                    <span class="ak-status is-pending">در حال ثبت</span>
+                                }
+                                else
+                                {
+                                    <span class="ak-status is-pending">پیش‌نویس</span>
+                                }
+                            </td>
+                            <td class="ak-col-actions">
+                                <div class="d-flex gap-2 justify-content-end">
+                                    @if (!isSubmitted)
+                                    {
+                                        <a class="ak-btn" href="@Url.Content("~" + item.ResumeUrl)">ادامه</a>
+                                    }
+                                    <form asp-action="Delete" method="post" data-no-spa="true"
+                                          data-ptg-confirm="true"
+                                          data-ptg-confirm-title="حذف پیش‌نویس"
+                                          data-ptg-confirm-message="@(isSubmitted ? "سابقهٔ این پیش‌نویسِ ثبت‌شده حذف شود؟ سند ثبت‌شده دست نمی‌خورد." : "این پیش‌نویس و همهٔ اطلاعات واردشده در آن برای همیشه حذف شود؟ هیچ سند ثبت‌شده‌ای تغییر نمی‌کند.")">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="key" value="@item.Key" />
+                                        <input type="hidden" name="formKey" value="@Model.Form?.Key" />
+                                        <button type="submit" class="ak-btn ak-btn--ghost">حذف</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    @if (Model.Items.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="7"><div class="ak-empty"><i class="bi bi-journal" aria-hidden="true"></i>پیش‌نویسی وجود ندارد</div></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

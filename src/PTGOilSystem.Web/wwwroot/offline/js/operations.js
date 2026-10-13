@@ -45,12 +45,16 @@ export const SERVER_OPEN = Object.freeze([Status.Received, Status.Conflict]);
 export const STATUS_RANK = Object.freeze({ Draft: 0, Pending: 1, Sending: 1, Received: 2, Conflict: 3, Applied: 4, Rejected: 4 });
 
 export const SCHEMA_VERSION = 1;
+/** فورم اصلی MVC (همان فیلدهای فورم؛ OfflineFormRegistry سرور). در برنامهٔ آفلاین فرم جدا ندارد. */
+export const FORM_SUBMIT = 'Form.Submit';
 /** مقدار مرجعی که به رکوردِ ساخته‌شده توسط عملیات پیش‌نیاز اشاره می‌کند (مثلاً مشتری تازهٔ آفلاین). */
 export const OPERATION_REFERENCE_PREFIX = 'op:';
 
 const ref = (name, label, source, required = true, extra = {}) => ({ name, label, kind: 'ref', source, required, ...extra });
 const num = (name, label, required = true, extra = {}) => ({ name, label, kind: 'number', required, ...extra });
 const text = (name, label, required = false) => ({ name, label, kind: 'text', required });
+/** بلی/خیر؛ همیشه true/false ذخیره می‌شود (نبودن = پیش‌فرض سرور). */
+const flag = (name, label) => ({ name, label, kind: 'flag', required: false });
 const currency = (required = true) => ({ name: 'currency', label: 'اسعار', kind: 'currency', source: 'currencies', required });
 const fxRate = () => num('fxRate', 'نرخ تبدیل به دالر (برای اسعار غیر دالر)', false);
 
@@ -100,20 +104,46 @@ export const OPERATION_FORMS = Object.freeze({
   'Customer.Draft': {
     label: 'مشتری جدید',
     hint: 'پس از اتصال در فهرست مشتریان ساخته می‌شود؛ فروش و دریافتِ وابسته به آن پس از ساخت ثبت می‌شوند.',
-    fields: [text('name', 'نام', true), text('phone', 'تلفن'), text('description', 'یادداشت')]
+    // همان فیلدهای فورم اصلی Customers/Create (کد، نام، کشور، تلفن، فعال) + یادداشت فرم آفلاین.
+    fields: [text('code', 'کد'), text('name', 'نام', true), text('country', 'کشور'), text('phone', 'تلفن'),
+      flag('isActive', 'فعال'), text('description', 'یادداشت')]
   },
   'General.Note': {
     label: 'یادداشت عملیاتی',
     hint: 'برای ثبت رویدادی که سند مالی ندارد.',
     fields: [text('text', 'متن', true)]
+  },
+  'Form.Submit': {
+    label: 'فورم اصلی',
+    hint: 'در همان صفحهٔ مشعل ثبت شد؛ پس از اتصال با همان فورم سرور ثبت قطعی می‌شود.',
+    fields: [],
+    hidden: true
   }
 });
 
 /** نوع‌های قدیمی که دیگر فرم ندارند (برای نمایش عملیات موجود در دستگاه). */
 export const LEGACY_LABELS = Object.freeze({ 'MoneyTransfer.Request': 'انتقال پول (پشتیبانی نمی‌شود)' });
 
-export function typeLabel(type) {
+export function typeLabel(type, payload = null) {
+  if (type === FORM_SUBMIT && payload?.label) return payload.label;
   return OPERATION_FORMS[type]?.label || LEGACY_LABELS[type] || type;
+}
+
+const pairList = (list) => (Array.isArray(list) ? list : [])
+  .filter((pair) => Array.isArray(pair) && pair.length === 2 && typeof pair[0] === 'string' && pair[0])
+  .map(([name, value]) => [name, value === null || value === undefined ? null : String(value)]);
+
+/** فورم اصلی: مسیر کوچک‌حرف، جفت‌های [نام، مقدار] با همان ترتیب فورم؛ کلیدها ثابت تا هش پایدار باشد. */
+function normalizeFormSubmit(payload) {
+  const result = {
+    path: String(payload.path || '').toLowerCase().split(/[?#]/)[0].replace(/\/+$/, ''),
+    label: String(payload.label || '').trim().slice(0, 120),
+    fields: pairList(payload.fields)
+  };
+  const query = pairList(payload.query);
+  if (query.length) result.query = query;
+  if (payload.formToken) result.formToken = String(payload.formToken);
+  return result;
 }
 
 export function isOperationReference(value) {
@@ -126,6 +156,9 @@ export function validatePayload(type, payload) {
   const form = OPERATION_FORMS[type];
   if (!form) {
     return 'نوع عملیات پشتیبانی نمی‌شود.';
+  }
+  if (type === FORM_SUBMIT) {
+    return payload?.path && Array.isArray(payload.fields) && payload.fields.length ? null : 'فیلدهای فورم خالی است.';
   }
   for (const field of form.fields) {
     const value = payload[field.name];
@@ -148,6 +181,9 @@ export function validatePayload(type, payload) {
 
 /** فقط فیلدهای فرم، با نوع درست؛ ترتیب کلیدها ثابت است تا متن JSON و هش پایدار باشد. */
 export function normalizePayload(type, payload) {
+  if (type === FORM_SUBMIT) {
+    return normalizeFormSubmit(payload || {});
+  }
   const form = OPERATION_FORMS[type];
   const result = {};
   for (const field of form.fields) {
@@ -157,6 +193,8 @@ export function normalizePayload(type, payload) {
     }
     if (field.kind === 'ref' && isOperationReference(String(value))) {
       result[field.name] = String(value);
+    } else if (field.kind === 'flag') {
+      result[field.name] = value === true || String(value).trim().toLowerCase() === 'true';
     } else {
       result[field.name] = field.kind === 'number' || field.kind === 'ref' ? Number(value) : String(value).trim();
     }
@@ -166,7 +204,8 @@ export function normalizePayload(type, payload) {
 
 /** شناسهٔ عملیات‌هایی که payload به آن‌ها اشاره می‌کند (op:...) — خودکار پیش‌نیاز می‌شوند. */
 export function referencedOperations(payload) {
-  return Object.values(payload)
+  const values = Array.isArray(payload.fields) ? payload.fields.map((pair) => pair[1]) : Object.values(payload);
+  return values
     .filter((value) => isOperationReference(value))
     .map((value) => value.slice(OPERATION_REFERENCE_PREFIX.length));
 }

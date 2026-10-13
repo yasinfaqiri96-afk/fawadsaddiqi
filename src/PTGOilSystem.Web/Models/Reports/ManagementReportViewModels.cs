@@ -408,6 +408,29 @@ public sealed class ContractPnlRowViewModel
     /// <summary>سودِ محققِ قرارداد (فقط بخشِ فروخته‌شده، با اثرِ ارزی)؛ از <c>ContractEconomicsSnapshot.RealizedNetProfitUsd</c>.</summary>
     public decimal RealizedNetProfitUsd { get; init; }
     public decimal? MarginPercent => TotalRevenueUsd > 0 ? Math.Round((GrossMarginUsd / TotalRevenueUsd) * 100m, 1) : null;
+
+    /// <summary>
+    /// مبلغ ثبت‌شدهٔ قرارداد = مقدار قرارداد × قیمت قطعی همان قرارداد. قیمت نامعلوم یعنی null، نه صفر.
+    /// این عدد تعهد قرارداد است، نه خرید واقعیِ بارگیری‌شده (<see cref="PurchaseValueUsd"/>).
+    /// </summary>
+    public decimal? ContractValueUsd => ContractUnitPriceUsd.HasValue
+        ? decimal.Round(ContractQuantityMt * ContractUnitPriceUsd.Value, 2, MidpointRounding.AwayFromZero)
+        : null;
+
+    /// <summary>
+    /// مصارف قرارداد بدون قیمت خرید نفت: مصارف پولی ثبت‌شده و اثر مالی ارزیِ همان قرارداد.
+    /// جمع <see cref="PurchaseValueUsd"/> و همین عدد دقیقاً همان <see cref="TotalCostUsd"/> موتور مالی است.
+    /// </summary>
+    public decimal ExpensesUsd => TotalCostUsd - PurchaseValueUsd;
+
+    /// <summary>بارِ بدون قیمت خرید قطعی دارد؛ مفاد این قرارداد هنوز قطعی نیست.</summary>
+    public bool HasPendingPurchasePrice => PendingLoadingCount > 0 || PendingLoadedMt > 0m;
+
+    /// <summary>
+    /// مفاد قابل نمایش: فقط وقتی فروش ثبت شده و قیمت خرید همهٔ بارها معلوم است. در غیر این صورت null —
+    /// برآوردِ ناقص به‌عنوان مفاد قطعی نشان داده نمی‌شود.
+    /// </summary>
+    public decimal? ContractProfitUsd => TotalRevenueUsd > 0m && !HasPendingPurchasePrice ? GrossMarginUsd : null;
 }
 
 public sealed class ContractPnlReportViewModel
@@ -436,6 +459,20 @@ public sealed class ContractPnlReportViewModel
     public decimal? DirectSaleMarginPercent => TotalDirectSaleRevenueUsd > 0m
         ? Math.Round((TotalDirectSaleGrossMarginUsd / TotalDirectSaleRevenueUsd) * 100m, 1, MidpointRounding.AwayFromZero)
         : null;
+    /// <summary>کارت اول: مبلغ ثبت‌شدهٔ قراردادهای خرید فهرست‌شده (قراردادِ بی‌قیمت شمرده نمی‌شود).</summary>
+    public decimal TotalContractValueUsd => PurchaseRows.Sum(r => r.ContractValueUsd ?? 0m);
+    public int UnpricedContractCount => PurchaseRows.Count(r => !r.ContractValueUsd.HasValue);
+    /// <summary>ستون «قیمت خرید»: ارزش خرید واقعیِ بارهای قیمت‌دار.</summary>
+    public decimal TotalPurchaseValueUsd => PurchaseRows.Sum(r => r.PurchaseValueUsd);
+    /// <summary>کارت دوم: مصارف قراردادها بدون قیمت خرید.</summary>
+    public decimal TotalContractExpensesUsd => PurchaseRows.Sum(r => r.ExpensesUsd);
+    /// <summary>
+    /// کارت چهارم: جمع همان مفادی که جدول نشان می‌دهد. قراردادِ بی‌فروش یا با قیمت خرید نامعلوم
+    /// در این جمع نیست تا برآورد ناقص به‌عنوان مفاد قطعی جمع نشود.
+    /// </summary>
+    public decimal TotalContractProfitUsd => PurchaseRows.Sum(r => r.ContractProfitUsd ?? 0m);
+    /// <summary>قراردادهای دارای فروش که به‌خاطر قیمت خرید نامعلوم در جمع مفاد نیامده‌اند.</summary>
+    public int PendingPriceProfitCount => PurchaseRows.Count(r => r.TotalRevenueUsd > 0m && r.HasPendingPurchasePrice);
     public decimal TotalSalesRevenueUsd => SaleRows.Sum(r => r.TotalRevenueUsd);
     public decimal TotalRealisedSalesCostUsd => SaleRows.Sum(r => r.TotalCostUsd);
     public decimal TotalGrossMarginUsd => PnlMath.GrossProfit(TotalSalesRevenueUsd, TotalRealisedSalesCostUsd);

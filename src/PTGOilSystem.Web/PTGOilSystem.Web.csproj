@@ -206,6 +206,7 @@
       <PtgCoreJs Include="wwwroot/js/ak-entity-combobox.js" />
       <PtgCoreJs Include="wwwroot/js/ak-datepicker.js" />
       <PtgCoreJs Include="wwwroot/js/assistant.js" />
+      <PtgCoreJs Include="wwwroot/js/form-draft.js" />
     </ItemGroup>
     <BundleCss Sources="@(PtgCoreCss)" Output="$(MSBuildProjectDirectory)/wwwroot/css/ptg-core.bundle.css" />
     <BundleCss Sources="@(PtgAppCss)" Output="$(MSBuildProjectDirectory)/wwwroot/css/ptg-app.bundle.css" />

@@ -96,7 +96,9 @@ async function waitText(page, text, timeout = 20000) {
 }
 
 async function unlock(page) {
-  await page.waitForSelector('[data-unlock] #pin', { timeout: 20000 });
+  // رمز محلی در هر نشست یک‌بار (session.js): اگر نشست هنوز باز است، برنامه بدون صفحهٔ قفل باز می‌شود.
+  await page.waitForSelector('[data-unlock] #pin, [data-tabs]:not([hidden])', { timeout: 20000 });
+  if (await page.$('[data-tabs]:not([hidden])')) return;
   await page.fill('#pin', PIN);
   await page.click('[data-unlock] button[type="submit"]');
   await page.waitForSelector('[data-tabs]:not([hidden])', { timeout: 30000 });
@@ -105,9 +107,14 @@ async function unlock(page) {
 async function newOperation(page, type, fill) {
   await page.goto(`${ORIGIN}/offline/index.html#/new/${type}`);
   if (await page.$('[data-unlock] #pin')) await unlock(page);
-  await page.waitForSelector('[data-op-form]', { timeout: 20000 });
+  await page.waitForSelector('[data-op-form]', { timeout: 20000 }).catch(async (e) => {
+    await page.screenshot({ path: path.join(output, `new-${type}-failed.png`), fullPage: true });
+    throw new Error(`form ${type} did not open at ${page.url()}: ` + (await page.evaluate(() => document.body.innerText)).slice(0, 600));
+  });
   await fill();
   await page.click('[data-op-form] button[type="submit"]');
+  // پیام «ذخیره شد» ممکن است از عملیات قبلی هنوز روی صفحه باشد؛ نشانهٔ قطعیِ پایان ذخیره رفتن به صفحهٔ همین عملیات است.
+  await page.waitForURL(/#\/op\//, { timeout: 20000 });
   await waitText(page, 'در دستگاه ذخیره شد؛ در انتظار همگام‌سازی');
   return decodeURIComponent(page.url().split('#/op/')[1] || '');
 }
@@ -176,7 +183,7 @@ async function newOperation(page, type, fill) {
 
     // ---- قطع اینترنت و ثبت آفلاین
     await context.setOffline(true);
-    await page.goto(`${ORIGIN}/?source=pwa`);
+    await page.goto(`${ORIGIN}/offline/index.html`);
     await unlock(page);
     await waitText(page, 'آفلاین');
 

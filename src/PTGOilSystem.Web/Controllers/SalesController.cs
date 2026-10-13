@@ -8,6 +8,7 @@ using Microsoft.Extensions.Caching.Memory;
 using PTGOilSystem.Web.Data;
 using PTGOilSystem.Web.Helpers;
 using PTGOilSystem.Web.Models.Entities;
+using PTGOilSystem.Web.Services.FormDrafts;
 using PTGOilSystem.Web.Services.Ledger;
 using PTGOilSystem.Web.Models.LossEvents;
 using PTGOilSystem.Web.Models.Sales;
@@ -1208,8 +1209,21 @@ public partial class SalesController : Controller
         int? contractId = null,
         int? sourcePurchaseContractId = null,
         int? correctedFromSaleId = null,
-        string? returnUrl = null)
+        string? returnUrl = null,
+        Guid? draft = null)
     {
+        // ادامهٔ پیش‌نویس: همان نمایش دوبارهٔ فرم پس از خطای اعتبارسنجی.
+        var draftSnapshot = await this.LoadFormDraftAsync(draft, FormDraftForms.SalesCreate);
+        if (draftSnapshot is not null)
+        {
+            var restored = new SalesCreateViewModel();
+            await TryUpdateModelAsync(restored, string.Empty, draftSnapshot.ToValueProvider());
+            ModelState.Clear();
+            NormalizeCreateModel(restored);
+            await PopulateLookupsAsync(createModel: restored);
+            return View(restored);
+        }
+
         var model = new SalesCreateViewModel
         {
             SaleDate = _businessClock.Today,

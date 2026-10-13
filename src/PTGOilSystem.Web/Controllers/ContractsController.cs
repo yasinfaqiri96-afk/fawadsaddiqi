@@ -10,6 +10,7 @@ using PTGOilSystem.Web.Helpers;
 using PTGOilSystem.Web.Models.ContractJourney;
 using PTGOilSystem.Web.Models.Contracts;
 using PTGOilSystem.Web.Models.Entities;
+using PTGOilSystem.Web.Services.FormDrafts;
 using PTGOilSystem.Web.Services.Ledger;
 using PTGOilSystem.Web.Security;
 using PTGOilSystem.Web.Services;
@@ -319,8 +320,22 @@ public partial class ContractsController : Controller
     }
 
     [Authorize(Policy = AuthPolicies.ManageData)]
-        public async Task<IActionResult> Create(int? supplierId = null)
+        public async Task<IActionResult> Create(int? supplierId = null, Guid? draft = null)
     {
+        // ادامهٔ پیش‌نویس: همان نمایش دوبارهٔ فرم پس از خطای اعتبارسنجی؛ شمارهٔ قرارداد مثل ثبت تازه ساخته می‌شود.
+        var draftSnapshot = await this.LoadFormDraftAsync(draft, FormDraftForms.ContractsCreate);
+        if (draftSnapshot is not null)
+        {
+            var restored = new ContractFormViewModel();
+            await TryUpdateModelAsync(restored, string.Empty, draftSnapshot.ToValueProvider());
+            ModelState.Clear();
+            NormalizeFormModel(restored);
+            restored.ContractNumber = await GenerateNextContractNumberAsync(restored.ContractType);
+            EnsurePartnerRows(restored);
+            await PopulateLookupsAsync(restored);
+            return ContractFormView(restored, isEdit: false);
+        }
+
         var model = new ContractFormViewModel
         {
             ContractNumber = await GenerateNextContractNumberAsync(ContractType.Purchase),

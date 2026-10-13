@@ -8,6 +8,7 @@ using PTGOilSystem.Web.Data;
 using PTGOilSystem.Web.Models.Entities;
 using PTGOilSystem.Web.Models.OfflineSync;
 using PTGOilSystem.Web.Security;
+using PTGOilSystem.Web.Services;
 using PTGOilSystem.Web.Services.OfflineSync;
 using PTGOilSystem.Web.Services.OperationalPeriod;
 using PTGOilSystem.Web.Tests.MobileApi;
@@ -49,7 +50,8 @@ public sealed class OfflineSyncApiTests
         }
 
         public object Op(Guid id, string type, object payload, int? userId = null, int? companyId = null,
-            string? businessDate = "2026-10-01", IEnumerable<Guid>? dependencies = null, string? hashOverride = null, int revision = 1)
+            string? businessDate = "2026-10-01", IEnumerable<Guid>? dependencies = null, string? hashOverride = null, int revision = 1,
+            DateTime? createdAtUtc = null)
         {
             var json = JsonSerializer.Serialize(payload);
             return new
@@ -60,7 +62,7 @@ public sealed class OfflineSyncApiTests
                 operationType = type,
                 payloadJson = json,
                 payloadHash = hashOverride ?? OfflineSyncService.ComputeHash(json),
-                createdAtUtc = DateTime.UtcNow,
+                createdAtUtc = createdAtUtc ?? DateTime.UtcNow,
                 businessDate,
                 schemaVersion = 1,
                 revision,
@@ -101,14 +103,17 @@ public sealed class OfflineSyncApiTests
     internal sealed class FakeDispatcher : IMvcFormDispatcher
     {
         public List<(string Controller, string Action, IReadOnlyDictionary<string, string?> Fields, string? Token)> Calls { get; } = [];
+        public List<(IReadOnlyList<KeyValuePair<string, string?>>? FieldList, IReadOnlyList<KeyValuePair<string, string?>>? Query, bool Wrapped)> Extras { get; } = [];
         public Dictionary<string, MvcFormResult> ResultByController { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, string> ReferenceByController { get; } = new(StringComparer.Ordinal);
 
         public Task<MvcFormResult> PostAsync(string controller, string action, IReadOnlyDictionary<string, string?> fields,
             ClaimsPrincipal user, string? formToken, bool wrapInTransaction,
-            Func<ApplicationDbContext, string?, Task>? onCommittedInTransaction, CancellationToken ct, string? referenceType = null)
+            Func<ApplicationDbContext, string?, Task>? onCommittedInTransaction, CancellationToken ct, string? referenceType = null,
+            IReadOnlyList<KeyValuePair<string, string?>>? fieldList = null, IReadOnlyList<KeyValuePair<string, string?>>? query = null)
         {
             Calls.Add((controller, action, fields, formToken));
+            Extras.Add((fieldList, query, wrapInTransaction));
             var result = ResultByController.TryGetValue(controller, out var configured)
                 ? configured
                 : new MvcFormResult(true, ReferenceByController.GetValueOrDefault(controller, "101"), [], false, false);
@@ -420,6 +425,176 @@ public sealed class OfflineSyncApiTests
         Assert.Equal(OfflineSyncCodes.DependencyMissing, response.Results[2].Code);
         Assert.Equal(["Customers", "Sales"], h.Dispatcher.Calls.Select(c => c.Controller));
         Assert.Equal("55", h.Dispatcher.Calls[1].Fields["CustomerId"]);
+    }
+
+    // فورم اصلی ثبت مشتری (Customers/Create) آفلاین: همان فیلدهای فورم به همان اکشن می‌رسند.
+    [Fact]
+    public async Task Customer_From_Main_Form_Maps_All_Form_Fields_To_Customers_Create()
+    {
+        await using var h = await StartAsync();
+        await h.RegisterDeviceAsync();
+
+        await h.PushAsync(
+            h.Op(Guid.NewGuid(), OfflineOperationTypes.CustomerDraft,
+                new { code = "c-01", name = "مشتری فورم اصلی", country = "AF", phone = "0700111222", isActive = false }),
+            h.Op(Guid.NewGuid(), OfflineOperationTypes.CustomerDraft, new { name = "مشتری قدیمی دستگاه" }));
+
+        Assert.Equal(2, h.Dispatcher.Calls.Count);
+        var form = h.Dispatcher.Calls[0];
+        Assert.Equal(("Customers", "Create"), (form.Controller, form.Action));
+        Assert.Equal("c-01", form.Fields["Code"]);
+        Assert.Equal("مشتری فورم اصلی", form.Fields["Name"]);
+        Assert.Equal("AF", form.Fields["Country"]);
+        Assert.Equal("0700111222", form.Fields["Phone"]);
+        Assert.Equal("false", form.Fields["IsActive"]);
+        // عملیات قدیمی بدون isActive/کد/کشور همچنان مشتری فعال می‌سازد.
+        Assert.Equal("true", h.Dispatcher.Calls[1].Fields["IsActive"]);
+        Assert.Null(h.Dispatcher.Calls[1].Fields["Code"]);
+    }
+
+    // فورم اصلی MVC (Form.Submit): همان جفت‌های نام/مقدار فورم، بدون نگاشت، به همان اکشن می‌رسند.
+    [Fact]
+    public async Task Main_Form_Submit_Replays_The_Exact_Form_Fields_On_The_Registered_Action()
+    {
+        await using var h = await StartAsync();
+        await h.RegisterDeviceAsync();
+
+        var result = await Single(await h.PushAsync(h.Op(Guid.NewGuid(), OfflineOperationTypes.FormSubmit, new
+        {
+            path = "/customers/create",
+            label = "مشتری جدید",
+            fields = new[]
+            {
+                new[] { "__RequestVerificationToken", "stale" }, new[] { "__FormToken", "page-token" },
+                new[] { "Name", "مشتری فورم" }, new[] { "IsActive", "true" }, new[] { "IsActive", "false" }
+            },
+            query = new[] { new[] { "returnUrl", "/Customers" } }
+        })));
+
+        Assert.Equal(nameof(OfflineSyncStatus.Applied), result.Status);
+        var call = Assert.Single(h.Dispatcher.Calls);
+        Assert.Equal(("Customers", "Create"), (call.Controller, call.Action));
+        Assert.Null(call.Token); // بدون توکن ضد تکرار: در تراکنش بیرونی همراه با وضعیت عملیات
+        var extra = Assert.Single(h.Dispatcher.Extras);
+        Assert.True(extra.Wrapped);
+        Assert.Equal(["Name=مشتری فورم", "IsActive=true", "IsActive=false"], extra.FieldList!.Select(f => $"{f.Key}={f.Value}"));
+        Assert.Equal("/Customers", Assert.Single(extra.Query!).Value);
+    }
+
+    [Fact]
+    public async Task Main_Form_Submit_Of_A_Token_Form_Uses_The_Offline_Token_Or_The_Original_Page_Token()
+    {
+        await using var h = await StartAsync(AuthRoles.Admin);
+        await h.RegisterDeviceAsync();
+        object Payment(string? token) => new
+        {
+            path = "/Payments/Create",
+            fields = new[] { new[] { "Amount", "10" } },
+            formToken = token
+        };
+
+        var fresh = Guid.NewGuid();
+        await h.PushAsync(h.Op(fresh, OfflineOperationTypes.FormSubmit, Payment(null)));
+        Assert.Equal(OfflineOperationApplier.FormTokenFor(fresh), h.Dispatcher.Calls[0].Token);
+        Assert.False(h.Dispatcher.Extras[0].Wrapped);
+
+        // همان فورم پیش‌تر آنلاین با توکن صفحه فرستاده شد و پاسخ نیامد: همان توکن؛ اگر ثبت شده بود، دوباره اجرا نمی‌شود.
+        await h.PushAsync(h.Op(Guid.NewGuid(), OfflineOperationTypes.FormSubmit, Payment("pagetoken1")));
+        Assert.Equal("pagetoken1", h.Dispatcher.Calls[1].Token);
+
+        await h.Host.WithDbAsync(async db =>
+        {
+            db.ProcessedFormTokens.Add(new ProcessedFormToken
+            {
+                Token = "pagetoken2", Purpose = "Payments.Create", ConsumedAtUtc = DateTime.UtcNow, ReferenceType = nameof(PaymentTransaction)
+            });
+            return await db.SaveChangesAsync();
+        });
+        var committed = await Single(await h.PushAsync(h.Op(Guid.NewGuid(), OfflineOperationTypes.FormSubmit, Payment("pagetoken2"))));
+        Assert.Equal(nameof(OfflineSyncStatus.Applied), committed.Status);
+        Assert.Equal(2, h.Dispatcher.Calls.Count);
+    }
+
+    // پاسخ نامعلومِ بسیار قدیمی: نبودِ توکن صفحه دیگر ثابت نمی‌کند سند ساخته نشده؛ خودکار ثبت نمی‌شود تا کاربر بررسی کند.
+    [Fact]
+    public async Task Very_Old_Unknown_Outcome_Is_Held_For_Review_And_Sent_Only_After_An_Explicit_Resend()
+    {
+        await using var h = await StartAsync(AuthRoles.Admin);
+        await h.RegisterDeviceAsync();
+        var id = Guid.NewGuid();
+        var payload = new { path = "/payments/create", fields = new[] { new[] { "Amount", "10" } }, formToken = "pagetokenold" };
+        var created = DateTime.UtcNow.AddDays(-(ProcessedFormTokenRetentionService.OfflineReplayRetentionDays - 1));
+
+        var held = await Single(await h.PushAsync(h.Op(id, OfflineOperationTypes.FormSubmit, payload, createdAtUtc: created)));
+        Assert.Equal(nameof(OfflineSyncStatus.Conflict), held.Status);
+        Assert.Empty(h.Dispatcher.Calls);
+
+        // کاربر پس از بررسی فهرست، همان عملیات را دوباره می‌فرستد (Revision ۲): همان توکن، یک‌بار.
+        var resent = await Single(await h.PushAsync(h.Op(id, OfflineOperationTypes.FormSubmit, payload, createdAtUtc: created, revision: 2)));
+        Assert.Equal(nameof(OfflineSyncStatus.Applied), resent.Status);
+        Assert.Equal("pagetokenold", Assert.Single(h.Dispatcher.Calls).Token);
+
+        // همان ارسال نامعلوم اما تازه (کمتر از یک سال): خودکار و بدون بررسی.
+        await h.PushAsync(h.Op(Guid.NewGuid(), OfflineOperationTypes.FormSubmit,
+            payload with { formToken = "pagetokenrecent" }, createdAtUtc: DateTime.UtcNow.AddDays(-300)));
+        Assert.Equal(2, h.Dispatcher.Calls.Count);
+    }
+
+    [Fact]
+    public async Task Main_Form_Submit_Rejects_Unregistered_Forms_And_Forms_Outside_The_Users_Navigation()
+    {
+        await using var h = await StartAsync("OfflineFormsLimited", allowedNavigation: RoleNavigationKeys.Partners);
+        await h.RegisterDeviceAsync();
+
+        var unknown = await Single(await h.PushAsync(h.Op(Guid.NewGuid(), OfflineOperationTypes.FormSubmit,
+            new { path = "/users/create", fields = new[] { new[] { "Username", "x" } } })));
+        var forbidden = await Single(await h.PushAsync(h.Op(Guid.NewGuid(), OfflineOperationTypes.FormSubmit,
+            new { path = "/payments/create", fields = new[] { new[] { "Amount", "1" } } })));
+        var malformed = await Single(await h.PushAsync(h.Op(Guid.NewGuid(), OfflineOperationTypes.FormSubmit,
+            new { path = "/customers/create", fields = new object[] { new object[] { "Name", 5 } } })));
+
+        Assert.Equal(OfflineSyncOutcomes.Rejected, unknown.Outcome);
+        Assert.Equal(OfflineSyncOutcomes.Rejected, forbidden.Outcome);
+        Assert.Equal(OfflineSyncCodes.Forbidden, forbidden.Code);
+        Assert.Equal(OfflineSyncOutcomes.Rejected, malformed.Outcome);
+        Assert.Empty(h.Dispatcher.Calls);
+    }
+
+    [Fact]
+    public async Task Main_Form_Submit_Resolves_A_Record_Created_By_An_Earlier_Offline_Form()
+    {
+        await using var h = await StartAsync(AuthRoles.Admin);
+        await h.RegisterDeviceAsync();
+        h.Dispatcher.ReferenceByController["Customers"] = "77";
+        var customer = Guid.NewGuid();
+
+        var response = await h.PushAsync(
+            h.Op(Guid.NewGuid(), OfflineOperationTypes.FormSubmit,
+                new { path = "/payments/create", fields = new[] { new[] { "CustomerId", $"op:{customer}" }, new[] { "Amount", "5" } } },
+                dependencies: [customer]),
+            h.Op(customer, OfflineOperationTypes.FormSubmit,
+                new { path = "/customers/create", fields = new[] { new[] { "Name", "مشتری تازه" } } }));
+
+        Assert.All(response.Results, r => Assert.Equal(nameof(OfflineSyncStatus.Applied), r.Status));
+        Assert.Equal(["Customers", "Payments"], h.Dispatcher.Calls.Select(c => c.Controller));
+        Assert.Equal("CustomerId=77", h.Dispatcher.Extras[1].FieldList![0].Key + "=" + h.Dispatcher.Extras[1].FieldList![0].Value);
+    }
+
+    [Fact]
+    public void Every_Registered_Offline_Form_Is_A_Real_Post_Action_With_A_Navigation_Key()
+    {
+        var actions = typeof(Program).Assembly.GetTypes()
+            .Where(t => typeof(Microsoft.AspNetCore.Mvc.Controller).IsAssignableFrom(t))
+            .SelectMany(t => t.GetMethods().Select(m => (Controller: t.Name[..^"Controller".Length], Method: m)))
+            .Where(x => x.Method.GetCustomAttributes(typeof(Microsoft.AspNetCore.Mvc.HttpPostAttribute), true).Length > 0)
+            .Select(x => $"{x.Controller}/{x.Method.Name}")
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var target in OfflineFormRegistry.All)
+        {
+            Assert.Contains($"{target.Controller}/{target.Action}", actions);
+            Assert.False(string.IsNullOrEmpty(target.NavigationKey), $"{target.Path} has no navigation key");
+        }
     }
 
     [Fact]

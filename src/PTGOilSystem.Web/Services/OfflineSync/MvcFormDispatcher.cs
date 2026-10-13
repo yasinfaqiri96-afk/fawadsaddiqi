@@ -31,6 +31,11 @@ public interface IMvcFormDispatcher
     /// اکشن. هیچ منطق تجاری اینجا تکرار نشده است.
     /// </summary>
     /// <param name="formToken">توکن ثابت ضد تکرار؛ اکشن آن را در همان تراکنشِ سند در ProcessedFormTokens ثبت می‌کند.</param>
+    /// <param name="fieldList">
+    /// فیلدهای فورم با ترتیب و نام تکراری (چک‌باکس، چند انتخابی، سطرها) دقیقاً مثل مرورگر؛ اگر داده شود به‌جای
+    /// <paramref name="fields"/> فرستاده می‌شود.
+    /// </param>
+    /// <param name="query">querystringِ آدرس فورم (مثلاً returnUrl یا شناسهٔ قرارداد).</param>
     /// <param name="wrapInTransaction">
     /// برای اکشنی که خودش تراکنش و توکن ندارد: سند و <paramref name="onCommittedInTransaction"/> در یک تراکنش.
     /// </param>
@@ -43,7 +48,9 @@ public interface IMvcFormDispatcher
         bool wrapInTransaction,
         Func<ApplicationDbContext, string?, Task>? onCommittedInTransaction,
         CancellationToken ct,
-        string? referenceType = null);
+        string? referenceType = null,
+        IReadOnlyList<KeyValuePair<string, string?>>? fieldList = null,
+        IReadOnlyList<KeyValuePair<string, string?>>? query = null);
 }
 
 public sealed class MvcFormDispatcher(
@@ -64,7 +71,9 @@ public sealed class MvcFormDispatcher(
         bool wrapInTransaction,
         Func<ApplicationDbContext, string?, Task>? onCommittedInTransaction,
         CancellationToken ct,
-        string? referenceType = null)
+        string? referenceType = null,
+        IReadOnlyList<KeyValuePair<string, string?>>? fieldList = null,
+        IReadOnlyList<KeyValuePair<string, string?>>? query = null)
     {
         var descriptor = descriptors.ActionDescriptors.Items
             .OfType<ControllerActionDescriptor>()
@@ -111,13 +120,19 @@ public sealed class MvcFormDispatcher(
         var antiforgeryOptions = services.GetRequiredService<IOptions<AntiforgeryOptions>>().Value;
         // توکن روی یک HttpContext جدا ساخته می‌شود؛ Antiforgery وضعیت کوکیِ هر درخواست را cache می‌کند.
         var tokens = antiforgery.GetTokens(new DefaultHttpContext { RequestServices = services, User = user });
-        var form = new Dictionary<string, string?>(fields, StringComparer.Ordinal)
-        {
-            [tokens.FormFieldName] = tokens.RequestToken
-        };
+        var form = (fieldList ?? fields.ToList())
+            .Where(f => !string.Equals(f.Key, tokens.FormFieldName, StringComparison.Ordinal)
+                && !(formToken is not null && string.Equals(f.Key, FormTokenField, StringComparison.Ordinal)))
+            .ToList();
+        form.Add(new(tokens.FormFieldName, tokens.RequestToken));
         if (!string.IsNullOrWhiteSpace(formToken))
         {
-            form[FormTokenField] = formToken;
+            form.Add(new(FormTokenField, formToken));
+        }
+
+        if (query is { Count: > 0 })
+        {
+            context.Request.QueryString = QueryString.Create(query.Where(q => q.Value is not null));
         }
 
         context.Request.Headers.Cookie = $"{antiforgeryOptions.Cookie.Name}={tokens.CookieToken}";
@@ -252,9 +267,13 @@ public sealed class MvcFormDispatcher(
     private static List<string> CollectErrors(ActionContext actionContext, ITempDataDictionary tempData)
     {
         var errors = new List<string>();
-        if (tempData.Peek("err") is string err && !string.IsNullOrWhiteSpace(err))
+        // اکشن‌ها پیام خطا را با هر دو کلید رایج می‌گذارند؛ Redirect همراه پیام خطا یعنی ثبت انجام نشده است.
+        foreach (var key in new[] { "err", "error" })
         {
-            errors.Add(err.Trim());
+            if (tempData.Peek(key) is string err && !string.IsNullOrWhiteSpace(err) && !errors.Contains(err.Trim()))
+            {
+                errors.Add(err.Trim());
+            }
         }
 
         foreach (var entry in actionContext.ModelState.Values)

@@ -369,15 +369,13 @@
         <link rel="stylesheet" href="~/vendor/fonts/iransans/iransans.css" asp-append-version="true" />
 
     }
-    <link rel="icon" type="image/x-icon" href="~/favicon-v3.ico" asp-append-version="true" />
-    <link rel="shortcut icon" type="image/x-icon" href="~/favicon-v3.ico" asp-append-version="true" />
-    <link rel="icon" type="image/png" sizes="32x32" href="~/favicon-v3-32x32.png" asp-append-version="true" />
-    <link rel="icon" type="image/png" sizes="16x16" href="~/favicon-v3-16x16.png" asp-append-version="true" />
-    <link rel="apple-touch-icon" sizes="180x180" href="~/apple-touch-icon-v3.png" asp-append-version="true" />
-    <link rel="icon" type="image/png" sizes="192x192" href="~/android-chrome-v3-192x192.png" asp-append-version="true" />
-    <link rel="icon" type="image/png" sizes="512x512" href="~/android-chrome-v3-512x512.png" asp-append-version="true" />
+    <link rel="icon" type="image/x-icon" href="~/MASHAL_White.ico" asp-append-version="true" />
+    <link rel="shortcut icon" type="image/x-icon" href="~/MASHAL_White.ico" asp-append-version="true" />
+    <link rel="apple-touch-icon" sizes="180x180" href="~/mashal-apple-touch-icon-180.png" asp-append-version="true" />
+    <link rel="icon" type="image/png" sizes="192x192" href="~/mashal-icon-192.png" asp-append-version="true" />
+    <link rel="icon" type="image/png" sizes="512x512" href="~/mashal-icon-512.png" asp-append-version="true" />
     @* PWA: نصب روی Android/iPhone/Windows و بازشدن آفلاین (sw.js فقط پوستهٔ آفلاین را cache می‌کند، نه صفحات واردشده). *@
-    <link rel="manifest" href="~/manifest.webmanifest" />
+    <link rel="manifest" href="~/manifest.webmanifest" asp-append-version="true" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="مشعل" />
@@ -385,6 +383,17 @@
     @if (renderShellChrome)
     {
         <script src="~/js/pwa-register.js" asp-append-version="true" defer></script>
+    }
+    @if (renderShellChrome && isAuthenticated)
+    {
+        @* مشعل آفلاین در همان صفحات: کاربر و فورم‌های اصلیِ مجاز برای ثبت آفلاین (offline/js/form-bridge.js). *@
+        var offlineConfig = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            u = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value,
+            f = PTGOilSystem.Web.Services.OfflineSync.OfflineFormRegistry.AllowedFor(User, ClientModules).Select(t => t.Path)
+        });
+        <meta name="ptg-offline" content="@offlineConfig" />
+        <script type="module" src="~/offline/js/form-bridge.js" asp-append-version="true"></script>
     }
     @if (!isLoginPage)
     {
@@ -818,6 +827,7 @@
         <script src="~/js/ak-entity-combobox.js" asp-append-version="true" defer></script>
         <script src="~/js/ak-datepicker.js" asp-append-version="true" defer></script>
         <script src="~/js/assistant.js" asp-append-version="true" defer></script>
+        <script src="~/js/form-draft.js" asp-append-version="true" defer></script>
         }
         else
         {

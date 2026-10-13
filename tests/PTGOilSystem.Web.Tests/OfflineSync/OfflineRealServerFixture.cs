@@ -55,7 +55,11 @@ public sealed class OfflineRealServerFixture : IAsyncLifetime
         var dll = Path.Combine(webDir, "bin", "Debug", "net8.0", "PTGOilSystem.Web.dll");
         Assert.True(File.Exists(dll), $"Build the Web project first: {dll}");
 
-        var port = 5100 + Random.Shared.Next(0, 800);
+        // درگاه آزادِ واقعی از سیستم‌عامل (درگاه تصادفی گاهی با سرویس‌های سیستم مانند mDNS برخورد می‌کرد).
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
         BaseAddress = new Uri($"http://127.0.0.1:{port}");
         var csb = new NpgsqlConnectionStringBuilder(ConnectionString);
         var info = new ProcessStartInfo("dotnet")
@@ -79,6 +83,8 @@ public sealed class OfflineRealServerFixture : IAsyncLifetime
         info.Environment["PTG_UI_PICK"] = "0";
         info.Environment["Backup__SchedulerEnabled"] = "false";
         info.Environment["Logging__LogLevel__Default"] = "Warning";
+        // دلیل Skip/Duplicate هر Adapter حسابداری در لاگ سرور (برای عیب‌یابی تست حسابداری).
+        info.Environment["Logging__LogLevel__PTGOilSystem.Web.Services.Accounting"] = "Information";
 
         _server = Process.Start(info) ?? throw new InvalidOperationException("Could not start the Web server.");
         _server.OutputDataReceived += (_, e) => { if (e.Data is not null) lock (_serverLog) _serverLog.AppendLine(e.Data); };
@@ -216,6 +222,7 @@ public sealed class OfflineClient(HttpClient http, string cookie)
 
     public Guid DeviceId { get; } = Guid.NewGuid();
     public HttpClient Http => http;
+    public string Cookie => cookie;
 
     public async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, object? body = null)
     {

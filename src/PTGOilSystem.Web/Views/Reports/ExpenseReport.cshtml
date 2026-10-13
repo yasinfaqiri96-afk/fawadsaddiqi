@@ -1,0 +1,189 @@
+@using PTGOilSystem.Web.Models.Reports
+@using PTGOilSystem.Web.Models.StatCards
+@model PTGOilSystem.Web.Models.Reports.ExpenseReportViewModel
+@{
+    ViewData["Title"] = UiText.T(Context, "گزارش مصارف", "Expense Report");
+    string T(string fa, string en) => UiText.T(Context, fa, en);
+    var f = Model.Filter;
+
+    string StatusTone(ExpenseReportPaymentStatus status) => status switch
+    {
+        ExpenseReportPaymentStatus.Paid => "is-active",
+        ExpenseReportPaymentStatus.PartlyPaid or ExpenseReportPaymentStatus.Unpaid => "is-pending",
+        _ => "is-inactive"
+    };
+
+    var groupTitle = f.GroupBy switch
+    {
+        ExpenseReportGroupBy.Source => T("خلاصه به تفکیک منبع ثبت", "Summary by source"),
+        ExpenseReportGroupBy.Contract => T("خلاصه به تفکیک قرارداد", "Summary by contract"),
+        ExpenseReportGroupBy.Month => T("خلاصه ماهانه", "Monthly summary"),
+        _ => T("خلاصه به تفکیک نوع مصرف", "Summary by expense type")
+    };
+
+    List<AkFilterOption> Opts(object? s) => (s as IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>
+        ?? Enumerable.Empty<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>())
+        .Where(i => !string.IsNullOrEmpty(i.Value)).Select(i => new AkFilterOption(i.Value, i.Text)).ToList();
+}
+
+<div class="ak-list-page">
+    <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+             model="@((T("گزارش مصارف", "Expense Report"), false,
+                       (string?)null, (string?)null, (string?)null, (string?)null,
+                       T("گزارش‌ها", "Reports"), "bi-arrow-right", Url.Action("Index")))" />
+
+    <section class="ak-stat-grid" aria-label="@T("آمار مصارف", "Expense metrics")">
+        <vc:stat-card title="@T("مجموع مصارف دوره", "Total expenses")"
+                      value="@StatCardFormatter.Number(Model.TotalAmountUsd, 0)" unit="USD" avatar="expenses"></vc:stat-card>
+        <vc:stat-card title="@T("تعداد ثبت‌های مصرف", "Expense entries")"
+                      value="@Model.TotalCount.ToString("N0")" unit="@T("ثبت", "entries")" avatar="documents"></vc:stat-card>
+        <vc:stat-card title="@T("مصارف پرداخت‌شده", "Paid expenses")"
+                      value="@StatCardFormatter.Number(Model.TotalPaidUsd, 0)" unit="USD" avatar="payments-out"></vc:stat-card>
+        <vc:stat-card title="@T("مصارف پرداخت‌نشده", "Unpaid expenses")"
+                      value="@StatCardFormatter.Number(Model.TotalUnpaidUsd, 0)" unit="USD"
+                      state="@(Model.TotalUnpaidUsd > 0m ? "warning" : null)" avatar="receivables"></vc:stat-card>
+    </section>
+
+    <div class="ak-list">
+        @{
+            var expenseFilter = new AkSearchFilterModel("Search", f.Search,
+                T("شرح، طرف حساب، قرارداد یا مرجع...", "Description, party, contract or reference..."),
+                new List<AkFilterDefinition>
+                {
+                    new("FromDate", T("بازه تاریخ", "Date range"), "daterange", null,
+                        f.FromDate?.ToString("yyyy-MM-dd"), "ToDate", f.ToDate?.ToString("yyyy-MM-dd")),
+                    new("ExpenseTypeId", T("نوع مصرف", "Expense type"), "select", Opts(ViewBag.ExpenseTypes), f.ExpenseTypeId?.ToString()),
+                    new("ContractId", T("قرارداد", "Contract"), "select", Opts(ViewBag.Contracts), f.ContractId?.ToString()),
+                    new("ServiceProviderId", T("شرکت / طرف حساب", "Company / party"), "select", Opts(ViewBag.ServiceProviders), f.ServiceProviderId?.ToString()),
+                    new("Source", T("منبع ثبت", "Source"), "select",
+                        Enum.GetValues<ExpenseReportSource>()
+                            .Select(s => new AkFilterOption(s.ToString(), PTGOilSystem.Web.Controllers.ReportsController.ExpenseSourceLabel(s)))
+                            .ToList(), f.Source?.ToString()),
+                    new("PaymentStatus", T("وضعیت پرداخت", "Payment status"), "select",
+                        Enum.GetValues<ExpenseReportPaymentStatus>()
+                            .Select(s => new AkFilterOption(s.ToString(), PTGOilSystem.Web.Controllers.ReportsController.ExpensePaymentStatusLabel(s)))
+                            .ToList(), f.PaymentStatus?.ToString()),
+                    new("GroupBy", T("خلاصه به تفکیک", "Summarise by"), "select",
+                        new List<AkFilterOption>
+                        {
+                            new(nameof(ExpenseReportGroupBy.Source), T("منبع ثبت", "Source")),
+                            new(nameof(ExpenseReportGroupBy.Contract), T("قرارداد", "Contract")),
+                            new(nameof(ExpenseReportGroupBy.Month), T("ماه", "Month"))
+                        }, f.GroupBy == ExpenseReportGroupBy.Type ? null : f.GroupBy.ToString())
+                });
+        }
+        <div class="ak-list-toolbar">
+            <partial name="~/Views/Shared/_AkSearchFilter.cshtml" model="expenseFilter" />
+            <div class="ak-list-toolbar-actions">
+                <partial name="~/Views/Shared/_ExportMenu.cshtml" model="@(new PTGOilSystem.Web.Services.Exports.ExportMenuModel("ExpenseReportExport"))" />
+            </div>
+        </div>
+
+        <section class="ak-form-section">
+            <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml" model="@((groupTitle, (string?)null))" />
+            <div class="ak-table-wrap">
+                <table class="ak-table">
+                    <thead>
+                        <tr>
+                            <th class="ak-col-grow">@T("گروه", "Group")</th>
+                            <th class="ak-col-num">@T("تعداد", "Count")</th>
+                            <th class="ak-col-num">@T("مبلغ (USD)", "Amount (USD)")</th>
+                            <th class="ak-col-num">@T("پرداخت‌شده (USD)", "Paid (USD)")</th>
+                            <th class="ak-col-num">@T("پرداخت‌نشده (USD)", "Unpaid (USD)")</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var g in Model.Groups)
+                        {
+                            <tr>
+                                <td class="ak-col-grow">@g.Label</td>
+                                <td class="ak-col-num ak-num">@g.Count.ToString("N0")</td>
+                                <td class="ak-col-num ak-num">@g.AmountUsd.ToString("N2")</td>
+                                <td class="ak-col-num ak-num">@g.PaidUsd.ToString("N2")</td>
+                                <td class="ak-col-num ak-num">@g.UnpaidUsd.ToString("N2")</td>
+                            </tr>
+                        }
+                        @if (Model.Groups.Count == 0)
+                        {
+                            <tr><td colspan="5"><div class="ak-empty"><i class="bi bi-receipt"></i> @T("مصرفی پیدا نشد؛ فیلترها را تغییر دهید.", "No expense found; change the filters.")</div></td></tr>
+                        }
+                    </tbody>
+                    @if (Model.Groups.Count > 0)
+                    {
+                        <tfoot>
+                            <tr class="ak-table-total">
+                                <td class="ak-col-grow">@T("جمع", "Total")</td>
+                                <td class="ak-col-num ak-num">@Model.TotalCount.ToString("N0")</td>
+                                <td class="ak-col-num ak-num">@Model.TotalAmountUsd.ToString("N2")</td>
+                                <td class="ak-col-num ak-num">@Model.TotalPaidUsd.ToString("N2")</td>
+                                <td class="ak-col-num ak-num">@Model.TotalUnpaidUsd.ToString("N2")</td>
+                            </tr>
+                        </tfoot>
+                    }
+                </table>
+            </div>
+        </section>
+
+        <section class="ak-form-section">
+            <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml" model="@((T("جزئیات مصارف", "Expense details"), (string?)null))" />
+            <div class="ak-table-wrap">
+                <table class="ak-table">
+                    <thead>
+                        <tr>
+                            <th>@T("تاریخ", "Date")</th>
+                            <th>@T("نوع مصرف", "Expense type")</th>
+                            <th>@T("منبع / بخش ثبت", "Source")</th>
+                            <th>@T("قرارداد یا مرجع", "Contract / reference")</th>
+                            <th class="ak-col-grow">@T("شرح", "Description")</th>
+                            <th class="ak-col-num">@T("مبلغ (USD)", "Amount (USD)")</th>
+                            <th>@T("وضعیت پرداخت", "Payment status")</th>
+                            <th class="ak-col-actions">@T("جزئیات", "Details")</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in Model.Rows)
+                        {
+                            <tr>
+                                <td>@row.Date.ToDisplayDate()</td>
+                                <td>@row.TypeName</td>
+                                <td>@PTGOilSystem.Web.Controllers.ReportsController.ExpenseSourceLabel(row.Source)</td>
+                                <td>
+                                    @(row.ContractLabel ?? "—")
+                                    @if (!string.IsNullOrWhiteSpace(row.Reference))
+                                    {
+                                        <div class="ak-cell-note">@row.Reference</div>
+                                    }
+                                </td>
+                                <td class="ak-col-grow">
+                                    @(row.Description ?? "—")
+                                    @if (!string.IsNullOrWhiteSpace(row.PartyName))
+                                    {
+                                        <div class="ak-cell-note">@row.PartyName</div>
+                                    }
+                                </td>
+                                <td class="ak-col-num ak-num">
+                                    @row.AmountUsd.ToString("N2")
+                                    @if (row.HasOriginalCurrency)
+                                    {
+                                        <div class="ak-cell-note">@row.Amount.ToString("N2") @row.Currency</div>
+                                    }
+                                </td>
+                                <td><span class="ak-status @StatusTone(row.PaymentStatus)">@PTGOilSystem.Web.Controllers.ReportsController.ExpensePaymentStatusLabel(row.PaymentStatus)</span></td>
+                                <td class="ak-col-actions">
+                                    <a asp-controller="@row.DetailsController" asp-action="Details" asp-route-id="@row.DetailsId">@T("سند اصلی", "Source document")</a>
+                                </td>
+                            </tr>
+                        }
+                        @if (Model.Rows.Count == 0)
+                        {
+                            <tr><td colspan="8"><div class="ak-empty"><i class="bi bi-receipt"></i> @T("مصرفی پیدا نشد؛ فیلترها را تغییر دهید.", "No expense found; change the filters.")</div></td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="ak-pager">
+                @await Html.PartialAsync("_Pagination", (Model.CurrentPage, Model.PageCount))
+            </div>
+        </section>
+    </div>
+</div>

@@ -12,7 +12,7 @@
     <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
              model="@((UiText.T(Context,"بیلانس قراردادها","Contract Balances"), false,
                        (string?)null, (string?)null, (string?)null, (string?)null,
-                       (string?)null, (string?)null, (string?)null))" />
+                       UiText.T(Context, "گزارش‌ها", "Reports"), "bi-arrow-right", Url.Action("Index", "Reports")))" />
 
     <section class="ak-stat-grid" aria-label="@UiText.T(Context, "آمار بیلانس قراردادها", "Contract balance metrics")">
         <vc:stat-card title="@UiText.T(Context,"قراردادها","Contracts")" value="@Model.TotalCount.ToString("N0")" unit="@UiText.T(Context,"قرارداد","contracts")" avatar="contract-signed"></vc:stat-card>
@@ -53,15 +53,14 @@
                     <tr>
                         <th class="ak-col-grow">@UiText.T(Context,"قرارداد","Contract")</th>
                         <th>@UiText.T(Context,"نوع / وضعیت","Type / Status")</th>
-                        <th>@UiText.T(Context,"مشتری","Customer")</th>
                         <th>@UiText.T(Context,"تأمین‌کننده","Supplier")</th>
                         <th>@UiText.T(Context,"جنس","Product")</th>
                         <th>@UiText.T(Context,"واحد","Unit")</th>
                         <th class="ak-col-num">@UiText.T(Context,"مقدار","Quantity")</th>
-                        <th class="ak-col-num">Shipment</th>
+                        <th class="ak-col-num">@UiText.T(Context,"محموله","Shipments")</th>
                         <th class="ak-col-num">@UiText.T(Context,"جمع فروش","Total Sales")</th>
                         <th class="ak-col-num">@UiText.T(Context,"جمع مصرف","Total Expenses")</th>
-                        <th class="ak-col-num">Ledger</th>
+                        <th class="ak-col-num">@UiText.T(Context,"اسناد","Documents")</th>
                         <th class="ak-col-num">@UiText.T(Context,"مانده","Balance")</th>
                         <th class="ak-col-actions">@UiText.T(Context,"عملیات","Operations")</th>
                     </tr>
@@ -72,10 +71,9 @@
                         <tr>
                             <td class="ak-col-grow"><a class="ak-name" asp-controller="ContractJourney" asp-action="Details" asp-route-contractId="@item.Id" asp-route-tab="finance">@item.ContractNumber</a></td>
                             <td>
-                                <div>@item.ContractTypeName</div>
-                                <div class="ak-note">@item.StatusName</div>
+                                @item.ContractTypeName
+                                <div class="ak-cell-note">@item.StatusName</div>
                             </td>
-                            <td>@(item.CustomerName ?? "-")</td>
                             <td>@(item.SupplierName ?? "-")</td>
                             <td>@(item.ProductName ?? "-")</td>
                             <td>@item.ContractUnitText</td>
@@ -91,7 +89,7 @@
                     @if (!Model.Items.Any())
                     {
                         <tr>
-                            <td colspan="13"><div class="ak-empty"><i class="bi bi-file-earmark-text"></i> @UiText.T(Context,"قراردادی برای نمایش بیلانس پیدا نشد","No contracts found for balance view")</div></td>
+                            <td colspan="12"><div class="ak-empty"><i class="bi bi-file-earmark-text"></i> @UiText.T(Context,"قراردادی برای نمایش بیلانس پیدا نشد","No contracts found for balance view")</div></td>
                         </tr>
                     }
                 </tbody>

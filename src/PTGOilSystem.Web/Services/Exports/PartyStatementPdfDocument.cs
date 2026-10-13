@@ -57,7 +57,7 @@ internal sealed class PartyStatementPdfDocument(
     private const string SoftFill = "#E9EFF8";
 
     // لوگوی فارسی مشعل (آبی). اگر فایل نباشد، لوگوی پیکربندی‌شدهٔ شرکت و بعد نام شرکت.
-    private const string MashalLogoRelativePath = "/images/لوکو شمعل فارسی رنک ابی.webp";
+    private const string MashalLogoRelativePath = ExcelDesignSystem.LogoRelativePath;
 
     public void Compose(IDocumentContainer container)
     {

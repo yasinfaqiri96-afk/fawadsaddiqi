@@ -334,13 +334,13 @@ public sealed class PartyStatementAuthorization
 
 public sealed class PartyStatementCompanyInfo
 {
-    public string Name { get; init; } = "Saddiqi Group of Companies";
-    public string Subtitle { get; init; } = "GROUP OF COMPANIES";
+    public string Name { get; init; } = Services.Exports.ExcelDesignSystem.OrganizationNameEn;
+    public string Subtitle { get; init; } = "";
     public string? Address { get; init; }
     public string? Phone { get; init; }
     public string? Email { get; init; }
     public string? Website { get; init; }
-    public string LogoPath { get; init; } = "/images/logo1-sidebar.png";
+    public string LogoPath { get; init; } = Services.Exports.ExcelDesignSystem.LogoRelativePath;
 }
 
 public sealed class PartyStatementResult
@@ -543,13 +543,13 @@ public sealed class PartyStatementOptions
 {
     public const string SectionName = "PartyStatements";
 
-    public string CompanyName { get; set; } = "Saddiqi Group of Companies";
-    public string CompanySubtitle { get; set; } = "GROUP OF COMPANIES";
+    public string CompanyName { get; set; } = Services.Exports.ExcelDesignSystem.OrganizationNameEn;
+    public string CompanySubtitle { get; set; } = "";
     public string? Address { get; set; }
     public string? Phone { get; set; }
     public string? Email { get; set; }
     public string? Website { get; set; }
-    public string LogoPath { get; set; } = "/images/logo1-sidebar.png";
+    public string LogoPath { get; set; } = Services.Exports.ExcelDesignSystem.LogoRelativePath;
     public string CourtesyText { get; set; } = "از همکاری دوامدار شما سپاس‌گزاریم.";
     public string Note { get; set; } = "لطفاً صورت‌حساب را بررسی کرده و هرگونه مغایرت را با بخش مالی در میان بگذارید.";
     public string? AuthorizedByName { get; set; }

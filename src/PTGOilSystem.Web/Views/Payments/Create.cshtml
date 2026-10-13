@@ -58,6 +58,10 @@
         <div>
             @Html.AntiForgeryToken()
             @Html.FormToken()
+            @if (!isEdit)
+            {
+                @Html.FormDraft("Payments.Create")
+            }
             <input asp-for="Id" type="hidden" />
             <input asp-for="Version" type="hidden" />
             <input asp-for="ReturnUrl" type="hidden" />

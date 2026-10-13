@@ -49,6 +49,16 @@ public static class OfflineOperationTypes
     public const string CustomerDraft = "Customer.Draft";
     public const string GeneralNote = "General.Note";
 
+    /// <summary>
+    /// فورم اصلی MVC: همان فیلدهای فورم (نام/مقدار) که بعداً با همان POST ثبت قطعی می‌شود
+    /// (<see cref="OfflineFormRegistry"/>). صلاحیت با کلید ناوبری کنترلر مقصد سنجیده می‌شود.
+    /// </summary>
+    public const string FormSubmit = "Form.Submit";
+
+    public const int MaxFormFields = 4000;
+    public const int MaxFieldNameLength = 300;
+    public const int MaxFieldValueLength = 20_000;
+
     public static readonly IReadOnlyList<OfflineOperationType> All =
     [
         new(SaleRequest, "فروش از مخزن", RoleNavigationKeys.Sales, "Sales", "Create",
@@ -76,7 +86,9 @@ public static class OfflineOperationTypes
         new(CustomerDraft, "مشتری جدید", RoleNavigationKeys.Partners, "Customers", "Create",
             [new("name", OfflineFieldKind.Text)]),
         new(GeneralNote, "یادداشت عملیاتی", RoleNavigationKeys.Dashboard, "Home", "Index",
-            [new("text", OfflineFieldKind.Text)])
+            [new("text", OfflineFieldKind.Text)]),
+        new(FormSubmit, "فورم اصلی", RoleNavigationKeys.Dashboard, "Home", "Index",
+            [new("path", OfflineFieldKind.Text)])
     ];
 
     private static readonly Dictionary<string, OfflineOperationType> ByKey =
@@ -88,12 +100,46 @@ public static class OfflineOperationTypes
     public static IReadOnlyList<OfflineOperationType> AllowedFor(ClaimsPrincipal user, ClientModuleProfile? modules)
         => All.Where(t => t.AutoApply && RoleAccessRules.CanAccessNavigation(user, t.NavigationKey, modules)).ToList();
 
+    /// <summary>فورم مقصدِ عملیات «فورم اصلی»، یا null.</summary>
+    public static OfflineFormTarget? FormTargetOf(string payloadJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(payloadJson);
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("path", out var path) && path.ValueKind == JsonValueKind.String
+                ? OfflineFormRegistry.Find(path.GetString())
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>کلید ناوبری و عنوانِ مؤثر برای سنجش صلاحیت (فورم اصلی: همان کنترلر مقصد).</summary>
+    public static (string? NavigationKey, string Label) AccessOf(OfflineOperationType type, string payloadJson)
+    {
+        if (type.Key != FormSubmit)
+        {
+            return (type.NavigationKey, type.Label);
+        }
+
+        var target = FormTargetOf(payloadJson);
+        return target is null ? (null, type.Label) : (target.NavigationKey, target.Label);
+    }
+
     /// <summary>بررسی ساختاری payload. منطق تجاری اینجا نیست؛ فقط ورودیِ ناقص یا نامعتبر رد می‌شود.</summary>
     public static string? Validate(OfflineOperationType type, JsonElement payload)
     {
         if (payload.ValueKind != JsonValueKind.Object)
         {
             return "محتوای عملیات باید یک شیء JSON باشد.";
+        }
+
+        if (type.Key == FormSubmit)
+        {
+            return ValidateFormSubmit(payload);
         }
 
         foreach (var field in type.Fields)
@@ -119,6 +165,66 @@ public static class OfflineOperationTypes
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// ساختار «فورم اصلی»: مسیر مجاز، فهرست جفت‌های [نام، مقدار]، querystring اختیاری و توکن اختیاری
+    /// (فقط وقتی همان فورم پیش‌تر آنلاین فرستاده شد و پاسخش نامعلوم ماند).
+    /// </summary>
+    private static string? ValidateFormSubmit(JsonElement payload)
+    {
+        if (!payload.TryGetProperty("path", out var path) || path.ValueKind != JsonValueKind.String
+            || OfflineFormRegistry.Find(path.GetString()) is null)
+        {
+            return "این فورم برای ثبت آفلاین مجاز نیست.";
+        }
+
+        if (!payload.TryGetProperty("fields", out var fields) || !IsPairList(fields, MaxFormFields))
+        {
+            return "فیلدهای فورم معتبر نیست.";
+        }
+
+        if (payload.TryGetProperty("query", out var query) && query.ValueKind != JsonValueKind.Null && !IsPairList(query, 50))
+        {
+            return "پارامترهای آدرس فورم معتبر نیست.";
+        }
+
+        if (payload.TryGetProperty("formToken", out var token) && token.ValueKind != JsonValueKind.Null
+            && (token.ValueKind != JsonValueKind.String || token.GetString() is not { Length: > 0 and <= 100 } text
+                || !text.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or ':')))
+        {
+            return "توکن فورم معتبر نیست.";
+        }
+
+        return null;
+    }
+
+    private static bool IsPairList(JsonElement list, int max)
+    {
+        if (list.ValueKind != JsonValueKind.Array || list.GetArrayLength() > max)
+        {
+            return false;
+        }
+
+        foreach (var pair in list.EnumerateArray())
+        {
+            if (pair.ValueKind != JsonValueKind.Array || pair.GetArrayLength() != 2)
+            {
+                return false;
+            }
+
+            var name = pair[0];
+            var value = pair[1];
+            if (name.ValueKind != JsonValueKind.String || name.GetString() is not { Length: > 0 } key
+                || key.Length > MaxFieldNameLength
+                || value.ValueKind is not (JsonValueKind.String or JsonValueKind.Null)
+                || (value.ValueKind == JsonValueKind.String && value.GetString()!.Length > MaxFieldValueLength))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary><c>op:{guid}</c> — رکوردی که عملیات پیش‌نیاز (مثلاً مشتری تازه) پس از ثبت قطعی می‌سازد.</summary>

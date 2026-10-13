@@ -15,6 +15,7 @@ using PTGOilSystem.Web.Models.Entities;
 using PTGOilSystem.Web.Models.Payments;
 using PTGOilSystem.Web.Models.PartyStatements;
 using PTGOilSystem.Web.Security;
+using PTGOilSystem.Web.Services.FormDrafts;
 using PTGOilSystem.Web.Services;
 using PTGOilSystem.Web.Services.Audit;
 using PTGOilSystem.Web.Services.Exceptions;
@@ -509,8 +510,21 @@ public class PaymentsController : Controller
         int? shipmentId = null,
         string? kind = null,
         string? method = null,
-        string? returnUrl = null)
+        string? returnUrl = null,
+        Guid? draft = null)
     {
+        // ادامهٔ پیش‌نویس: همان نمایش دوبارهٔ فرم پس از خطای اعتبارسنجی.
+        var draftSnapshot = await this.LoadFormDraftAsync(draft, FormDraftForms.PaymentsCreate);
+        if (draftSnapshot is not null)
+        {
+            var restored = new PaymentCreateViewModel();
+            await TryUpdateModelAsync(restored, string.Empty, draftSnapshot.ToValueProvider());
+            ModelState.Clear();
+            NormalizeCreateModel(restored);
+            await PopulateLookupsAsync(createModel: restored);
+            return View(restored);
+        }
+
         var model = new PaymentCreateViewModel
         {
             PaymentDate = _businessClock.Today,

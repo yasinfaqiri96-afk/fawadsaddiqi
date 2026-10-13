@@ -394,9 +394,10 @@ public sealed class OfflineSyncService(
             return Result(id, OfflineSyncOutcomes.Rejected, OfflineSyncCodes.UnknownType, "نوع عملیات پشتیبانی نمی‌شود.");
         }
 
-        if (!RoleAccessRules.CanAccessNavigation(user, type.NavigationKey, clientModules))
+        var (navigationKey, label) = OfflineOperationTypes.AccessOf(type, payloadJson);
+        if (navigationKey is null || !RoleAccessRules.CanAccessNavigation(user, navigationKey, clientModules))
         {
-            return Result(id, OfflineSyncOutcomes.Rejected, OfflineSyncCodes.Forbidden, $"شما اجازهٔ ثبت «{type.Label}» را ندارید.");
+            return Result(id, OfflineSyncOutcomes.Rejected, OfflineSyncCodes.Forbidden, $"شما اجازهٔ ثبت «{label}» را ندارید.");
         }
 
         if (payloadJson.Length > OfflineSyncLimits.MaxPayloadChars)
@@ -497,9 +498,10 @@ public sealed class OfflineSyncService(
                     row.AppliedReferenceId, ct);
             }
 
-            if (!RoleAccessRules.CanAccessNavigation(user, type.NavigationKey, clientModules))
+            var (navigationKey, label) = OfflineOperationTypes.AccessOf(type, row.PayloadJson);
+            if (navigationKey is null || !RoleAccessRules.CanAccessNavigation(user, navigationKey, clientModules))
             {
-                return await FinishAsync(row, OfflineSyncStatus.Conflict, $"شما اجازهٔ ثبت «{type.Label}» را ندارید.", null, null, ct);
+                return await FinishAsync(row, OfflineSyncStatus.Conflict, $"شما اجازهٔ ثبت «{label}» را ندارید.", null, null, ct);
             }
 
             var dependencies = ParseDependencies(row.DependenciesCsv);
@@ -537,12 +539,34 @@ public sealed class OfflineSyncService(
             }
 
             var target = plan.Plan;
+            // همان فورم پیش‌تر آنلاین با این توکن فرستاده شد و پاسخ نامعلوم ماند: اگر سند ثبت شده، دوباره ساخته نمی‌شود.
+            var formToken = target.UsesFormToken ? target.FormToken ?? token : null;
+            if (target.FormToken is { } original
+                && await db.ProcessedFormTokens.AsNoTracking().AnyAsync(t => t.Token == original, ct))
+            {
+                return await FinishAsync(row, OfflineSyncStatus.Applied, "پیش‌تر به‌صورت آنلاین ثبت شده بود؛ سند دوم ساخته نشد.",
+                    target.ReferenceType, row.AppliedReferenceId, ct);
+            }
+
+            // توکن صفحه پیدا نشد. اگر ارسال نامعلوم قدیمی‌تر از پنجرهٔ نگهداری توکن باشد، نبودِ توکن ثابت نمی‌کند سند ساخته
+            // نشده است (شاید توکن پاک شده)؛ پس خودکار ثبت نمی‌شود. کاربر پس از بررسی فهرست، همان عملیات را اصلاح/دوباره
+            // می‌فرستد (Revision بزرگ‌تر) و آن‌گاه ثبت می‌شود. ساعت دستگاه با حاشیهٔ یک هفته‌ای سنجیده می‌شود.
+            if (target.FormToken is not null && row.Revision <= 1
+                && clock.GetUtcNow().UtcDateTime - row.ClientCreatedAtUtc
+                    > TimeSpan.FromDays(ProcessedFormTokenRetentionService.OfflineReplayRetentionDays - 7))
+            {
+                return await FinishAsync(row, OfflineSyncStatus.Conflict,
+                    "این فورم پیش از قطع اتصال به سرور فرستاده شده بود و پاسخش نامعلوم ماند؛ از آن زمان بیش از یک سال گذشته و سرور "
+                    + "دیگر نمی‌تواند خودکار تشخیص دهد سند ساخته شده یا نه. فهرست را بررسی کنید؛ اگر سند نیست، همان عملیات را "
+                    + "«اصلاح در فورم اصلی» یا «ارسال دوباره» کنید.", null, null, ct);
+            }
+
             var result = await dispatcher.PostAsync(
                 target.Controller,
                 target.Action,
                 target.Fields,
                 user,
-                target.UsesFormToken ? token : null,
+                formToken,
                 wrapInTransaction: !target.UsesFormToken,
                 onCommittedInTransaction: target.UsesFormToken
                     ? null
@@ -566,7 +590,9 @@ public sealed class OfflineSyncService(
                                 .SetProperty(o => o.AppliedReferenceId, referenceId), ct);
                     },
                 ct,
-                target.ReferenceType);
+                target.ReferenceType,
+                target.FieldList,
+                target.Query);
 
             if (result.Committed)
             {

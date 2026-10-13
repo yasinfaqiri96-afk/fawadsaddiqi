@@ -28,7 +28,7 @@
 
     <form asp-action="@action" asp-route-id="@(isEdit ? Model.Id : null)" method="post" class="ak-form">
         @Html.AntiForgeryToken()
-        @if (!isEdit) { @Html.FormToken() }
+        @if (!isEdit) { @Html.FormToken() @Html.FormDraft("Contracts.Create") }
         <input asp-for="Id" type="hidden" />
         <input asp-for="Version" type="hidden" />
         <input asp-for="ContractType" type="hidden" value="@ContractType.Purchase" />

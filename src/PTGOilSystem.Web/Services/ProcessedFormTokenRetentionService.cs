@@ -23,6 +23,14 @@ public sealed class ProcessedFormTokenRetentionService(ApplicationDbContext db, 
 
     public const int DefaultRetentionDays = 90;
 
+    /// <summary>
+    /// توکنِ سندهای فورم‌هایی که آفلاین هم ثبت می‌شوند (<c>OfflineFormRegistry</c>) و توکن‌های <c>Offline.*</c>.
+    /// اگر فورم آنلاین فرستاده شد و پاسخ نیامد، دستگاه همان فورم را با همان توکن صفحه نگه می‌دارد و شاید پس از ماه‌ها
+    /// قطع اینترنت بفرستد؛ توکن باید تا آن وقت باشد تا سند دوم ساخته نشود. بیش از یک سال؛ پس از آن سرور چنین
+    /// عملیاتی را خودکار ثبت نمی‌کند و برای بررسی کاربر نگه می‌دارد (<c>OfflineSyncService</c>).
+    /// </summary>
+    public const int OfflineReplayRetentionDays = 400;
+
     /// <summary>سقفِ هر اجرا. پاک‌سازی نباید یک تراکنش بزرگِ قفل‌کننده بسازد.</summary>
     public const int BatchSize = 5_000;
 
@@ -44,12 +52,24 @@ public sealed class ProcessedFormTokenRetentionService(ApplicationDbContext db, 
         CancellationToken cancellationToken = default)
     {
         var cutoff = CutoffUtc(retentionDays);
+        var offlineReplayCutoff = CutoffUtc(Math.Max(retentionDays, OfflineReplayRetentionDays));
 
         var expired = await db.ProcessedFormTokens
             .Where(token => token.ConsumedAtUtc != null && token.ConsumedAtUtc < cutoff
                 // Durable bulk row outcomes are part of the operation's request history.
                 // Removing them could consume a still-valid partial source again on retry.
-                && !token.Purpose.StartsWith("Transport.BulkRow:"))
+                && !token.Purpose.StartsWith("Transport.BulkRow:")
+                // سندِ فورم‌های آفلاین‌پذیر: پنجرهٔ بلندتر (OfflineReplayRetentionDays).
+                && (token.ConsumedAtUtc < offlineReplayCutoff
+                    || !(token.Purpose.StartsWith("Offline.") || token.Purpose.StartsWith("Contract.")
+                        || token.Purpose.StartsWith("Loading") || token.Purpose.StartsWith("Transport.")
+                        || token.Purpose.StartsWith("InventoryTransport.") || token.Purpose.StartsWith("TruckSettlement.")
+                        || token.Purpose.StartsWith("Dispatch.") || token.Purpose.StartsWith("LossEvent.")
+                        || token.Purpose.StartsWith("Sale.Create") || token.Purpose.StartsWith("Sale.SetPrice")
+                        || token.Purpose.StartsWith("Payment.") || token.Purpose.StartsWith("Expense.")
+                        || token.Purpose.StartsWith("PartySettlement.") || token.Purpose.StartsWith("PartnerSettlement.")
+                        || token.Purpose.StartsWith("SupplierBalanceTransfer.") || token.Purpose.StartsWith("Custody.")
+                        || token.Purpose.StartsWith("CommodityLoan."))))
             .OrderBy(token => token.ConsumedAtUtc)
             .Take(BatchSize)
             .ToListAsync(cancellationToken);

@@ -18,6 +18,7 @@ using PTGOilSystem.Web.Security;
 using PTGOilSystem.Web.Services;
 using PTGOilSystem.Web.Services.Audit;
 using PTGOilSystem.Web.Services.Exceptions;
+using PTGOilSystem.Web.Services.FormDrafts;
 using ServiceProviderEntity = PTGOilSystem.Web.Models.Entities.ServiceProvider;
 using PTGOilSystem.Web.Services.Time;
 
@@ -869,6 +870,8 @@ public partial class LoadingController : Controller
                 OriginLocationName = l.OriginLocation != null ? l.OriginLocation.Name : null,
                 VesselName = l.Vessel != null ? l.Vessel.Name : null,
                 TruckPlateNumber = l.Truck != null ? l.Truck.PlateNumber : null,
+                l.DriverName,
+                l.DriverPhone,
                 l.LoadedQuantityMt,
                 TotalReceivedQuantityMt = l.Receipts.Where(r => !r.IsCancelled).Sum(r => (decimal?)r.ReceivedQuantityMt) ?? 0m,
                 l.BillOfLadingNumber,
@@ -921,6 +924,8 @@ public partial class LoadingController : Controller
                         l.VesselName,
                         l.TruckPlateNumber,
                         l.WagonNumber),
+                    DriverName = l.DriverName,
+                    DriverPhone = l.DriverPhone,
                     LoadedQuantityMt = l.LoadedQuantityMt,
                     TotalReceivedQuantityMt = l.TotalReceivedQuantityMt,
                     BillOfLadingNumber = l.BillOfLadingNumber,
@@ -1007,8 +1012,24 @@ public partial class LoadingController : Controller
     }
 
     [Authorize(Policy = AuthPolicies.ManageData)]
-    public async Task<IActionResult> Create(int? contractId = null, string? returnUrl = null, bool lockContract = false)
+    public async Task<IActionResult> Create(int? contractId = null, string? returnUrl = null, bool lockContract = false, Guid? draft = null)
     {
+        // ادامهٔ پیش‌نویس: همان فیلدهای ذخیره‌شده با Model Binding فرم POST خوانده و مثل نمایش دوبارهٔ
+        // فرم پس از خطای اعتبارسنجی رندر می‌شود (همهٔ سطرها، ترتیب، قرارداد، موتر، راننده، مقدار و قیمت).
+        var draftSnapshot = await this.LoadFormDraftAsync(draft, FormDraftForms.LoadingCreate);
+        if (draftSnapshot is not null)
+        {
+            var restored = new LoadingCreateViewModel();
+            await TryUpdateModelAsync(restored, string.Empty, draftSnapshot.ToValueProvider());
+            ModelState.Clear();
+            RestoreDraftRows(restored);
+            ResolveSelectedContractIds(restored);
+            ApplyContractLock(restored);
+            await PopulateLookupsAsync(restored);
+            PrepareRowsForFastPreview(restored);
+            return View(restored);
+        }
+
         var model = new LoadingCreateViewModel
         {
             LoadingDate = _businessClock.Today,
@@ -5382,6 +5403,36 @@ public partial class LoadingController : Controller
         };
 
         return IsBlankRow(fallbackRow) ? [] : [fallbackRow];
+    }
+
+    /// <summary>
+    /// سطرهای پیش‌نویس را بدون حذف سطر ناقص یا خالی آماده می‌کند (برخلاف ثبت، که سطر خالی را کنار می‌گذارد).
+    /// در حالت سطرهای فشرده (امپورت بزرگ) همان JSON فشرده منبع سطرهاست، مثل ثبت.
+    /// </summary>
+    private void RestoreDraftRows(LoadingCreateViewModel model)
+    {
+        if (!string.IsNullOrWhiteSpace(model.ImportedRowsJson))
+        {
+            try
+            {
+                model.Rows = JsonSerializer.Deserialize<List<LoadingCreateRowViewModel>>(
+                        model.ImportedRowsJson,
+                        LoadingRowsJsonOptions)
+                    ?? [];
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Invalid compact loading rows in a form draft.");
+            }
+        }
+
+        model.Rows = (model.Rows ?? []).Where(row => row is not null).ToList();
+        foreach (var row in model.Rows)
+        {
+            row.Loss ??= new StageLossCaptureInput { Stage = LossEventStage.LoadingDifference };
+        }
+
+        EnsureEditableRows(model);
     }
 
     private static void PrepareRowsForFastPreview(LoadingCreateViewModel model)

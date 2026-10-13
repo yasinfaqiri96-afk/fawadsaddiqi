@@ -25,7 +25,8 @@ public sealed class ProcessedFormTokenRetentionTests
     private static ProcessedFormToken Token(string value, DateTime? consumedAtUtc) => new()
     {
         Token = value,
-        Purpose = "Expense.Create",
+        // فورمِ فقط-آنلاین: پنجرهٔ عادی ۹۰ روزه. توکنِ فورم‌های آفلاین‌پذیر جداگانه (OfflineReplayRetentionDays).
+        Purpose = "Sale.Cancel",
         ConsumedAtUtc = consumedAtUtc
     };
 
@@ -144,6 +145,29 @@ public sealed class ProcessedFormTokenRetentionTests
         var remaining = await db.ProcessedFormTokens.SingleAsync();
         Assert.Equal("bulk-row", remaining.Token);
         Assert.Equal(42, remaining.ReferenceId);
+    }
+
+    /// <summary>
+    /// توکنِ فورم‌های آفلاین‌پذیر: دستگاهی که پاسخ ارسال آنلاین را نگرفت، شاید ماه‌ها بعد همان فورم را با همان توکن
+    /// بفرستد؛ توکن تا بیش از یک سال می‌ماند تا سند دوم ساخته نشود. توکن‌های دیگر همان ۹۰ روز.
+    /// </summary>
+    [Theory]
+    [InlineData("Expense.Create")]
+    [InlineData("Payment.Create")]
+    [InlineData("Sale.Create")]
+    [InlineData("Offline.Form.Submit")]
+    public async Task OfflineReplayableTokens_AreKeptForMoreThanAYear(string purpose)
+    {
+        await using var db = NewDb();
+        var kept = Token("year-old", Now.UtcDateTime.AddDays(-365));
+        kept.Purpose = purpose;
+        var expired = Token("too-old", Now.UtcDateTime.AddDays(-(ProcessedFormTokenRetentionService.OfflineReplayRetentionDays + 1)));
+        expired.Purpose = purpose;
+        db.ProcessedFormTokens.AddRange(kept, expired, Token("ordinary", Now.UtcDateTime.AddDays(-91)));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(2, await Service(db).PurgeExpiredAsync());
+        Assert.Equal("year-old", (await db.ProcessedFormTokens.SingleAsync()).Token);
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider

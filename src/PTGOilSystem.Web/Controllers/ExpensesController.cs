@@ -14,6 +14,7 @@ using PTGOilSystem.Web.Models.Expenses;
 using PTGOilSystem.Web.Security;
 using PTGOilSystem.Web.Services;
 using PTGOilSystem.Web.Services.Audit;
+using PTGOilSystem.Web.Services.FormDrafts;
 using PTGOilSystem.Web.Services.Exceptions;
 using PTGOilSystem.Web.Services.Expenses;
 using PTGOilSystem.Web.Services.Operations;
@@ -682,8 +683,20 @@ public partial class ExpensesController : Controller
     }
 
     [Authorize(Policy = AuthPolicies.ManageData)]
-    public async Task<IActionResult> Create(int? contractId = null, int? transportLegId = null, int? truckDispatchId = null, int? serviceProviderId = null, int? operationalAssetId = null, string? returnUrl = null)
+    public async Task<IActionResult> Create(int? contractId = null, int? transportLegId = null, int? truckDispatchId = null, int? serviceProviderId = null, int? operationalAssetId = null, string? returnUrl = null, Guid? draft = null)
     {
+        // ادامهٔ پیش‌نویس: همان نمایش دوبارهٔ فرم پس از خطای اعتبارسنجی.
+        var draftSnapshot = await this.LoadFormDraftAsync(draft, FormDraftForms.ExpensesCreate);
+        if (draftSnapshot is not null)
+        {
+            var restored = new ExpenseCreateViewModel();
+            await TryUpdateModelAsync(restored, string.Empty, draftSnapshot.ToValueProvider());
+            ModelState.Clear();
+            NormalizeCreateModel(restored);
+            await PopulateLookupsAsync(createModel: restored);
+            return View(restored);
+        }
+
         var model = new ExpenseCreateViewModel
         {
             ExpenseDate = _businessClock.Today,

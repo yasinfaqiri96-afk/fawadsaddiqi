@@ -73,6 +73,7 @@
         @if (!isEdit)
         {
             @Html.FormToken()
+            @Html.FormDraft("Expenses.Create")
         }
         <input asp-for="Id" type="hidden" />
         <input asp-for="Version" type="hidden" />

@@ -10,7 +10,7 @@ public sealed class CustomerIndexItemViewModel
     public string Name { get; init; } = string.Empty;
     public string? NamePersian { get; init; }
     public string? Country { get; init; }
-    public string? ContactPerson { get; init; }
+    public decimal BalanceUsd { get; init; }
     public string? Phone { get; init; }
     public bool IsActive { get; init; }
 }

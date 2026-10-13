@@ -44,6 +44,10 @@
         @{ ViewData["OpHeaderBackUrl"] = cancelUrl; }
         @Html.AntiForgeryToken()
         @Html.FormToken()
+        @if (!isEdit)
+        {
+            @Html.FormDraft("Sales.Create")
+        }
         <input asp-for="ReturnUrl" type="hidden" />
         <input asp-for="Version" type="hidden" />
         @* PTG-P2-03 — پیوند به سندِ ابطال‌شده، فقط در جریانِ اصلاح. *@

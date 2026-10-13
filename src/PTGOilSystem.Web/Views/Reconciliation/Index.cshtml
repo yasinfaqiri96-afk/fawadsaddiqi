@@ -11,7 +11,7 @@
     <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
              model="@((UiText.T(Context,"کنترل مغایرت‌ها","Reconciliation"), false,
                        (string?)null, (string?)null, (string?)null, (string?)null,
-                       (string?)null, (string?)null, (string?)null))" />
+                       UiText.T(Context, "گزارش‌ها", "Reports"), "bi-arrow-right", Url.Action("Index", "Reports")))" />
 
     <section class="ak-stat-grid" aria-label="خلاصهٔ مغایرت‌ها">
         <span data-recon-count="openContracts" style="display:contents"><vc:stat-card title="@UiText.T(Context,"قراردادهای باز","Open Contracts")" value="@L" unit="@UiText.T(Context,"مورد","items")" avatar="recon-documents"></vc:stat-card></span>

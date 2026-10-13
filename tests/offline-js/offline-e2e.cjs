@@ -128,7 +128,9 @@ async function waitText(page, text, timeout = 15000) {
 }
 
 async function unlock(page) {
-  await page.waitForSelector('[data-unlock] #pin', { timeout: 15000 });
+  // رمز محلی در هر نشست یک‌بار (session.js): اگر نشست هنوز باز است، برنامه بدون صفحهٔ قفل باز می‌شود.
+  await page.waitForSelector('[data-unlock] #pin, [data-tabs]:not([hidden])', { timeout: 15000 });
+  if (await page.$('[data-tabs]:not([hidden])')) return;
   await page.fill('#pin', PIN);
   await page.click('[data-unlock] button[type="submit"]');
   await page.waitForSelector('[data-tabs]:not([hidden])', { timeout: 20000 });
@@ -162,9 +164,11 @@ async function unlock(page) {
 
     // ---- قطع اینترنت؛ بازشدن start_url
     await context.setOffline(true);
+    // start_url بدون اینترنت: بازکنندهٔ صفحات ذخیره‌شدهٔ مشعل (page-loader)؛ این تست صفحهٔ MVC ذخیره‌شده ندارد.
     await page.goto(`${ORIGIN}/?source=pwa`);
-    await page.waitForSelector('.ox-top', { timeout: 15000 });
-    check('TEST 04', 'start_url opens the offline shell without internet', await page.isVisible('.ox-top'));
+    await page.waitForSelector('#ox-loader .ox-card', { timeout: 15000 });
+    check('TEST 04', 'start_url opens offline (stored-page loader) without internet', await page.isVisible('#ox-loader'));
+    await page.goto(`${ORIGIN}/offline/index.html`);
     await unlock(page);
     await waitText(page, 'آفلاین');
 

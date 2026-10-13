@@ -5208,6 +5208,82 @@ namespace PTGOilSystem.Web.Migrations
                     b.ToTable("FiscalYearStatusHistories", (string)null);
                 });
 
+            modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.FormDraft", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("DraftKey")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FormKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("LastSavedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ResumePath")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("RowCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("SubmitLockedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SubmittedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SubmittedFormToken")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Summary")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("UpdatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DraftKey")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "FormKey", "Status");
+
+                    b.ToTable("FormDrafts");
+                });
+
             modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.HrAttachment", b =>
                 {
                     b.Property<int>("Id")
@@ -12691,6 +12767,17 @@ namespace PTGOilSystem.Web.Migrations
                     b.Navigation("ChangedByUser");
 
                     b.Navigation("FiscalYear");
+                });
+
+            modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.FormDraft", b =>
+                {
+                    b.HasOne("PTGOilSystem.Web.Models.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("PTGOilSystem.Web.Models.Entities.HrAttachment", b =>

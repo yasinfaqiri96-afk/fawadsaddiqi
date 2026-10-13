@@ -4,15 +4,9 @@
 }
 
 @*
-    چیدمان صفحه یک مسیر خطی است و کاربر از بالا به پایین یک بار می‌خواندش:
-      ۱) یک جمله: این صفحه چه چیزی را می‌شمارد،
-      ۲) چهار کارت: اول دوره، رسیدکی، بردکی، آخر دوره،
-      ۳) فیلتر و خروجی،
-      ۴) سه نمای جزئیات که با تب عوض می‌شوند تا هر بار فقط یک جدول دیده شود.
-    قبلاً هر سه جدول با هم روی صفحه بودند و تشخیصشان از هم سخت بود.
-    موتور تب همان ptg-tabs.js مشترک است؛ ARIA، کیبورد و hash را خودش می‌بندد.
+    یک صفحهٔ خطی بدون تب: کارت‌ها، فیلتر و خروجی، سپس سه بخش زیر هم به ترتیب اولویت —
+    گردش به تفکیک بابت (اصلی)، خلاصهٔ صندوق و بانک، و خلاصهٔ ماهانه.
 *@
-
 <div class="ak-list-page cashflow-report-page">
     <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
              model="@((UiText.T(Context, "گردش پول", "Cash Movement"), false,
@@ -83,24 +77,8 @@
             </div>
         </div>
 
-        <div class="cashflow-tabs" data-section-tabs="true">
-            <div data-section-tabs-scroll="true">
-                <nav class="ptg-tabs-rail" role="tablist" aria-label="@UiText.T(Context, "نماهای گردش پول", "Cash movement views")">
-                    <a class="ptg-tab-item is-active" href="#cashflow-purpose" role="tab" aria-controls="cashflow-purpose" aria-selected="true">
-                        @UiText.T(Context, "بابت چه چیزی", "By purpose")
-                    </a>
-                    <a class="ptg-tab-item" href="#cashflow-accounts" role="tab" aria-controls="cashflow-accounts" aria-selected="false">
-                        @UiText.T(Context, "صندوق و بانک", "Cash and bank")
-                    </a>
-                    <a class="ptg-tab-item" href="#cashflow-months" role="tab" aria-controls="cashflow-months" aria-selected="false">
-                        @UiText.T(Context, "ماه به ماه", "Month by month")
-                    </a>
-                </nav>
-            </div>
-        </div>
-
-        <div id="cashflow-purpose" class="cashflow-panel" role="tabpanel" aria-label="@UiText.T(Context, "بابت چه چیزی", "By purpose")">
-            <p class="ak-section-desc">@UiText.T(Context, "پول بابت چه چیزی آمد و بابت چه چیزی رفت.", "What the money came in for, and what it went out for.")</p>
+        <section id="cashflow-purpose" class="ak-form-section cashflow-section">
+            <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml" model="@((UiText.T(Context, "گردش پول به تفکیک بابت", "Cash movement by purpose"), (string?)null))" />
             <div class="ak-table-wrap">
                 <table class="ak-table">
                     <thead>
@@ -142,10 +120,10 @@
                     }
                 </table>
             </div>
-        </div>
+        </section>
 
-        <div id="cashflow-accounts" class="cashflow-panel" role="tabpanel" aria-label="@UiText.T(Context, "صندوق و بانک", "Cash and bank")" hidden>
-            <p class="ak-section-desc">@UiText.T(Context, "هر صندوق و بانک جداگانه. ستون ارز فقط ارز نگهداری حساب است.", "Each cash and bank account on its own. The currency column is only the account's holding currency.")</p>
+        <section id="cashflow-accounts" class="ak-form-section cashflow-section">
+            <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml" model="@((UiText.T(Context, "خلاصهٔ صندوق و بانک", "Cash and bank summary"), (string?)null))" />
             <div class="ak-table-wrap">
                 <table class="ak-table">
                     <thead>
@@ -193,10 +171,10 @@
                     }
                 </table>
             </div>
-        </div>
+        </section>
 
-        <div id="cashflow-months" class="cashflow-panel" role="tabpanel" aria-label="@UiText.T(Context, "ماه به ماه", "Month by month")" hidden>
-            <p class="ak-section-desc">@UiText.T(Context, "مانده آخر هر ماه از مانده اول دوره ساخته می‌شود.", "Each month's closing builds on the opening balance.")</p>
+        <section id="cashflow-months" class="ak-form-section cashflow-section">
+            <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml" model="@((UiText.T(Context, "خلاصهٔ ماهانه", "Monthly summary"), (string?)null))" />
             <div class="ak-table-wrap">
                 <table class="ak-table">
                     <thead>
@@ -226,8 +204,21 @@
                             <tr><td colspan="6"><div class="ak-empty"><i class="bi bi-calendar3"></i> @UiText.T(Context, "در این بازه ماهی با گردش پول وجود ندارد.", "No month in this range has cash movement.")</div></td></tr>
                         }
                     </tbody>
+                    @if (Model.PeriodRows.Any())
+                    {
+                        <tfoot>
+                            <tr class="ak-table-total">
+                                <td class="ak-col-grow">@UiText.T(Context, "جمع", "Total")</td>
+                                <td class="ak-col-num ak-num">@Model.PeriodRows.Sum(r => r.InflowUsd).ToString("N2")</td>
+                                <td class="ak-col-num ak-num">@Model.PeriodRows.Sum(r => r.OutflowUsd).ToString("N2")</td>
+                                <td class="ak-col-num ak-num @(Model.NetCashFlowUsd < 0m ? "ak-number--negative" : null)">@Model.NetCashFlowUsd.ToString("N2")</td>
+                                <td class="ak-col-num ak-num @(Model.ClosingBalanceUsd < 0m ? "ak-number--negative" : null)">@Model.ClosingBalanceUsd.ToString("N2")</td>
+                                <td class="ak-col-num ak-num">@Model.PeriodRows.Sum(r => r.Count).ToString("N0")</td>
+                            </tr>
+                        </tfoot>
+                    }
                 </table>
             </div>
-        </div>
+        </section>
     </div>
 </div>

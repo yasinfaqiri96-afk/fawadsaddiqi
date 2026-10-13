@@ -98,6 +98,19 @@
        پنل‌های داخل مودال تخت می‌مانند چون خود دیالوگ ارتفاع را حمل می‌کند. *@
     <link rel="stylesheet" href="~/css/ptg/72-surfaces.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/ptg/73-detail-system.css" asp-append-version="true" />
+    @if (User.Identity?.IsAuthenticated == true)
+    {
+        @* مشعل آفلاین: فورم‌های مودال و ثبت سریع هم بدون سرور در دستگاه ذخیره می‌شوند (offline/js/form-bridge.js). *@
+        var offlineConfig = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            u = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value,
+            f = PTGOilSystem.Web.Services.OfflineSync.OfflineFormRegistry.AllowedFor(User,
+                Context.RequestServices.GetService(typeof(PTGOilSystem.Web.Security.ClientModuleProfile)) as PTGOilSystem.Web.Security.ClientModuleProfile)
+                .Select(t => t.Path)
+        });
+        <meta name="ptg-offline" content="@offlineConfig" />
+        <script type="module" src="~/offline/js/form-bridge.js" asp-append-version="true"></script>
+    }
 </head>
 @* app-shell-authenticated دروازهٔ اصلی دیزاین‌سیستم است. بدون آن نیمی از
    قواعد مشترک (فرم، جدول، کارت، تایپوگرافی، سطح) داخل مودال اجرا نمی‌شد و

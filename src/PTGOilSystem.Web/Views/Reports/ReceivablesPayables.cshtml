@@ -9,10 +9,6 @@
                        (string?)null, (string?)null, (string?)null, (string?)null,
                        UiText.T(Context, "گزارش‌ها", "Reports"), "bi-arrow-right", Url.Action("Index")))" />
 
-    <p class="ak-note">@UiText.T(Context,
-        "شرکا: فقط پرداخت، دریافت واقعی، تسویه و سهم مفاد محقق؛ تخصیص هزینهٔ کالای فروخته‌نشده در صورت‌حساب داخلی شراکت می‌ماند. ماندهٔ مثبت شریک بدهی شرکت است؛ مالک دفتر در طلبات و بدهی‌های بیرونی نمی‌آید. سهم مفاد این راپور محاسبهٔ اقتصادی است، نه سند تخصیص مفاد در دفتر کل.",
-        "Partners include actual funding, cash receipts, settlements and realized profit shares. Unsold-cost allocations remain in the internal partnership statement. A positive partner balance is a company payable; book owners are excluded from external claims. Calculated profit shares are economic estimates, not posted profit-allocation journals.")</p>
-
     <section class="ak-stat-grid" aria-label="@UiText.T(Context, "آمار طلبات و بدهی‌ها", "Receivable and payable metrics")">
             @foreach (var metric in Model.Metrics.Take(4))
             {
@@ -57,8 +53,6 @@
                         <th class="ak-col-num">@UiText.T(Context, "رسید", "Received")</th>
                         <th class="ak-col-num">@UiText.T(Context, "برد", "Given")</th>
                         <th class="ak-col-num">@UiText.T(Context, "گردش این بازه", "Movement in range")</th>
-                        <th class="ak-col-num">@UiText.T(Context, "تعدیل ارزی", "FX adjustment")</th>
-                        <th class="ak-col-num">@UiText.T(Context, "مانده پس از تعدیل ارزی", "Balance after FX adjustment")</th>
                         <th>@UiText.T(Context, "آخرین تاریخ", "Last Date")</th>
                     </tr>
                 </thead>
@@ -72,15 +66,13 @@
                             <td class="ak-col-num ak-num">@row.OpeningBalanceUsd.ToString("N2")</td>
                             <td class="ak-col-num ak-num">@row.DebitUsd.ToString("N2")</td>
                             <td class="ak-col-num ak-num">@row.CreditUsd.ToString("N2")</td>
-                            <td class="ak-col-num ak-num">@row.PeriodMovementUsd.ToString("N2")</td>
-                            <td class="ak-col-num ak-num @(row.FxAdjustmentUsd < 0m ? "ak-number--negative" : row.FxAdjustmentUsd > 0m ? "ak-number--positive" : null)">@row.FxAdjustmentUsd.ToString("N2")</td>
-                            <td class="ak-col-num ak-num @(row.BalanceUsd < 0m ? "ak-number--negative" : "ak-number--positive")">@row.BalanceUsd.ToString("N2")</td>
+                            <td class="ak-col-num ak-num @(row.PeriodMovementUsd < 0m ? "ak-number--negative" : row.PeriodMovementUsd > 0m ? "ak-number--positive" : null)">@row.PeriodMovementUsd.ToString("N2")</td>
                             <td>@(row.LastEntryDate?.ToDisplayDate() ?? "-")</td>
                         </tr>
                     }
                     @if (!Model.Rows.Any())
                     {
-                        <tr><td colspan="10"><div class="ak-empty"><i class="bi bi-people"></i> @UiText.T(Context, "مانده‌ای پیدا نشد؛ فیلترها را تغییر دهید.", "No balance found; change the filters.")</div></td></tr>
+                        <tr><td colspan="8"><div class="ak-empty"><i class="bi bi-people"></i> @UiText.T(Context, "مانده‌ای پیدا نشد؛ فیلترها را تغییر دهید.", "No balance found; change the filters.")</div></td></tr>
                     }
                 </tbody>
             </table>

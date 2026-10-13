@@ -1,0 +1,139 @@
+@using PTGOilSystem.Web.Models.Reports
+@model PTGOilSystem.Web.Models.Reports.LossReportViewModel
+@{
+    ViewData["Title"] = UiText.T(Context, "گزارش کسری‌ها و ضایعات", "Shortage & Loss Report");
+    string T(string fa, string en) => UiText.T(Context, fa, en);
+    var f = Model.Filter;
+
+    List<AkFilterOption> Opts(object? s) => (s as IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>
+        ?? Enumerable.Empty<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>())
+        .Where(i => !string.IsNullOrEmpty(i.Value)).Select(i => new AkFilterOption(i.Value, i.Text)).ToList();
+}
+
+<div class="ak-list-page">
+    <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+             model="@((T("گزارش کسری‌ها و ضایعات", "Shortage & Loss Report"), false,
+                       (string?)null, (string?)null, (string?)null, (string?)null,
+                       T("گزارش‌ها", "Reports"), "bi-arrow-right", Url.Action("Index")))" />
+
+    <section class="ak-stat-grid" aria-label="@T("آمار کسری‌ها", "Loss metrics")">
+        <vc:stat-card title="@T("مجموع مقدار کسری", "Total shortage")"
+                      value="@Model.TotalLossMt.ToString("N3")" unit="MT" avatar="shortage"></vc:stat-card>
+        <vc:stat-card title="@T("مجموع کسری قابل جریمه", "Chargeable shortage")"
+                      value="@Model.TotalChargeableMt.ToString("N3")" unit="MT" avatar="contract-losses"></vc:stat-card>
+        <vc:stat-card title="@T("ارزش مالی کسری‌های دارای قیمت", "Value of priced losses")"
+                      value="@Model.TotalValuedUsd.ToString("N0")" unit="USD"
+                      state="@(Model.UnpricedCount > 0 ? "warning" : null)" avatar="losses"></vc:stat-card>
+        <vc:stat-card title="@T("تعداد موارد کسری", "Loss cases")"
+                      value="@Model.TotalCount.ToString("N0")"
+                      unit="@(Model.UnpricedCount > 0 ? T($"{Model.UnpricedCount:N0} بدون قیمت", $"{Model.UnpricedCount:N0} unpriced") : T("مورد", "cases"))"
+                      avatar="stock-shortage"></vc:stat-card>
+    </section>
+
+    <div class="ak-list">
+        @{
+            var lossFilter = new AkSearchFilterModel("Search", f.Search,
+                T("مسئول، طرف حساب یا مرجع...", "Responsible party or reference..."),
+                new List<AkFilterDefinition>
+                {
+                    new("FromDate", T("بازه تاریخ", "Date range"), "daterange", null,
+                        f.FromDate?.ToString("yyyy-MM-dd"), "ToDate", f.ToDate?.ToString("yyyy-MM-dd")),
+                    new("ProductId", T("جنس", "Product"), "select", Opts(ViewBag.Products), f.ProductId?.ToString()),
+                    new("ContractId", T("قرارداد", "Contract"), "select", Opts(ViewBag.Contracts), f.ContractId?.ToString()),
+                    new("Stage", T("مرحله", "Stage"), "select",
+                        Enum.GetValues<PTGOilSystem.Web.Models.Entities.LossEventStage>()
+                            .Select(s => new AkFilterOption(s.ToString(), PTGOilSystem.Web.Controllers.ReportsController.LossStageLabel(s)))
+                            .ToList(), f.Stage?.ToString()),
+                    new("Kind", T("نوع کسری", "Loss type"), "select",
+                        new List<AkFilterOption>
+                        {
+                            new(nameof(LossReportKind.ChargeableOnly), T("فقط قابل جریمه", "Chargeable only")),
+                            new(nameof(LossReportKind.NonChargeableOnly), T("فقط غیرقابل جریمه", "Non-chargeable only"))
+                        }, f.Kind == LossReportKind.All ? null : f.Kind.ToString())
+                });
+        }
+        <div class="ak-list-toolbar">
+            <partial name="~/Views/Shared/_AkSearchFilter.cshtml" model="lossFilter" />
+            <div class="ak-list-toolbar-actions">
+                <partial name="~/Views/Shared/_ExportMenu.cshtml" model="@(new PTGOilSystem.Web.Services.Exports.ExportMenuModel("LossReportExport"))" />
+            </div>
+        </div>
+
+        <div class="ak-table-wrap">
+            <table class="ak-table">
+                <thead>
+                    <tr>
+                        <th>@T("تاریخ", "Date")</th>
+                        <th>@T("مرحله / منبع", "Stage")</th>
+                        <th class="ak-col-grow">@T("قرارداد / بار", "Contract / load")</th>
+                        <th>@T("جنس", "Product")</th>
+                        <th class="ak-col-num">@T("مقدار کسری MT", "Loss MT")</th>
+                        <th class="ak-col-num">@T("قابل جریمه MT", "Chargeable MT")</th>
+                        <th class="ak-col-num">@T("ارزش مالی (USD)", "Value (USD)")</th>
+                        <th>@T("مسئول / طرف حساب", "Responsible")</th>
+                        <th class="ak-col-actions">@T("جزئیات", "Details")</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in Model.Rows)
+                    {
+                        <tr>
+                            <td>@row.Date.ToDisplayDate()</td>
+                            <td>@PTGOilSystem.Web.Controllers.ReportsController.LossStageLabel(row.Stage)</td>
+                            <td class="ak-col-grow">
+                                @(row.ContractLabel ?? "—")
+                                @if (!string.IsNullOrWhiteSpace(row.LoadReference))
+                                {
+                                    <div class="ak-cell-note">@row.LoadReference</div>
+                                }
+                            </td>
+                            <td>@row.ProductName</td>
+                            <td class="ak-col-num ak-num">@row.LossMt.ToString("N3")</td>
+                            <td class="ak-col-num ak-num">@(row.ChargeableMt > 0m ? row.ChargeableMt.ToString("N3") : "—")</td>
+                            <td class="ak-col-num ak-num">
+                                @if (row.ValueUsd.HasValue)
+                                {
+                                    @row.ValueUsd.Value.ToString("N2")
+                                }
+                                else
+                                {
+                                    <span class="ak-cell-note">@T("قیمت نامشخص", "Price unknown")</span>
+                                }
+                            </td>
+                            <td>
+                                @(row.ResponsibleName ?? "—")
+                                @if (!string.IsNullOrWhiteSpace(row.ResponsibleType))
+                                {
+                                    <div class="ak-cell-note">@row.ResponsibleType</div>
+                                }
+                            </td>
+                            <td class="ak-col-actions">
+                                <a asp-controller="LossEvents" asp-action="Details" asp-route-id="@row.LossEventId">@T("سند اصلی", "Source document")</a>
+                            </td>
+                        </tr>
+                    }
+                    @if (Model.Rows.Count == 0)
+                    {
+                        <tr><td colspan="9"><div class="ak-empty"><i class="bi bi-droplet-half"></i> @T("کسری‌ای پیدا نشد؛ فیلترها را تغییر دهید.", "No shortage found; change the filters.")</div></td></tr>
+                    }
+                </tbody>
+                @if (Model.Rows.Count > 0)
+                {
+                    <tfoot>
+                        <tr class="ak-table-total">
+                            <td colspan="4">@T("جمع کل نتایج فیلترشده", "Total of filtered results")</td>
+                            <td class="ak-col-num ak-num">@Model.TotalLossMt.ToString("N3")</td>
+                            <td class="ak-col-num ak-num">@Model.TotalChargeableMt.ToString("N3")</td>
+                            <td class="ak-col-num ak-num">@Model.TotalValuedUsd.ToString("N2")</td>
+                            <td colspan="2"></td>
+                        </tr>
+                    </tfoot>
+                }
+            </table>
+        </div>
+
+        <div class="ak-pager">
+            @await Html.PartialAsync("_Pagination", (Model.CurrentPage, Model.PageCount))
+        </div>
+    </div>
+</div>

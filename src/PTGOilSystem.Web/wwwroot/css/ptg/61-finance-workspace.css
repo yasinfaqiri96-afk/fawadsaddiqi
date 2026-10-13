@@ -841,17 +841,8 @@ body.is-finance-workspace .rephub-card-title {
     }
 }
 
-/* گردش پول — سه نمای جزئیات با تب عوض می‌شوند، پس هر بار فقط یک جدول روی
-   صفحه است. فقط فاصله‌گذاری؛ خودِ ریل و جدول همان کامپوننت مشترک‌اند. */
-.cashflow-report-page .cashflow-tabs {
-    margin-block: 20px 0;
-}
-
-.cashflow-report-page .cashflow-panel {
-    margin-block-start: 16px;
-}
-
-.cashflow-report-page .cashflow-panel > .ak-section-desc {
-    margin: 0 0 12px;
-    font-size: 14px;
+/* گردش پول — سه بخش زیر هم (بابت، صندوق و بانک، ماهانه)؛ فقط فاصلهٔ میان بخش‌ها.
+   خودِ سربرگ بخش و جدول همان کامپوننت مشترک‌اند. */
+.cashflow-report-page .cashflow-section {
+    margin-block-start: 28px;
 }

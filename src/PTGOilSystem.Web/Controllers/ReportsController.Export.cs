@@ -24,7 +24,7 @@ public partial class ReportsController
 
         return TabularExportSupport.File(this, format, new TabularExportDocument
         {
-            FileNameStem = "PTG_Receivables_Payables", TitleFa = "دریافتنی‌ها و پرداختنی‌ها", TitleEn = "Receivables & Payables",
+            FileNameStem = "PTG_Receivables_Payables", TitleFa = "طلبات و بدهی‌ها", TitleEn = "Receivables & Payables",
             KnownRowCount = rows.Count,
             Filters = BuildReportExportFilters(filter),
             Columns =
@@ -33,23 +33,15 @@ public partial class ReportsController
                 new("اول دوره USD", "Opening USD", TabularExportValueType.Number, 16),
                 new("رسید USD", "Received USD", TabularExportValueType.Number, 16),
                 new("برد USD", "Given USD", TabularExportValueType.Number, 16),
-                new("گردش دوره USD", "Period movement USD", TabularExportValueType.Number, 17),
-                new("تعدیل ارزی USD", "FX adjustment USD", TabularExportValueType.Number, 17),
-                new("مانده USD", "Balance USD", TabularExportValueType.Number, 16),
-                new("آخرین تاریخ", "Last date", TabularExportValueType.Date, 14),
-                new("طلب شرکت USD", "Company receivable USD", TabularExportValueType.Number, 16),
-                new("بدهی شرکت USD", "Company payable USD", TabularExportValueType.Number, 16)
+                new("گردش این بازه USD", "Movement in range USD", TabularExportValueType.Number, 17),
+                new("آخرین تاریخ", "Last date", TabularExportValueType.Date, 14)
             ],
             Rows = rows.Select(r => new TabularExportRow(
             [
                 TabularExportCell.Text(r.PartyName), TabularExportCell.Text(r.PartyType), TabularExportCell.Text(r.BalanceKind),
                 TabularExportCell.Number(r.OpeningBalanceUsd), TabularExportCell.Number(r.DebitUsd),
                 TabularExportCell.Number(r.CreditUsd), TabularExportCell.Number(r.PeriodMovementUsd),
-                TabularExportCell.Number(r.FxAdjustmentUsd),
-                TabularExportCell.Number(r.BalanceUsd),
-                TabularExportCell.Date(r.LastEntryDate),
-                TabularExportCell.Number(Math.Max(r.CompanyClaimUsd, 0m)),
-                TabularExportCell.Number(Math.Max(-r.CompanyClaimUsd, 0m))
+                TabularExportCell.Date(r.LastEntryDate)
             ])),
             Totals = new TabularExportRow(
             [
@@ -57,10 +49,7 @@ public partial class ReportsController
                 TabularExportCell.Number(rows.Sum(r => r.OpeningBalanceUsd)),
                 TabularExportCell.Number(rows.Sum(r => r.DebitUsd)), TabularExportCell.Number(rows.Sum(r => r.CreditUsd)),
                 TabularExportCell.Number(rows.Sum(r => r.PeriodMovementUsd)),
-                TabularExportCell.Number(rows.Sum(r => r.FxAdjustmentUsd)),
-                TabularExportCell.Text(null), TabularExportCell.Date(null),
-                TabularExportCell.Number(model.TotalReceivableUsd),
-                TabularExportCell.Number(model.TotalPayableUsd)
+                TabularExportCell.Date(null)
             ])
         });
     }
@@ -75,37 +64,57 @@ public partial class ReportsController
         filter ??= new ManagementReportFilterViewModel();
         var model = await BuildContractPnlAsync(filter);
         cancellationToken.ThrowIfCancellationRequested();
-        var rows = model.PurchaseRows.Concat(model.SaleRows).ToList();
+        // صفحه فقط قراردادهای خرید را فهرست می‌کند؛ خروجی هم همان سطرها و همان چهار شاخص را دارد.
+        var rows = model.PurchaseRows.ToList();
+        var filters = BuildReportExportFilters(filter).ToList();
+        filters.AddRange(TabularExportSupport.FilterSummary(
+            ("مجموع مبلغ قراردادها USD / Total contract value USD", model.TotalContractValueUsd.ToString("N2")),
+            ("مجموع مصارف قراردادها USD / Total contract expenses USD", model.TotalContractExpensesUsd.ToString("N2")),
+            ("مجموع فروشات USD / Total sales USD", model.TotalDirectSaleRevenueUsd.ToString("N2")),
+            ("مجموع مفاد قراردادها USD / Total contract profit USD", model.TotalContractProfitUsd.ToString("N2"))));
+
+        static string Note(ContractPnlRowViewModel r) =>
+            r.HasPendingPurchasePrice ? $"قیمت نامشخص ({r.PendingLoadedMt:N3} MT) / Price pending"
+            : r.TotalRevenueUsd <= 0m ? "بدون فروش / No sales"
+            : r.TotalLoadedMt > 0m && r.TotalSoldMt < r.TotalLoadedMt ? "فروش ناتمام / Partly sold"
+            : "";
 
         return TabularExportSupport.File(this, format, new TabularExportDocument
         {
-            FileNameStem = "PTG_Contract_PnL", TitleFa = "سود و زیان قراردادها", TitleEn = "Contract P&L",
-            KnownRowCount = rows.Count, ForceLandscape = true, Filters = BuildReportExportFilters(filter),
+            FileNameStem = "PTG_Contract_PnL", TitleFa = "مفاد قراردادها", TitleEn = "Contract Profit",
+            KnownRowCount = rows.Count, ForceLandscape = true, Filters = filters,
             Columns =
             [
-                new("نام قرارداد", "Contract name", Width: 20),
-                new("قرارداد", "Contract", Width: 17), new("نوع", "Type", Width: 11), new("جنس", "Product", Width: 17),
-                new("طرف قرارداد", "Counterparty", Width: 20), new("وضعیت", "Status", Width: 12),
-                new("مقدار قرارداد MT", "Contract qty MT", TabularExportValueType.Number, 16),
-                new("بارگیری/فروش MT", "Loaded/sold MT", TabularExportValueType.Number, 16),
-                new("ارزش خرید USD", "Purchase value USD", TabularExportValueType.Number, 17),
-                new("مصارف USD", "Expenses USD", TabularExportValueType.Number, 16),
-                new("درآمد USD", "Revenue USD", TabularExportValueType.Number, 16),
-                new("سود/زیان USD", "Profit/loss USD", TabularExportValueType.Number, 17),
-                new("حاشیه", "Margin", TabularExportValueType.Percentage, 12),
-                new("اطمینان", "Confidence", Width: 14),
-                new("فروش بدون COGS", "Sales missing COGS", TabularExportValueType.Number, 14)
+                new("قرارداد", "Contract", Width: 24),
+                new("تأمین‌کننده", "Supplier", Width: 20), new("جنس", "Product", Width: 15),
+                new("وضعیت", "Status", Width: 11),
+                new("بارگیری MT", "Loaded MT", TabularExportValueType.Number, 14),
+                new("قیمت خرید USD", "Purchase price USD", TabularExportValueType.Number, 16),
+                new("جمع مصارف USD", "Total expenses USD", TabularExportValueType.Number, 16),
+                new("فروش USD", "Sales USD", TabularExportValueType.Number, 16),
+                new("مفاد قرارداد USD", "Contract profit USD", TabularExportValueType.Number, 16),
+                new("یادداشت", "Note", Width: 18, Wrap: true)
             ],
             Rows = rows.Select(r => new TabularExportRow(
             [
-                TabularExportCell.Text(r.ContractName), TabularExportCell.Text(r.ContractNumber), TabularExportCell.Text(r.ContractType.ToString()), TabularExportCell.Text(r.ProductName),
-                TabularExportCell.Text(r.CounterpartyName), TabularExportCell.Text(r.Status.ToString()), TabularExportCell.Number(r.ContractQuantityMt),
-                TabularExportCell.Number(r.ContractType == ContractType.Purchase ? r.TotalLoadedMt : r.TotalSoldMt),
-                TabularExportCell.Number(r.PurchaseValueUsd), TabularExportCell.Number(r.TotalCostUsd - r.PurchaseValueUsd),
-                TabularExportCell.Number(r.TotalRevenueUsd), TabularExportCell.Number(r.GrossMarginUsd),
-                TabularExportCell.Percentage(r.MarginPercent.HasValue ? r.MarginPercent.Value / 100m : null),
-                TabularExportCell.Text(r.PnlConfidence.ToString()), TabularExportCell.Number(r.UncostedSaleCount)
-            ]))
+                TabularExportCell.Text(r.DisplayLabel), TabularExportCell.Text(r.CounterpartyName),
+                TabularExportCell.Text(r.ProductName), TabularExportCell.Text(r.Status.ToString()),
+                TabularExportCell.Number(r.TotalLoadedMt),
+                TabularExportCell.Number(r.PurchaseValueUsd), TabularExportCell.Number(r.ExpensesUsd),
+                TabularExportCell.Number(r.TotalRevenueUsd), TabularExportCell.Number(r.ContractProfitUsd),
+                TabularExportCell.Text(Note(r))
+            ])),
+            Totals = new TabularExportRow(
+            [
+                TabularExportCell.Text("جمع / Total"), TabularExportCell.Text(null), TabularExportCell.Text(null),
+                TabularExportCell.Text(null),
+                TabularExportCell.Number(rows.Sum(r => r.TotalLoadedMt)),
+                TabularExportCell.Number(model.TotalPurchaseValueUsd),
+                TabularExportCell.Number(model.TotalContractExpensesUsd),
+                TabularExportCell.Number(model.TotalDirectSaleRevenueUsd),
+                TabularExportCell.Number(model.TotalContractProfitUsd),
+                TabularExportCell.Text(null)
+            ])
         });
     }
 
@@ -236,7 +245,7 @@ public partial class ReportsController
 
         var isEn = UiText.IsEn(HttpContext);
         var summaryLabel = isEn ? "Summary" : "خلاصه";
-        var groupLabel = isEn ? "Group" : "گروه";
+        var groupLabel = isEn ? "Purpose" : "بابت";
         var accountLabel = isEn ? "Cash account" : "حساب نقد / بانک";
         var monthLabel = isEn ? "Month" : "ماه";
 
@@ -245,7 +254,7 @@ public partial class ReportsController
             new(
             [
                 TabularExportCell.Text(summaryLabel),
-                TabularExportCell.Text(isEn ? "Period cash movement" : "گردش نقدی دوره"),
+                TabularExportCell.Text(isEn ? "Period cash movement" : "گردش پول دوره"),
                 TabularExportCell.Text(null), TabularExportCell.Number(model.OpeningBalanceUsd),
                 TabularExportCell.Number(model.TotalInflowUsd), TabularExportCell.Number(model.TotalOutflowUsd),
                 TabularExportCell.Number(model.NetCashFlowUsd), TabularExportCell.Number(model.ClosingBalanceUsd),
@@ -294,11 +303,11 @@ public partial class ReportsController
 
         return TabularExportSupport.File(this, format, new TabularExportDocument
         {
-            FileNameStem = "PTG_Cash_Flow", TitleFa = "جریان نقدی", TitleEn = "Cash Flow",
+            FileNameStem = "PTG_Cash_Flow", TitleFa = "گردش پول", TitleEn = "Cash Movement",
             KnownRowCount = rows.Count, ForceLandscape = true, Filters = BuildReportExportFilters(filter),
             Columns =
             [
-                new("بخش", "Section", Width: 18), new("عنوان", "Name", Width: 26), new("ارز حساب", "Account currency", Width: 12),
+                new("بخش", "Section", Width: 16), new("عنوان", "Name", Width: 28), new("ارز حساب", "Account currency", Width: 12),
                 new("اول دوره USD", "Opening USD", TabularExportValueType.Number, 16),
                 new("ورودی USD", "Inflow USD", TabularExportValueType.Number, 16),
                 new("خروجی USD", "Outflow USD", TabularExportValueType.Number, 16),
@@ -309,7 +318,7 @@ public partial class ReportsController
             Rows = rows,
             Totals = new TabularExportRow(
             [
-                TabularExportCell.Text(isEn ? "Total of section: Group" : "جمع بخش «گروه»"),
+                TabularExportCell.Text(isEn ? "Total of section: Purpose" : "جمع بخش «بابت»"),
                 TabularExportCell.Text(null), TabularExportCell.Text(null),
                 TabularExportCell.Number(model.OpeningBalanceUsd),
                 TabularExportCell.Number(model.TotalInflowUsd), TabularExportCell.Number(model.TotalOutflowUsd),

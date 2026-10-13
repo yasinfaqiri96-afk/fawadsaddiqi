@@ -14,7 +14,7 @@ namespace PTGOilSystem.Web.Services.Exports;
 /// </summary>
 internal sealed class CompanyBalancePdfDocument(CompanyBalanceReportViewModel model, string? logoPath) : IDocument
 {
-    public const string LogoRelativePath = "/images/mashal-logo-blue.webp";
+    public const string LogoRelativePath = ExcelDesignSystem.LogoRelativePath;
 
     // همان توکن‌های --cbr-* در 64-company-balance.css.
     private const string Navy = "#0B1B3A";

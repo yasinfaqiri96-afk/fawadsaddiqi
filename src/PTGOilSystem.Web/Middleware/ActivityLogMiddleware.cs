@@ -99,12 +99,23 @@ public sealed class ActivityLogMiddleware
 
         var method = context.Request.Method;
         var isRead = HttpMethods.IsGet(method) || HttpMethods.IsHead(method);
+        var statusCode = context.Response.StatusCode;
+
+        // ذخیرهٔ خودکار پیش‌نویس هنگام تایپ هر چند ثانیه یک POST است و دادهٔ تجاری نمی‌سازد؛
+        // نسخهٔ موفق آن سابقه نمی‌گیرد. حذف پیش‌نویس و هر خطا مثل همیشه ثبت می‌شود.
+        var descriptor = context.GetEndpoint()?.Metadata.GetMetadata<ControllerActionDescriptor>();
+        if (statusCode is >= 200 and < 300
+            && string.Equals(descriptor?.ControllerName, "FormDrafts", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(descriptor?.ActionName, "Save", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         if (!isRead)
         {
             return true;
         }
 
-        var statusCode = context.Response.StatusCode;
         if (statusCode is < 200 or >= 400)
         {
             return true;

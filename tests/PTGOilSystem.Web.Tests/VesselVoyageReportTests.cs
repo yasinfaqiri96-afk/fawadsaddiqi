@@ -535,7 +535,7 @@ public class VesselVoyageReportTests
             {
                 ExcelMaxRows = 100_000,
                 PdfMaxRows = 20_000,
-                CompanyLogoPath = "/images/logo1-sidebar.png",
+                CompanyLogoPath = "/images/mashal-logo-blue.webp",
                 QuestPdfLicense = "Community"
             }),
             new VesselVoyageTestWebHostEnvironment

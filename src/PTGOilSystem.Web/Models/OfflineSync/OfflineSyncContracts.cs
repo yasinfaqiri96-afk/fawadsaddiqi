@@ -128,7 +128,7 @@ public static class OfflineSyncLimits
 {
     public const int MaxBatchSize = 25;
     public const int MaxStatusQuery = 200;
-    public const int MaxPayloadChars = 32_000;
+    public const int MaxPayloadChars = 400_000; // فورم اصلی چندسطری (بارگیری، فروش گروهی)
     public const int MaxDependencies = 20;
     public const int MaxReferenceRows = 5_000;
 }

@@ -121,6 +121,7 @@
     <form asp-action="Create" method="post" enctype="multipart/form-data" class="ak-form" data-loading-create-form data-create-action="@createPostUrl">
         @Html.AntiForgeryToken()
         @Html.FormToken()
+        @Html.FormDraft("Loading.Create")
         <input asp-for="ReturnUrl" type="hidden" />
         <input asp-for="LockContract" type="hidden" />
         <input type="hidden" name="ImportedRowsJson" id="loadingImportedRowsJson" value="" />
@@ -2172,6 +2173,18 @@
                         'ثبت انجام نشد.',
                         'ارسال فورم توسط مرورگر متوقف شد. صفحه را تازه کرده و دوباره تلاش کنید.');
                 }
+            });
+
+            // پیش‌نویس خودکار (form-draft.js): پیش از خواندن فیلدها، سطرهای مجازی (امپورت بزرگ) در همان
+            // فیلد فشردهٔ ثبت نوشته می‌شوند تا پیش‌نویس دقیقاً همان چیزی باشد که ذخیره ارسال می‌کند.
+            loadingForm?.addEventListener('ptg:draft-serialize', function (event) {
+                if (typeof window.loadingVirtualRowsBeforeSubmit === 'function') {
+                    window.loadingVirtualRowsBeforeSubmit();
+                }
+                const summary = (contractSummary?.textContent || '').trim();
+                event.detail.summary = summary && summary !== 'انتخاب قرارداد' ? summary : null;
+                const rowCount = Number.parseInt(document.querySelector('[data-lic-count-total]')?.textContent || '', 10);
+                event.detail.rowCount = Number.isFinite(rowCount) ? rowCount : null;
             });
 
             loadingForm?.addEventListener('submit', function (event) {

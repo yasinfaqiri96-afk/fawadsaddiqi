@@ -116,12 +116,15 @@ public sealed class CustomerBalanceListItemViewModel
     public int ClosedContractsCount { get; init; }
     public decimal TotalSalesUsd { get; init; }
     public decimal TotalExpensesUsd { get; init; }
+    /// <summary>خالص پول واقعیِ دریافت‌شده از مشتری؛ از <c>PartyCashSettlementReader</c>، مستقل از فروش.</summary>
+    public decimal TotalReceivedUsd { get; init; }
     public int RelatedLedgerCount { get; init; }
     public decimal BaseBalanceUsd { get; init; }
 }
 
 public sealed class CustomersBalanceViewModel
 {
+    public decimal FilteredTotalReceivedUsd { get; init; }
     public CustomersBalanceFilterViewModel Filter { get; init; } = new();
     public IReadOnlyList<CustomerBalanceListItemViewModel> Items { get; init; } = [];
     public int CurrentPage { get; init; } = 1;
@@ -141,14 +144,21 @@ public sealed class SupplierBalanceListItemViewModel
     public int RelatedContractsCount { get; init; }
     public int ActiveContractsCount { get; init; }
     public int ClosedContractsCount { get; init; }
+    /// <summary>فروشی که خودِ تأمین‌کننده خریدار آن است (<c>SalesTransaction.SupplierId</c>)، نه فروشِ نفتِ قراردادش به دیگران.</summary>
     public decimal TotalSalesUsd { get; init; }
     public decimal TotalExpensesUsd { get; init; }
+    /// <summary>ارزش خرید واقعیِ بارهای قیمت‌دارِ قراردادهای خرید همین تأمین‌کننده؛ از موتور مالی قرارداد.</summary>
+    public decimal TotalPurchaseUsd { get; init; }
+    /// <summary>خالص پول واقعیِ پرداخت‌شده به تأمین‌کننده؛ از <c>PartyCashSettlementReader</c>.</summary>
+    public decimal TotalPaidUsd { get; init; }
     public int RelatedLedgerCount { get; init; }
     public decimal BaseBalanceUsd { get; init; }
 }
 
 public sealed class SuppliersBalanceViewModel
 {
+    public decimal FilteredTotalPurchaseUsd { get; init; }
+    public decimal FilteredTotalPaidUsd { get; init; }
     public SuppliersBalanceFilterViewModel Filter { get; init; } = new();
     public IReadOnlyList<SupplierBalanceListItemViewModel> Items { get; init; } = [];
     public int CurrentPage { get; init; } = 1;

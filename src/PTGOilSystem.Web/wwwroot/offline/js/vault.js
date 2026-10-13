@@ -52,6 +52,11 @@ export async function decryptBytes(key, sealed) {
   return new Uint8Array(await subtle.decrypt({ name: 'AES-GCM', iv: fromBase64(sealed.iv) }, key, fromBase64(sealed.ct)));
 }
 
+/** کلید داده از نسخهٔ base64 نشست جاری (session.js). */
+export async function importRawKey(rawKey) {
+  return importDataKey(fromBase64(rawKey));
+}
+
 async function importDataKey(raw) {
   return subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
@@ -67,6 +72,7 @@ export async function createProfile({ session, pin, deviceId, now = new Date() }
   const pinKey = await deriveKey(pin, salt, KDF_ITERATIONS);
   const wrapped = await encryptBytes(pinKey, raw);
   const dataKey = await importDataKey(raw);
+  const rawKey = toBase64(raw);
   raw.fill(0);
 
   const profile = {
@@ -86,7 +92,7 @@ export async function createProfile({ session, pin, deviceId, now = new Date() }
     lastUnlockAt: now.toISOString(),
     lastServerAuthAt: now.toISOString()
   };
-  return { profile, dataKey };
+  return { profile, dataKey, rawKey };
 }
 
 export function lockDurationMs(failedAttempts) {
@@ -110,11 +116,13 @@ export async function unlockProfile(profile, pin, now = new Date()) {
     const pinKey = await deriveKey(pin, fromBase64(profile.kdf.salt), profile.kdf.iterations);
     const raw = await decryptBytes(pinKey, profile.wrapped);
     const dataKey = await importDataKey(raw);
+    const rawKey = toBase64(raw);
     raw.fill(0);
     updated.failedAttempts = 0;
     updated.lockedUntil = null;
     updated.lastUnlockAt = now.toISOString();
-    return { ok: true, profile: updated, dataKey };
+    // rawKey فقط برای نگهداری در sessionStorage همین نشست (session.js)؛ رمز محلی در هر نشست یک‌بار.
+    return { ok: true, profile: updated, dataKey, rawKey };
   } catch {
     updated.failedAttempts = (updated.failedAttempts || 0) + 1;
     const lockMs = lockDurationMs(updated.failedAttempts);

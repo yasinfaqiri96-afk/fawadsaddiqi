@@ -54,9 +54,7 @@ public partial class ReportsController
                 new("نوع", "Type", Width: 16),
                 new("طلب (USD)", "Receivable (USD)", TabularExportValueType.Number, 16),
                 new("بدهی (USD)", "Payable (USD)", TabularExportValueType.Number, 16),
-                new("آخرین حرکت", "Last movement", TabularExportValueType.Date, 14),
-                new("روز بدون حرکت", "Days idle", TabularExportValueType.Integer, 14),
-                new("دسته", "Bucket", Width: 16)
+                new("آخرین حرکت", "Last movement", TabularExportValueType.Date, 14)
             ],
             Rows = model.Rows.Select(r => new TabularExportRow(
             [
@@ -64,10 +62,7 @@ public partial class ReportsController
                 TabularExportCell.Text(r.PartyTypeLabel),
                 TabularExportCell.Number(r.ReceivableUsd),
                 TabularExportCell.Number(r.PayableUsd),
-                TabularExportCell.Date(r.LastEntryDate),
-                // حسابِ بدون حرکت عددِ روز ندارد؛ همان خانهٔ خالیِ صفحه، نه ۰.
-                TabularExportCell.Integer(r.LastEntryDate is null ? null : r.DaysIdle),
-                TabularExportCell.Text(PartyAgingBucketLabel(r.Bucket))
+                TabularExportCell.Date(r.LastEntryDate)
             ])),
             Totals = new TabularExportRow(
             [
@@ -75,8 +70,6 @@ public partial class ReportsController
                 TabularExportCell.Text(null),
                 TabularExportCell.Number(model.TotalReceivableUsd),
                 TabularExportCell.Number(model.TotalPayableUsd),
-                TabularExportCell.Text(null),
-                TabularExportCell.Text(null),
                 TabularExportCell.Text($"{model.PartyCount:N0} طرف حساب")
             ])
         });

@@ -246,8 +246,8 @@ public partial class ReportsController : Controller
                     {
                         Controller = "Balance", Action = "Customers",
                         TitleFa = "گردش حساب مشتریان", TitleEn = "Customer Accounts",
-                        DescriptionFa = "فروش، مصارف و مانده هر مشتری، با لینک به گردش حساب او.",
-                        DescriptionEn = "Sales, expenses and balance per customer, linked to the statement.",
+                        DescriptionFa = "فروش، رسید و مانده هر مشتری، با لینک به گردش حساب او.",
+                        DescriptionEn = "Sales, receipts and balance per customer, linked to the statement.",
                         Icon = "bi-person-lines-fill", ToneClass = "tone-amber"
                     },
                     new()
@@ -276,7 +276,8 @@ public partial class ReportsController : Controller
                     },
                     new()
                     {
-                        Controller = "Expenses", Action = "Index",
+                        // گزارش مستقل؛ لیست عملیاتیِ ثبت مصارف (Expenses/Index) دست‌نخورده می‌ماند.
+                        Action = nameof(ExpenseReport),
                         TitleFa = "مصارف", TitleEn = "Expenses",
                         DescriptionFa = "مصارف ثبت‌شده به‌تفکیک نوع، قرارداد و تاریخ.",
                         DescriptionEn = "Recorded expenses by type, contract and date.",
@@ -341,7 +342,8 @@ public partial class ReportsController : Controller
                     },
                     new()
                     {
-                        Controller = "LossEvents", Action = "Index",
+                        // گزارش مستقل؛ لیست عملیاتیِ ثبت کسری (LossEvents/Index) دست‌نخورده می‌ماند.
+                        Action = nameof(LossReport),
                         TitleFa = "کسری و ضایعات", TitleEn = "Shortage & Loss",
                         DescriptionFa = "کسری بار، ضایعات و مبلغ قابل مطالبهٔ هر مورد.",
                         DescriptionEn = "Shortage, loss and the chargeable amount of each case.",
