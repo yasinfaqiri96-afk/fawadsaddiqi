@@ -14,6 +14,9 @@ namespace PTGOilSystem.Web.Security;
 /// </summary>
 public static class AuthenticationSetup
 {
+    /// <summary>کوکی یا Bearer، بر اساس هدر Authorization (فقط برای <c>/api/sync</c>).</summary>
+    public const string OfflineSyncScheme = "PtgOfflineSync";
+
     public static IServiceCollection AddPtgAuthentication(
         this IServiceCollection services,
         IConfiguration configuration,
@@ -82,6 +85,14 @@ public static class AuthenticationSetup
                     RoleClaimType = ClaimTypes.Role
                 };
                 options.Events = MobileJwtBearerEvents.Create();
+            })
+            // مشعل آفلاین (/api/sync): PWA با کوکی وب و Flutter با Bearer. یک طرح، تا challenge فقط یک‌بار نوشته شود.
+            .AddPolicyScheme(OfflineSyncScheme, OfflineSyncScheme, options =>
+            {
+                options.ForwardDefaultSelector = context =>
+                    context.Request.Headers.Authorization.ToString().StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                        ? JwtBearerDefaults.AuthenticationScheme
+                        : CookieAuthenticationDefaults.AuthenticationScheme;
             });
 
         services.AddAuthorization(options =>

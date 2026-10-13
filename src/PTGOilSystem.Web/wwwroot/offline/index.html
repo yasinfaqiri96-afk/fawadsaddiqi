@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#FCFCFC" />
+  <meta name="robots" content="noindex" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="مشعل" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <title>مشعل آفلاین</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/favicon-v3.ico" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon-v3.png" />
+  <link rel="stylesheet" href="/offline/offline.css" />
+  <script type="module" src="/offline/js/app.js"></script>
+</head>
+<body>
+  <header class="ox-top">
+    <div class="ox-brand">
+      <img src="/android-chrome-v3-192x192.png" alt="" width="32" height="32" />
+      <div>
+        <strong>مشعل</strong>
+        <small data-profile-name>کار آنلاین و آفلاین</small>
+      </div>
+    </div>
+    <div class="ox-top-actions">
+      <span class="ox-conn" data-conn="OFFLINE" role="status" aria-live="polite">
+        <span class="ox-dot" aria-hidden="true"></span><span data-conn-text>در حال بررسی…</span>
+      </span>
+      <button type="button" class="ox-btn ox-btn--ghost" data-sync-now hidden>همگام‌سازی</button>
+    </div>
+  </header>
+
+  <div class="ox-banner" data-banner hidden></div>
+
+  <main id="ox-main" class="ox-main" tabindex="-1">
+    <section class="ox-card"><p>در حال بارگذاری مشعل آفلاین…</p></section>
+  </main>
+
+  <nav class="ox-tabs" data-tabs hidden aria-label="بخش‌ها">
+    <a href="#/home" data-tab="home">خانه</a>
+    <a href="#/new" data-tab="new">ثبت جدید</a>
+    <a href="#/ops" data-tab="ops">عملیات <span class="ox-badge" data-pending-badge hidden></span></a>
+    <a href="#/backup" data-tab="backup">بکاپ</a>
+    <a href="#/settings" data-tab="settings">تنظیمات</a>
+  </nav>
+
+  <div class="ox-toast" data-toast role="status" aria-live="polite" hidden></div>
+
+  <noscript><p class="ox-card">برای استفاده از مشعل آفلاین، JavaScript مرورگر باید فعال باشد.</p></noscript>
+</body>
+</html>

@@ -337,9 +337,9 @@ public sealed class AccountingCorePostgreSqlTests(AccountingPostgreSqlFixture fi
         await seeder.SeedAsync();
         await seeder.SeedAsync();
 
-        // ۳۲ = ۲۶ حساب استاندارد + حساب جاری شرکا (۳۳۰۰) + هزینهٔ معاش (۵۷۰۰)
-        //      + چهار حساب امانی (۲۶۰۰، ۱۲۱۰، ۴۵۰۰، ۴۵۱۰).
-        Assert.Equal(32, await db.Accounts.CountAsync(x => x.CompanyId == company.Id));
+        // ۳۳ = ۲۶ حساب استاندارد + حساب جاری شرکا (۳۳۰۰) + هزینهٔ معاش (۵۷۰۰)
+        //      + چهار حساب امانی (۲۶۰۰، ۱۲۱۰، ۴۵۰۰، ۴۵۱۰) + کالای تحویل‌شده در انتظار قیمت (۱۳۲۰).
+        Assert.Equal(33, await db.Accounts.CountAsync(x => x.CompanyId == company.Id));
         Assert.Equal(1, await db.AccountingSettings.CountAsync(x => x.CompanyId == company.Id));
 
         var settings = await db.AccountingSettings.SingleAsync(x => x.CompanyId == company.Id);
@@ -348,7 +348,8 @@ public sealed class AccountingCorePostgreSqlTests(AccountingPostgreSqlFixture fi
                      ("2600", settings.CustodyFundsPayableAccountId),
                      ("1210", settings.CustodyPendingCollectionAccountId),
                      ("4500", settings.CustodyCommissionRevenueAccountId),
-                     ("4510", settings.CustodyServiceRevenueAccountId)
+                     ("4510", settings.CustodyServiceRevenueAccountId),
+                     ("1320", settings.DeliveredPendingPricingAccountId)
                  })
         {
             Assert.Equal(

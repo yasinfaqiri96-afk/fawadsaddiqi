@@ -1,0 +1,24 @@
+{
+  "id": "/",
+  "name": "مشعل — سیستم مدیریت تجارت نفت و گاز",
+  "short_name": "مشعل",
+  "description": "مشعل؛ کار آنلاین و آفلاین با همگام‌سازی مصئون.",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#F5F6FA",
+  "theme_color": "#FCFCFC",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    { "src": "/android-chrome-v3-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/android-chrome-v3-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/apple-touch-icon-v3.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "مشعل آفلاین", "short_name": "آفلاین", "url": "/offline/index.html", "icons": [{ "src": "/android-chrome-v3-192x192.png", "sizes": "192x192" }] }
+  ]
+}

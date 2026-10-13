@@ -288,6 +288,8 @@ public class MasterDataDeleteSafetyService
             usageAreas.Add("عملیات بستن سال مالی");
         if (await _db.JournalEntries.AnyAsync(j => j.PostedByUserId == userId))
             usageAreas.Add("اسناد حسابداری");
+        if (await _db.OfflineSyncOperations.AnyAsync(o => o.UserId == userId))
+            usageAreas.Add("عملیات آفلاین");
 
         return BuildArchivableResult(usageAreas);
     }

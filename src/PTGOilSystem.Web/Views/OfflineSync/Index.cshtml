@@ -1,0 +1,94 @@
+@model PTGOilSystem.Web.Controllers.OfflineSyncIndexViewModel
+@using PTGOilSystem.Web.Controllers
+@{
+    ViewData["Title"] = "عملیات آفلاین";
+    int CountOf(OfflineSyncStatus s) => Model.Counts.TryGetValue(s, out var c) ? c : 0;
+    var filters = new (OfflineSyncStatus? Status, string Label)[]
+    {
+        (null, "همه"),
+        (OfflineSyncStatus.Received, "در حال ثبت"),
+        (OfflineSyncStatus.Conflict, "تعارض"),
+        (OfflineSyncStatus.Applied, "همگام‌شده"),
+        (OfflineSyncStatus.Rejected, "ردشده")
+    };
+    var pageCount = Math.Max(1, (int)Math.Ceiling(Model.Total / (double)Model.PageSize));
+}
+
+<div class="ak-list-page">
+    <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+             model="@(("عملیات آفلاین", false,
+                       (string?)null, (string?)null, (string?)null, (string?)null,
+                       (string?)null, (string?)null, (string?)null))" />
+
+    <section class="ak-stat-grid mb-3" aria-label="آمار عملیات آفلاین">
+        <vc:stat-card title="در حال ثبت" value="@((CountOf(OfflineSyncStatus.Received) + CountOf(OfflineSyncStatus.Applying)).ToString("N0"))" unit="عملیات" avatar="documents"></vc:stat-card>
+        <vc:stat-card title="تعارض" value="@CountOf(OfflineSyncStatus.Conflict).ToString("N0")" unit="عملیات" avatar="rules-checklist"></vc:stat-card>
+        <vc:stat-card title="همگام‌شده" value="@CountOf(OfflineSyncStatus.Applied).ToString("N0")" unit="عملیات" avatar="products"></vc:stat-card>
+        <vc:stat-card title="ردشده" value="@CountOf(OfflineSyncStatus.Rejected).ToString("N0")" unit="عملیات" avatar="units"></vc:stat-card>
+    </section>
+
+    <div class="alert alert-info">
+        عملیاتی که کارمندان در زمان قطع اینترنت ثبت کرده‌اند، پس از اتصال خودکار با همان فرم‌های ثبت مشعل (با همهٔ
+        اعتبارسنجی‌ها و صلاحیت‌ها) ثبت قطعی می‌شوند. این صفحه برای پیگیری است؛ عملیات «تعارض» را کارمند روی دستگاه
+        اصلاح و دوباره ارسال می‌کند.
+    </div>
+
+    <nav class="d-flex flex-wrap gap-2 mb-3" aria-label="فیلتر وضعیت">
+        @foreach (var filter in filters)
+        {
+            var isCurrent = filter.Status == Model.Status;
+            <a class="ak-btn @(isCurrent ? null : "ak-btn--ghost")" asp-action="Index" asp-route-status="@filter.Status" aria-current="@(isCurrent ? "page" : null)">@filter.Label</a>
+        }
+    </nav>
+
+    <div class="ak-list">
+        <div class="ak-table-wrap">
+            <table class="ak-table" aria-label="لیست عملیات آفلاین">
+                <thead>
+                    <tr>
+                        <th class="ak-col-grow">نوع عملیات</th>
+                        <th>کاربر</th>
+                        <th>تاریخ کاری</th>
+                        <th>ثبت در دستگاه</th>
+                        <th>رسیدن به سرور</th>
+                        <th>وضعیت</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in Model.Rows)
+                    {
+                        <tr>
+                            <td class="ak-col-grow"><a asp-action="Details" asp-route-id="@row.Id" class="ak-name">@OfflineSyncDisplay.TypeLabel(row.OperationType)</a></td>
+                            <td>@row.UserName</td>
+                            <td>@(row.BusinessDate?.ToDisplayDate() ?? "—")</td>
+                            <td>@row.ClientCreatedAtUtc.ToDisplayDateTime()</td>
+                            <td>@row.ReceivedAtUtc.ToDisplayDateTime()</td>
+                            <td><span class="ak-status @OfflineSyncDisplay.StatusClass(row.Status)" title="@row.StatusNote">@OfflineSyncDisplay.StatusText(row.Status)</span></td>
+                        </tr>
+                    }
+                    @if (Model.Rows.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="6"><div class="ak-empty"><i class="bi bi-cloud-check" aria-hidden="true"></i>عملیات آفلاینی وجود ندارد</div></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (pageCount > 1)
+        {
+            <div class="ak-pager d-flex align-items-center gap-2">
+                @if (Model.Page > 1)
+                {
+                    <a class="ak-btn ak-btn--ghost" asp-action="Index" asp-route-status="@Model.Status" asp-route-page="@(Model.Page - 1)">قبلی</a>
+                }
+                <span>صفحه @Model.Page از @pageCount</span>
+                @if (Model.Page < pageCount)
+                {
+                    <a class="ak-btn ak-btn--ghost" asp-action="Index" asp-route-status="@Model.Status" asp-route-page="@(Model.Page + 1)">بعدی</a>
+                }
+            </div>
+        }
+    </div>
+</div>

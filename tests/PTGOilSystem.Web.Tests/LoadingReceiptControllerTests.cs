@@ -740,6 +740,64 @@ public class LoadingReceiptControllerTests
     }
 
     [Fact]
+    public async Task Create_Post_DirectSale_With_Pending_Price_Creates_Pending_Sale_Without_Ledger()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+
+        await using var db = new ApplicationDbContext(options);
+        SeedLoadingContext(db);
+        db.Customers.Add(new Customer { Id = 1, Name = "Direct Customer" });
+        db.Locations.Add(new Location { Id = 10, Name = "Customer Yard" });
+        await db.SaveChangesAsync();
+
+        var controller = new LoadingReceiptsController(
+            db,
+            new AuditService(db),
+            NullLogger<LoadingReceiptsController>.Instance)
+        {
+            TempData = BuildTempData()
+        };
+
+        // فروش مستقیم با قیمت باز: سطر دفتر ساخته نمی‌شود و ثبت رسید نباید روی آن بشکند.
+        var result = await controller.Create(new LoadingReceiptCreateViewModel
+        {
+            LoadingRegisterId = 1,
+            ReceiptDestination = LoadingReceiptDestination.DirectDispatch,
+            AllocationDestination = LoadingReceiptAllocationDestination.DirectSale,
+            ReceiptDate = new DateTime(2026, 4, 24),
+            TerminalId = 1,
+            ReceivedQuantityMt = 45m,
+            DestinationLocationId = 10,
+            AllocationDestinationName = "Customer Yard",
+            ReferenceDocument = "RCPT-DIRECT-SALE-PENDING",
+            SaleCustomerId = 1,
+            SaleDate = new DateTime(2026, 4, 24),
+            SaleIsPricePending = true,
+            SaleCurrency = "USD",
+            SaleInvoiceNumber = "INV-DIRECT-PENDING-001"
+        });
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Details", redirect.ActionName);
+
+        var allocation = await db.LoadingReceiptAllocations.SingleAsync();
+        var sale = await db.SalesTransactions.SingleAsync();
+        Assert.Equal(allocation.SalesTransactionId, sale.Id);
+        Assert.True(sale.IsSalePricePending);
+        Assert.Equal(45m, sale.QuantityMt);
+        Assert.Equal(0m, sale.TotalUsd);
+        Assert.Null(sale.AppliedFxRateToUsd);
+        Assert.Equal(0, await db.LedgerEntries.CountAsync());
+        Assert.Equal(0, await db.InventoryMovements.CountAsync());
+
+        var saleAudit = await db.AuditLogs.SingleAsync(a => a.EntityName == nameof(SalesTransaction) && a.EntityId == sale.Id);
+        Assert.NotNull(saleAudit.Diff);
+        Assert.Contains("ReceiptAllocationId", saleAudit.Diff);
+    }
+
+    [Fact]
     public async Task Create_Post_DirectSale_Rejects_When_Sale_Fields_Are_Missing()
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()

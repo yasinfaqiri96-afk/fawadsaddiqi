@@ -504,6 +504,8 @@
         if (curSel) { curSel.addEventListener('change', syncCurrencyTags); syncCurrencyTags(); }
 
         // ---------- پیش‌نمایش ----------
+        function isPricePending() { var toggle = $('IsSalePricePending'); return !!(toggle && toggle.checked); }
+        function fmtAmount(n) { return isPricePending() ? 'نامشخص' : fmt(n); }
         function renderPreview() {
             var items = Array.from(state.selected.values());
             var price = parseFloat($('UnitPriceInCurrency').value) || 0;
@@ -526,16 +528,16 @@
                     '<td class="ak-num">' + escapeHtml(s.src.number) + '</td>' +
                     '<td>' + escapeHtml(s.src.product) + '</td>' +
                     '<td class="ak-num">' + fmtQty(qty) + '</td>' +
-                    '<td class="ak-num">' + fmt(amount) + '</td>';
+                    '<td class="ak-num">' + fmtAmount(amount) + '</td>';
                 body.appendChild(tr);
             });
             var cust = $('BuyerKey');
             $('previewMeta').innerHTML =
                 '<span><b>مشتری:</b> ' + escapeHtml(cust.options[cust.selectedIndex] ? cust.options[cust.selectedIndex].text : '-') + '</span>' +
-                '<span><b>نرخ هر تن:</b> ' + fmt(price) + ' ' + escapeHtml(curSel.value || 'USD') + '</span>' +
+                '<span><b>نرخ هر تن:</b> ' + fmtAmount(price) + ' ' + escapeHtml(curSel.value || 'USD') + '</span>' +
                 '<span><b>تعداد منابع:</b> ' + items.length + '</span>';
             $('previewQty').textContent = fmtQty(totalQty);
-            $('previewTotal').textContent = fmt(total);
+            $('previewTotal').textContent = fmtAmount(total);
         }
 
         // All selected rows are submitted, including rows outside the visible page.
@@ -597,6 +599,8 @@
                 alert('محل فروش مستقیم بارگیری را انتخاب کنید.'); return false;
             }
             if (!$('BuyerKey').value) { alert('خریدار را انتخاب کنید.'); return false; }
+            // قیمت باز: نرخ فروش و نرخ تبدیل غیرفعال و خالی‌اند و بعداً از صفحهٔ هر فروش تعیین می‌شوند.
+            if (isPricePending()) return true;
             if (!(parseFloat($('UnitPriceInCurrency').value) > 0)) { alert('نرخ فروش هر تن را وارد کنید.'); return false; }
             var cur = (curSel && curSel.value) || 'USD';
             if (cur !== 'USD') {

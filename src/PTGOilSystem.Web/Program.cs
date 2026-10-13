@@ -524,6 +524,11 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // تنظیمات کامل و سیاست‌ها: Security/AuthenticationSetup.cs
 builder.Services.AddPtgAuthentication(builder.Configuration, builder.Environment);
 builder.Services.AddPtgMobileApi();
+// مشعل آفلاین (PWA): دریافت عملیات آفلاین و ثبت قطعی خودکار با همان اکشن‌های موجود (بدون منطق مالی موازی).
+builder.Services.AddScoped<PTGOilSystem.Web.Services.OfflineSync.IOfflineSyncService, PTGOilSystem.Web.Services.OfflineSync.OfflineSyncService>();
+builder.Services.AddScoped<PTGOilSystem.Web.Services.OfflineSync.IOfflineSnapshotService, PTGOilSystem.Web.Services.OfflineSync.OfflineSnapshotService>();
+builder.Services.AddScoped<PTGOilSystem.Web.Services.OfflineSync.OfflineOperationApplier>();
+builder.Services.AddScoped<PTGOilSystem.Web.Services.OfflineSync.IMvcFormDispatcher, PTGOilSystem.Web.Services.OfflineSync.MvcFormDispatcher>();
 
 // ---- MVC --------------------------------------------------------------------
 builder.Services.AddControllersWithViews(options =>

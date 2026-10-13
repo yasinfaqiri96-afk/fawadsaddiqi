@@ -1718,12 +1718,14 @@ public partial class LoadingReceiptsController : Controller
                     await _db.SaveChangesAsync();
                 }
 
+                // هم‌ردیف با directSaleDrafts: فروش با قیمت باز سطر دفتر ندارد (null) تا ایندکس‌ها جابه‌جا نشوند.
                 var directSaleLedgerEntries = directSaleDrafts
-                    .Where(d => SalePendingPricing.ShouldPostLedger(d.Draft.Sale))
-                    .Select(d => Ledger.Post(BuildDirectSaleLedgerEntry(
-                        d.Draft.Sale,
-                        d.Allocation.SourcePurchaseContractId!.Value,
-                        d.Draft.Conversion)))
+                    .Select(d => SalePendingPricing.ShouldPostLedger(d.Draft.Sale)
+                        ? Ledger.Post(BuildDirectSaleLedgerEntry(
+                            d.Draft.Sale,
+                            d.Allocation.SourcePurchaseContractId!.Value,
+                            d.Draft.Conversion))
+                        : null)
                     .ToList();
                 await _db.SaveChangesAsync();
 
@@ -1823,7 +1825,7 @@ public partial class LoadingReceiptsController : Controller
                             ("UnitPriceUsd", sale.UnitPriceUsd),
                             ("TotalInCurrency", sale.TotalInCurrency),
                             ("TotalUsd", sale.TotalUsd),
-                            ("LedgerReference", ledger.Reference)));
+                            ("LedgerReference", ledger?.Reference)));
                 }
 
                 foreach (var dispatch in directTruckDispatches)

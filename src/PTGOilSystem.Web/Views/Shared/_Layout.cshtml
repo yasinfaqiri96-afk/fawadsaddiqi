@@ -260,6 +260,7 @@
     if (canManageUsers)
     {
         settingsItems.Add(("Users", "Index", T("کاربران", "Users"), "nav-users"));
+        settingsItems.Add(("OfflineSync", "Index", T("عملیات آفلاین", "Offline operations"), "nav-settings"));
     }
     if (canManageBackups)
     {
@@ -277,7 +278,7 @@
             "Index",
             T("تنظیمات", "Settings"),
             "nav-settings",
-            active: userManagementControllers.Concat(backupManagementControllers).Append("SystemSettings").ToArray(),
+            active: userManagementControllers.Concat(backupManagementControllers).Append("SystemSettings").Append("OfflineSync").ToArray(),
             children: settingsItems.ToArray()));
     }
 
@@ -375,6 +376,16 @@
     <link rel="apple-touch-icon" sizes="180x180" href="~/apple-touch-icon-v3.png" asp-append-version="true" />
     <link rel="icon" type="image/png" sizes="192x192" href="~/android-chrome-v3-192x192.png" asp-append-version="true" />
     <link rel="icon" type="image/png" sizes="512x512" href="~/android-chrome-v3-512x512.png" asp-append-version="true" />
+    @* PWA: نصب روی Android/iPhone/Windows و بازشدن آفلاین (sw.js فقط پوستهٔ آفلاین را cache می‌کند، نه صفحات واردشده). *@
+    <link rel="manifest" href="~/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="مشعل" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    @if (renderShellChrome)
+    {
+        <script src="~/js/pwa-register.js" asp-append-version="true" defer></script>
+    }
     @if (!isLoginPage)
     {
         @* در Development هر لایه جدا می‌آید تا دیباگ ساده بماند؛ در بقیهٔ محیط‌ها
@@ -616,6 +627,12 @@
                     </div>
 
                     <div class="boltz-topbar-end ptg-header-cluster">
+                        @* مشعل آفلاین: وضعیت اتصال و عملیات ارسال‌نشده (pwa-register.js آیکن و عنوان را به‌روز می‌کند). *@
+                        <a class="ptg-h3d" href="~/offline/index.html" data-offline-chip
+                           title="@T("مشعل آفلاین", "Mashal offline")"
+                           aria-label="@T("مشعل آفلاین", "Mashal offline")">
+                            <i class="bi bi-cloud-check" aria-hidden="true" data-offline-chip-icon></i>
+                        </a>
                         @if (onboardingEnabled)
                         {
                             <a class="ptg-h3d" asp-controller="Home" asp-action="Index" asp-route-guide="1"

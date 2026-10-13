@@ -156,6 +156,10 @@ public partial class ApplicationDbContext : DbContext
     // --- Mashal Mobile sessions (hashed refresh tokens; no business logic) ---
     public DbSet<MobileRefreshToken> MobileRefreshTokens => Set<MobileRefreshToken>();
 
+    // --- Mashal Offline inbox (received offline operations; never posts by itself) ---
+    public DbSet<OfflineSyncOperation> OfflineSyncOperations => Set<OfflineSyncOperation>();
+    public DbSet<OfflineSyncDevice> OfflineSyncDevices => Set<OfflineSyncDevice>();
+
     // --- Owned Operational Assets ---
     public DbSet<OperationalAsset> OperationalAssets => Set<OperationalAsset>();
     public DbSet<AssetOwnershipShare> AssetOwnershipShares => Set<AssetOwnershipShare>();
@@ -854,6 +858,31 @@ public partial class ApplicationDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(t => t.ReplacedByTokenId)
                 .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        // Mashal Offline inbox: one row per client operation id (idempotency). Users with offline
+        // history are not deletable through cascade — the inbox is part of the audit trail.
+        modelBuilder.Entity<OfflineSyncOperation>(b =>
+        {
+            b.Property(o => o.OperationType).HasMaxLength(64).IsRequired();
+            b.Property(o => o.PayloadHash).HasMaxLength(64).IsRequired();
+            b.HasIndex(o => o.ClientOperationId).IsUnique();
+            b.HasIndex(o => new { o.UserId, o.Status });
+            b.HasIndex(o => new { o.Status, o.CreatedAtUtc });
+            b.HasIndex(o => new { o.UserId, o.OperationType, o.PayloadHash });
+            b.HasOne(o => o.User)
+                .WithMany()
+                .HasForeignKey(o => o.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<OfflineSyncDevice>(b =>
+        {
+            b.HasIndex(d => new { d.UserId, d.DeviceId }).IsUnique();
+            b.HasOne(d => d.User)
+                .WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Amendment uniqueness per contract (system rule #13).

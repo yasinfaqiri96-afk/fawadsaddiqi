@@ -67,7 +67,8 @@ internal sealed class MobileApiTestHost : IAsyncDisposable
     public static async Task<MobileApiTestHost> StartAsync(
         string environment = "Production",
         string? signingKey = SigningKey,
-        IMobileDashboardService? dashboard = null)
+        IMobileDashboardService? dashboard = null,
+        Action<IServiceCollection>? configureServices = null)
     {
         var connection = new SqliteConnection("Filename=:memory:");
         connection.Open();
@@ -106,6 +107,7 @@ internal sealed class MobileApiTestHost : IAsyncDisposable
         services.AddPtgMobileApi();
         services.RemoveAll<IMobileDashboardService>();
         services.AddScoped(_ => dashboard ?? new FakeMobileDashboardService());
+        configureServices?.Invoke(services);
 
         services.AddControllers(options =>
             {

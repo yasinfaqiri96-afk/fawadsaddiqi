@@ -1,0 +1,91 @@
+@model PTGOilSystem.Web.Controllers.OfflineSyncDetailsViewModel
+@using PTGOilSystem.Web.Controllers
+@{
+    var op = Model.Operation;
+    var typeLabel = OfflineSyncDisplay.TypeLabel(op.OperationType);
+    ViewData["Title"] = $"عملیات آفلاین — {typeLabel}";
+    ViewData["AkHeaderStatus"] = OfflineSyncDisplay.StatusText(op.Status);
+    ViewData["AkHeaderStatusState"] = OfflineSyncDisplay.StatusClass(op.Status);
+    var isOpen = op.Status is OfflineSyncStatus.Received or OfflineSyncStatus.Conflict;
+    var applyUrl = Model.Type is null ? null : Url.Action(Model.Type.ApplyAction, Model.Type.ApplyController);
+}
+
+<div class="ak-form-page ak-detail-page" data-ak-detail-v2="true">
+    <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
+             model="@((ViewData["Title"]?.ToString() ?? "جزئیات", false,
+                       (string?)null, (string?)null, (string?)null, (string?)null,
+                       "بازگشت", "bi-arrow-right", (string?)Url.Action("Index")))" />
+
+
+    <section class="ak-form-section ak-detail-section">
+        @await Html.PartialAsync("~/Views/Shared/Components/Ak/_AkSectionHead.cshtml", ("مشخصات عملیات", (string?)"اطلاعاتی که کارمند روی دستگاه ثبت کرده است."))
+        <dl class="ak-list">
+            @foreach (var field in Model.Fields)
+            {
+                <div class="ak-list-row"><dt>@field.Label</dt><dd>@field.Value</dd></div>
+            }
+            @if (Model.Fields.Count == 0)
+            {
+                <div class="ak-list-row"><dt>محتوا</dt><dd>—</dd></div>
+            }
+        </dl>
+    </section>
+
+    <section class="ak-form-section ak-detail-section">
+        @await Html.PartialAsync("~/Views/Shared/Components/Ak/_AkSectionHead.cshtml", ("همگام‌سازی", (string?)"شناسه‌ها برای جلوگیری از ثبت تکراری نگهداری می‌شوند."))
+        <dl class="ak-list">
+            <div class="ak-list-row"><dt>کاربر</dt><dd>@(op.User?.FullName ?? op.User?.Username ?? "—")</dd></div>
+            <div class="ak-list-row"><dt>تاریخ کاری</dt><dd>@(op.BusinessDate?.ToDisplayDate() ?? "—")</dd></div>
+            <div class="ak-list-row"><dt>ثبت در دستگاه</dt><dd>@op.ClientCreatedAtUtc.ToDisplayDateTime()</dd></div>
+            <div class="ak-list-row"><dt>رسیدن به سرور</dt><dd>@op.CreatedAtUtc.ToDisplayDateTime()</dd></div>
+            <div class="ak-list-row"><dt>شناسهٔ عملیات</dt><dd><code>@op.ClientOperationId</code></dd></div>
+            <div class="ak-list-row"><dt>شناسهٔ دستگاه</dt><dd><code>@op.DeviceId</code></dd></div>
+            <div class="ak-list-row"><dt>یادداشت وضعیت</dt><dd>@(op.StatusNote ?? "—")</dd></div>
+            @if (op.ReviewedAtUtc is not null)
+            {
+                <div class="ak-list-row"><dt>بررسی‌کننده</dt><dd>@(Model.ReviewerName ?? "—") — @op.ReviewedAtUtc.ToDisplayDateTime()</dd></div>
+            }
+            @if (op.AppliedReferenceType is not null || op.AppliedReferenceId is not null)
+            {
+                <div class="ak-list-row"><dt>سند ثبت‌شده</dt><dd>@op.AppliedReferenceType @op.AppliedReferenceId</dd></div>
+            }
+        </dl>
+    </section>
+
+    @if (isOpen && Model.CanReview)
+    {
+        <section class="ak-form-section">
+            @await Html.PartialAsync("~/Views/Shared/Components/Ak/_AkSectionHead.cshtml", ("تصمیم دستی (فقط در صورت نیاز)", (string?)"ثبت قطعی خودکار است. فقط اگر سند را خودتان با فرم ثبت کرده‌اید شمارهٔ آن را بنویسید، یا عملیات را رد کنید."))
+            @if (applyUrl is not null)
+            {
+                <p><a class="ak-btn ak-btn--ghost" href="@applyUrl" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-left" aria-hidden="true"></i> بازکردن فرم @typeLabel</a></p>
+            }
+            <form asp-action="Review" asp-route-id="@op.Id" method="post">
+                @Html.AntiForgeryToken()
+                <div class="ak-form-grid">
+                    <div class="ak-field">
+                        <label class="ak-label" for="referenceType">نوع سند</label>
+                        <input class="ak-input" id="referenceType" name="referenceType" maxlength="64" value="@Model.Type?.ApplyController" />
+                    </div>
+                    <div class="ak-field">
+                        <label class="ak-label" for="referenceId">شمارهٔ سند</label>
+                        <input class="ak-input" id="referenceId" name="referenceId" maxlength="64" />
+                    </div>
+                    <div class="ak-field">
+                        <label class="ak-label" for="note">یادداشت / دلیل</label>
+                        <input class="ak-input" id="note" name="note" maxlength="1000" />
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    <button type="submit" class="ak-btn" name="decision" value="Applied">اعمال شد</button>
+                    <button type="submit" class="ak-btn ak-btn--ghost" name="decision" value="Conflict">تعارض</button>
+                    <button type="submit" class="ak-btn ak-btn--ghost" name="decision" value="Rejected">رد</button>
+                </div>
+            </form>
+        </section>
+    }
+    else if (isOpen)
+    {
+        <div class="alert alert-warning">شما به بخش «@typeLabel» دسترسی ندارید؛ بررسی این عملیات با کاربر مجاز همان بخش است.</div>
+    }
+</div>

@@ -118,7 +118,7 @@ public static class RoleAccessRules
         new(RoleNavigationKeys.Rates, "نرخ‌ها و قواعد", "bi-bar-chart-line-fill",
             ["PlattsRates"]),
         new(RoleNavigationKeys.Management, "مدیریت کاربران", "bi-person-fill-gear",
-            ["Users", "Roles", "AuditLogs", "Backups", "BackupRestore", "Maintenance", "OperationalPeriodLocks", "SystemSettings"], IsSensitive: true)
+            ["Users", "Roles", "AuditLogs", "Backups", "BackupRestore", "Maintenance", "OperationalPeriodLocks", "SystemSettings", "OfflineSync"], IsSensitive: true)
     ];
 
     public static IReadOnlySet<string> BusinessNavigationKeys { get; } =
