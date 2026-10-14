@@ -121,6 +121,13 @@ public sealed class ActivityLogMiddleware
             return true;
         }
 
+        // آماده‌سازی پس‌زمینهٔ کار بدون سرور (OfflinePrepareMiddleware) بازدید کاربر نیست؛ ده‌ها صفحه را می‌گیرد و
+        // نباید جدول سابقه را پر کند. خطاها (بالا) مثل همیشه ثبت می‌شوند.
+        if (OfflinePrepareMiddleware.IsPrepareRequest(context))
+        {
+            return false;
+        }
+
         var key = string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
             $"audit-read:{context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value}:{context.User.Identity?.Name}:{method}:{context.Request.Path.Value}:{context.Request.QueryString.Value}");

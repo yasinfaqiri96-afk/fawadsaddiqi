@@ -107,6 +107,8 @@ Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
 $env:PTG_AUTO_MIGRATE = "true"          # فقط همین کپی آزمایشی
 $env:PTG_DEV_AUTO_SIGNIN = "false"
 $env:PTG_UI_PICK = "0"
+# Separate auth cookie: cookies ignore the port, so sign-in/out here must not replace the :5000 session.
+$env:PTG_AUTH_COOKIE_NAME = "PTGOilSystem.Auth.Pwa$Port"
 $env:Backup__SchedulerEnabled = "false"
 
 Write-Host ""

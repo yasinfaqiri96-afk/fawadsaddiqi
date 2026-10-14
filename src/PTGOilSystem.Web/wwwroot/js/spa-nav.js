@@ -7,6 +7,7 @@
     var navAbort = null;           // AbortController ناوبری GET در جریان
     var scrollPositions = {};      // url -> scrollTop، برای بازگردانی در Back/Forward
     var pageStyleLoadTimeoutMs = 1800;
+    var slowNavigationMs = 6000;    // پس از این مدت بی‌پاسخ، مشعل آفلاین دسترسی سرور را می‌سنجد
 
     // --- Prefetch cache (perceived-instant navigation) ----------------------
     // Hover/mousedown over an internal link warms the page HTML so the eventual
@@ -231,6 +232,16 @@
         // پاسخ دیررسِ ناوبری قدیمی هرگز نباید صفحهٔ جدیدتر را بازنویسی کند.
         function isStale() { return token !== navToken; }
 
+        try {
+            window.dispatchEvent(new CustomEvent("ptg:nav-start", { detail: { url: url, method: method } }));
+        } catch (_) { /* شنونده نباید ناوبری را بشکند */ }
+
+        // مشعل آفلاین: همین چند ثانیه پیش معلوم شد سرور در دسترس نیست؛ صفحه بی‌انتظارِ شکست شبکه از نسخهٔ ذخیره.
+        if (method === "GET" && !body && offlineFirst() && offlineFallback(url, method, push)) {
+            settle();
+            return;
+        }
+
         // Serve from prefetch cache when a fresh warm copy exists (GET only).
         if (method === "GET" && !body) {
             var cached = freshCacheEntry(url);
@@ -252,8 +263,22 @@
         if (body) opts.body = body;
         if (controller) opts.signal = controller.signal;
 
+        // شبکهٔ وصل ولی سرور بی‌پاسخ (Wi-Fi بدون اینترنت): پس از چند ثانیه بررسی واقعی؛ سرور نبود = نسخهٔ ذخیره.
+        var answered = false;
+        var probeTimer = method === "GET" && !body ? window.setTimeout(function () {
+            var probe = window.PTG && window.PTG.offlineProbe;
+            if (typeof probe !== "function" || answered || isStale()) return;
+            Promise.resolve(probe()).then(function (reachable) {
+                if (reachable || answered || isStale()) return;
+                if (controller) { try { controller.abort(); } catch (_) {} }
+                if (offlineFallback(url, method, push)) settle();
+            }).catch(function () {});
+        }, slowNavigationMs) : null;
+
         fetch(url, opts)
             .then(function (res) {
+                answered = true;
+                if (probeTimer) window.clearTimeout(probeTimer);
                 if (isStale()) { releaseBody(res); return null; }
                 if (!res.ok && res.status >= 500) {
                     releaseBody(res);
@@ -277,12 +302,23 @@
                 return swap(result.html, result.finalUrl, pushEntry);
             })
             .catch(function (error) {
+                answered = true;
+                if (probeTimer) window.clearTimeout(probeTimer);
                 if (isStale()) return;
                 if (error && error.name === "AbortError") return;
                 if (offlineFallback(url, method, push)) return;
                 fallback(url);
             })
             .finally(settle);
+    }
+
+    function offlineFirst() {
+        try {
+            var skip = window.PTG && window.PTG.offlineShouldSkipNetwork;
+            return typeof skip === "function" && skip() === true;
+        } catch (_) {
+            return false;
+        }
     }
 
     // مشعل آفلاین (offline/js/form-bridge.js): صفحهٔ GET دریافت‌شده برای خواندن بدون سرور (رمزگذاری‌شده) نگه داشته

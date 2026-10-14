@@ -90,7 +90,11 @@ builder.Services.AddDbContext<ApplicationDbContext>((serviceProvider, options) =
     {
         options.AddInterceptors(serviceProvider.GetRequiredService<MvcQueryCountingInterceptor>());
     }
+
+    // مشعل آفلاین: فقط در Scopeِ همگام‌سازی فعال می‌شود (توکن یک‌بارِ ویرایش/لغو/حذفِ آفلاین)؛ درخواست عادی بی‌اثر.
+    options.AddInterceptors(serviceProvider.GetRequiredService<PTGOilSystem.Web.Services.OfflineSync.OfflineApplyScope>());
 });
+builder.Services.AddScoped<PTGOilSystem.Web.Services.OfflineSync.OfflineApplyScope>();
 
 // ---- Domain services (business rules, system rules #3-#9, #11, #13) --------
 builder.Services.AddScoped<IDashboardService, DashboardService>();
@@ -755,6 +759,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthorization();
 app.UseMiddleware<ActivityLogMiddleware>();
+// آماده‌سازی پس‌زمینهٔ کار بدون سرور: ETag/304 برای صفحات بدون تغییر (فقط درخواست‌های X-PTG-Prepare).
+app.UseMiddleware<OfflinePrepareMiddleware>();
 
 app.MapControllerRoute(
     name: "default",

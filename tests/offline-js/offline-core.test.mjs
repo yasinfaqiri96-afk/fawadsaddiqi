@@ -515,6 +515,36 @@ test('device auth: tokens are stored encrypted, refreshed once for concurrent ca
   assert.equal(await auth.has(), false, 'revoked/disabled user → back to normal login');
 });
 
+test('device auth: a slow concurrent read never brings back a rotated refresh token (server reuse detection)', async () => {
+  const { store, sealer, profile } = await setup();
+  const used = [];
+  const auth = new DeviceAuth({
+    store, sealer, deviceId: profile.deviceId,
+    refreshImpl: async (refreshToken) => {
+      used.push(refreshToken);
+      const n = used.length;
+      return { ok: true, data: { accessToken: `A${n}`, accessTokenExpiresAtUtc: new Date(Date.now() + 900_000).toISOString(),
+        refreshToken: `R${n}`, refreshTokenExpiresAtUtc: new Date(Date.now() + 86_400_000).toISOString() } };
+    }
+  });
+  await auth.save({ accessToken: 'A0', accessTokenExpiresAtUtc: new Date(Date.now() - 1000).toISOString(),
+    refreshToken: 'R0', refreshTokenExpiresAtUtc: new Date(Date.now() + 86_400_000).toISOString() });
+  auth.cache = undefined; // شروع سرد: توکن فقط در IndexedDB
+  const realGet = store.get.bind(store);
+  let reads = 0;
+  store.get = async (...args) => {
+    const delay = reads++ === 1 ? 50 : 0; // خواندن دوم ردیف قدیمی را می‌گیرد ولی پس از چرخش تمام می‌شود
+    const row = await realGet(...args);
+    await new Promise((r) => setTimeout(r, delay));
+    return row;
+  };
+
+  const headers = await Promise.all([auth.header(), auth.header()]);
+  assert.deepEqual(used, ['R0'], 'old refresh token is sent once only');
+  assert.deepEqual(new Set(headers), new Set(['Bearer A1']));
+  assert.equal((await auth.load()).refreshToken, 'R1');
+});
+
 // ---------------------------------------------------------------- فورم‌های اصلی MVC، صفحات ذخیره‌شده، نشست
 
 import { FORM_SUBMIT, referencedOperations } from '../../src/PTGOilSystem.Web/wwwroot/offline/js/operations.js';
@@ -625,4 +655,246 @@ test('session: local PIN once per session; expires after idle, never crosses use
   session.forgetSession();
   assert.equal(await session.restoreSession(SESSION.userId, now), null);
   delete globalThis.sessionStorage;
+});
+
+// ---------------------------------------------------------------- بدون بازدید قبلی، آماده‌سازی خودکار، سرعت
+
+import { Prio, listInfo, loosePageUrl } from '../../src/PTGOilSystem.Web/wwwroot/offline/js/page-vault.js';
+import { Preparer, hubLinks, withParam, LIST_ROWS } from '../../src/PTGOilSystem.Web/wwwroot/offline/js/prepare.js';
+
+const listHtml = (rows, pages = 1) => `<html><head><title>مشتریان</title></head><body><main><table class="ak-table"><thead><tr><th>نام</th></tr></thead><tbody>${
+  Array.from({ length: rows }, (_, i) => `<tr><td>مشتری ${i + 1}</td></tr>`).join('')}</tbody></table>
+  <div class="ak-pager-bar" data-server-pagination="true">${pages > 1 ? '<nav class="ak-pager"><ul class="pagination pagination-sm mb-0"></ul></nav>' : ''}</div></main></body></html>`;
+const formHtml = '<html><head><title>فروش جدید</title></head><body><main><form method="post"><select name="ContractId"><option value="5">قرارداد ۵</option></select></form></main></body></html>';
+
+test('resolve without prior visit: exact, UI-only params ignored, list rows for page/search/filters, form template; records/reports never borrowed', async () => {
+  const store = await MemoryStore.open('pages');
+  const { dataKey } = await createProfile({ session: SESSION, pin: PIN, deviceId: 'dev-1' });
+  const vault = new PageVault(store, new Sealer(dataKey));
+  await vault.put('http://h/Customers', listHtml(10, 3));
+  await vault.put('http://h/Customers?pageSize=200', listHtml(25));
+  await vault.put('http://h/Sales/Create', formHtml);
+  await vault.put('http://h/Customers/Details/7', '<html><body><main>مشتری ۷</main></body></html>');
+  await vault.put('http://h/Reports/Stock?from=2026-01-01', '<html><body><main>راپور</main></body></html>');
+  const isForm = (p) => p === '/sales/create';
+
+  assert.deepEqual(listInfo(listHtml(10, 3)), { rows: 10, complete: false });
+  assert.deepEqual(listInfo(listHtml(25)), { rows: 25, complete: true });
+  assert.equal(listInfo(formHtml), null);
+  assert.equal(loosePageUrl('/Sales/Create?returnUrl=%2F&Tab=x&page=1', 'http://h/'), '/sales/create');
+
+  assert.equal((await vault.resolve('http://h/customers', { isForm })).match, 'exact');
+  const page2 = await vault.resolve('http://h/Customers?page=2&pageSize=10', { isForm });
+  assert.equal(page2.match, 'list');
+  assert.equal(page2.entry.list.rows, 25, 'most complete stored list is the row source');
+  assert.equal((await vault.resolve('http://h/Customers?q=abc', { isForm })).match, 'list');
+  assert.equal((await vault.resolve('http://h/Sales/Create?returnUrl=%2Fsales', { isForm })).match, 'loose');
+  const template = await vault.resolve('http://h/Sales/Create?contractId=5', { isForm });
+  assert.equal(template.match, 'template');
+  assert.ok(template.page.html.includes('ContractId'));
+  assert.equal(await vault.resolve('http://h/Customers/Details/8', { isForm }), null, 'another record is never shown');
+  assert.equal(await vault.resolve('http://h/Reports/Stock?from=2026-02-01', { isForm }), null, 'another report period is never shown');
+  assert.equal(await vault.resolve('http://h/Sales/Create?modal=1', { isForm }), null, 'page copy is not a modal document');
+});
+
+test('page vault: low-priority pages evicted first (forms/dashboard kept); 304 touch does not rewrite content; concurrent writes keep the index', async () => {
+  const store = await MemoryStore.open('pages');
+  const { dataKey } = await createProfile({ session: SESSION, pin: PIN, deviceId: 'dev-1' });
+  let t = Date.parse('2026-10-14T08:00:00Z');
+  const vault = new PageVault(store, new Sealer(dataKey), { clock: () => new Date(t += 1000), maxPages: 2 });
+  const page = (n) => `<html><head><title>${n}</title></head><body><main>${n}</main></body></html>`;
+  await vault.put('http://h/Sales/Create', page('form'), { prio: Prio.Form });
+  await vault.put('http://h/Reports/A', page('a'), { prio: Prio.Page });
+  await vault.put('http://h/Reports/B', page('b'), { prio: Prio.Page });
+  assert.ok(await vault.get('http://h/Sales/Create'), 'older form survives newer low-priority pages');
+  assert.equal(await vault.get('http://h/Reports/A'), null);
+
+  const rowBefore = JSON.stringify(await store.get('pages', await PageVault.keyFor('http://h/Sales/Create')));
+  assert.equal(await vault.touch('http://h/Sales/Create'), true);
+  assert.equal(JSON.stringify(await store.get('pages', await PageVault.keyFor('http://h/Sales/Create'))), rowBefore);
+  assert.ok((await vault.entry('http://h/Sales/Create')).checkedAt);
+
+  const wide = new PageVault(store, new Sealer(dataKey));
+  await Promise.all(Array.from({ length: 12 }, (_, i) => wide.put(`http://h/P/${i}`, page(i))));
+  assert.equal((await wide.index()).filter((e) => e.key !== 'shell').length, 14, 'parallel writers never lose index entries');
+});
+
+test('prepare: priority order, fresh pages skipped, unchanged pages (304) not re-stored, lists with 200 rows, hub links, stop on login redirect', async () => {
+  const store = await MemoryStore.open('pages');
+  const { dataKey } = await createProfile({ session: SESSION, pin: PIN, deviceId: 'dev-1' });
+  // همان ساعت آزمایشیِ Preparer؛ با ساعت واقعی، تازگی صفحه به ساعت اجرای تست وابسته می‌شد.
+  const vault = new PageVault(store, new Sealer(dataKey), { clock: () => new Date(now) });
+  const calls = [];
+  const html = (body) => `<html><body><main>${body}</main></body></html>`;
+  const site = {
+    '/': html('<a href="/Reports/Sales">ف</a><a href="/Customers/Details/5">x</a><a href="/Sales/Delete">x</a><a href="/Reports?x=1">x</a>'),
+    '/Sales/Create': formHtml,
+    [`/Customers?pageSize=${LIST_ROWS}`]: listHtml(30),
+    [`/Reports/Sales?pageSize=${LIST_ROWS}`]: html('راپور فروش')
+  };
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, etag: init.headers['If-None-Match'] || null, spa: init.headers['X-PTG-SPA'] === '1', prepare: init.headers['X-PTG-Prepare'] });
+    const body = site[url];
+    const etag = `W/"p-${(await sha256Hex(body || '')).slice(0, 8)}"`;
+    if (!body) return new Response('nf', { status: 404 });
+    if (init.headers['If-None-Match'] === etag) return new Response(null, { status: 304 });
+    return new Response(body, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', ETag: etag } });
+  };
+  let now = Date.parse('2026-10-14T09:00:00Z');
+  const preparer = new Preparer({ vault: async () => vault, fetchImpl, concurrency: 1, now: () => now, sleep: async () => {} });
+  const tasks = [
+    { url: '/Customers', prio: Prio.List, maxAgeMs: 3600_000, list: true },
+    { url: '/Sales/Create', prio: Prio.Form, maxAgeMs: 3600_000 },
+    { url: '/', prio: Prio.Core, maxAgeMs: 3600_000, crawl: true }
+  ];
+  const first = await preparer.run(tasks);
+  assert.deepEqual(calls.map((c) => c.url), ['/', '/Sales/Create', `/Customers?pageSize=${LIST_ROWS}`, `/Reports/Sales?pageSize=${LIST_ROWS}`]);
+  assert.ok(calls.every((c) => c.prepare === '1' && c.spa));
+  assert.deepEqual(first.crawlLinks, ['/Reports/Sales'], 'record, delete and query links are never crawled');
+  assert.equal(first.lists, 1);
+  assert.equal((await vault.resolve('http://h/Customers?page=3', {})).entry.list.rows, 30);
+  assert.ok(await vault.get('http://h/Reports/Sales'), 'non-list page stored under its own address');
+
+  calls.length = 0;
+  const second = await preparer.run(tasks);
+  assert.equal(calls.length, 0, 'nothing requested while copies are fresh');
+  assert.equal(second.skipped, 3);
+
+  now += 2 * 3600_000;
+  calls.length = 0;
+  const before = JSON.stringify(await store.getAll('pages'));
+  const third = await preparer.run(tasks);
+  assert.equal(third.notModified, 3, 'unchanged pages answered with 304');
+  assert.ok(calls.every((c) => c.etag), 'stored ETag sent');
+  assert.equal(JSON.stringify(await store.getAll('pages')), before, 'unchanged pages are not re-encrypted or re-written');
+
+  const login = new Preparer({ vault: async () => vault, now: () => now + 9e9, sleep: async () => {}, concurrency: 1,
+    fetchImpl: async () => ({ redirected: true, url: 'http://h/Auth/Login?returnUrl=%2F', status: 200, ok: true, headers: new Headers() }) });
+  const aborted = await login.run(tasks);
+  assert.equal(aborted.aborted, 'auth');
+  assert.equal(aborted.fetched, 0);
+
+  assert.deepEqual(hubLinks('<main><a href="/A/B">x</a><a href="/A/B/C">x</a><a href="/A/12">x</a><a download href="/F">x</a><a href="/Users">x</a></main>'), ['/A/B']);
+  assert.equal(withParam('/Customers?q=a', 'pageSize', 200), '/Customers?q=a&pageSize=200');
+});
+
+test('prepare pauses while the user navigates and stops when the server goes away', async () => {
+  const store = await MemoryStore.open('pages');
+  const { dataKey } = await createProfile({ session: SESSION, pin: PIN, deviceId: 'dev-1' });
+  const vault = new PageVault(store, new Sealer(dataKey));
+  let busy = 3;
+  let reachable = true;
+  let fetches = 0;
+  const preparer = new Preparer({
+    vault: async () => vault, concurrency: 1, sleep: async () => {},
+    isBusy: () => busy-- > 0,
+    isReachable: () => reachable,
+    fetchImpl: async () => {
+      fetches += 1;
+      reachable = false;
+      return new Response('<html><body><main>x</main></body></html>', { status: 200, headers: { 'Content-Type': 'text/html' } });
+    }
+  });
+  const summary = await preparer.run([{ url: '/A', prio: 1, maxAgeMs: 1 }, { url: '/B', prio: 1, maxAgeMs: 1 }]);
+  assert.ok(busy < 0, 'waited until navigation finished');
+  assert.equal(fetches, 1);
+  assert.equal(summary.aborted, 'offline');
+});
+
+test('outbox: sync and pending options decrypt only the statuses they need; dependencies resolved from the plain status column; snapshot off for the main system', async () => {
+  const ctx = await setup();
+  const { repo, store, profile, sealer, server, monitor } = ctx;
+  const parent = await repo.submit(FORM_SUBMIT, { path: '/customers/create', fields: [['Name', 'الف']] }, '2026-10-14');
+  const child = await repo.submit(FORM_SUBMIT, { path: '/payments/create', fields: [['CustomerId', `op:${parent.clientOperationId}`]] }, '2026-10-14');
+  await repo.saveDraft(FORM_SUBMIT, { path: '/x/create', fields: [['A', '1']] }, '2026-10-14');
+  let opened = 0;
+  const counting = { seal: (v) => sealer.seal(v), open: (s) => { opened += 1; return sealer.open(s); } };
+  const spy = new OutboxRepo(store, counting, profile);
+  assert.equal((await spy.listByStatus([Status.Pending])).length, 2);
+  assert.equal(opened, 2, 'the draft is not decrypted');
+  const statuses = await spy.statusMap();
+  assert.equal(statuses.get(child.clientOperationId), Status.Pending);
+  assert.equal(await store.countBy('outbox', 'status', [Status.Pending, Status.Draft]), 3);
+
+  let snapshots = 0;
+  server.snapshot = async () => { snapshots += 1; return { ok: true, status: 200, data: { asOfUtc: new Date().toISOString() } }; };
+  const engine = new SyncEngine({ repo, store, api: server, monitor, profile, sealer, random: () => 0, snapshot: false });
+  const summary = await engine.run();
+  assert.equal(summary.applied, 2, 'dependency sent after its parent in the same run');
+  assert.equal(snapshots, 0, 'main-system engine never pulls the heavy snapshot');
+  assert.equal(server.ops.get(child.clientOperationId).status, 'Applied');
+});
+
+test('storage full: low-priority pages make room (forms and shell kept); outbox rows never touched by page eviction', async () => {
+  const store = await MemoryStore.open('pages');
+  const { dataKey } = await createProfile({ session: SESSION, pin: PIN, deviceId: 'dev-1' });
+  const vault = new PageVault(store, new Sealer(dataKey));
+  const page = (n) => `<html><head><title>${n}</title></head><body><main>${'x'.repeat(500)}${n}</main></body></html>`;
+  await vault.putShell(page('shell'));
+  await vault.put('http://h/Sales/Create', page('form'), { prio: Prio.Form });
+  for (let i = 0; i < 5; i += 1) await vault.put(`http://h/Reports/R${i}`, page(i), { prio: Prio.Page });
+  await store.put('outbox', { clientOperationId: 'op-1', status: Status.Pending, createdAt: 'x', sealed: { ct: 'y' } });
+
+  store.failNextAtomic = Object.assign(new Error('QuotaExceededError'), { name: 'QuotaExceededError' });
+  await vault.put('http://h/Customers/Create', page('new form'), { prio: Prio.Form });
+  assert.ok(await vault.get('http://h/Customers/Create'), 'write succeeded after making room');
+  assert.ok(await vault.get('http://h/Sales/Create'), 'other form kept');
+  assert.ok(await vault.getShell(), 'shell kept');
+  assert.ok((await vault.usage()).pages < 7, 'some low-priority pages evicted');
+
+  const before = (await vault.usage()).bytes;
+  const freed = await vault.shrink(before);
+  assert.ok(freed > 0);
+  assert.ok(await vault.getShell(), 'shell never evicted');
+  assert.equal((await store.getAll('outbox')).length, 1, 'outbox untouched');
+});
+
+// ---------------------------------------------------------------- عملیات روی رکورد (ویرایش، لغو، حذف…)
+
+import { matchActionPath, baseVersionFrom } from '../../src/PTGOilSystem.Web/wwwroot/offline/js/operations.js';
+import { recordLinks, RECENT_RECORDS } from '../../src/PTGOilSystem.Web/wwwroot/offline/js/prepare.js';
+
+test('record actions: route id or hidden id field, only registered patterns', () => {
+  const actions = new Set(['/sales/cancel/{id}', '/expenses/cancel/{id}', '/payments/allocatetocontract']);
+  assert.deepEqual(matchActionPath('/sales/cancel/42', actions), { pattern: '/sales/cancel/{id}', entityId: '42' });
+  assert.deepEqual(matchActionPath('/expenses/cancel', actions), { pattern: '/expenses/cancel/{id}', entityId: null }, 'id in a hidden field');
+  assert.deepEqual(matchActionPath('/payments/allocatetocontract', actions), { pattern: '/payments/allocatetocontract', entityId: null });
+  assert.equal(matchActionPath('/sales/edit/42', actions), null);
+  assert.equal(matchActionPath('/users/delete/3', actions), null);
+  assert.equal(matchActionPath('/sales/cancel/op:1', actions), null);
+  assert.equal(baseVersionFrom('2026-10-14T09:00:00.1234567Z'), 't:2026-10-14T09:00:00.123Z');
+  assert.equal(baseVersionFrom(''), null);
+});
+
+test('record actions: stored with record id, server time of the copy and source page; empty field list allowed only with an id', async () => {
+  const { repo, engine, server } = await setup();
+  const payload = normalizePayload(FORM_SUBMIT, { path: '/Customers/ToggleActive/7/', label: 'فعال/غیرفعال مشتری', fields: [], page: '/Customers?q=a' });
+  assert.equal(validatePayload(FORM_SUBMIT, payload), null);
+  assert.match(validatePayload(FORM_SUBMIT, normalizePayload(FORM_SUBMIT, { path: '/customers/create', fields: [] })), /خالی/);
+  assert.equal(normalizePayload(FORM_SUBMIT, { path: '/x', fields: [['a', '1']], page: '//evil.example/x' }).page, undefined, 'external page ignored');
+
+  const record = await repo.submit(FORM_SUBMIT, payload, '2026-10-14', { entityId: 7, baseVersion: 't:2026-10-14T09:00:00.000Z' });
+  assert.equal(record.entityId, '7');
+  assert.equal(record.payload.page, '/Customers?q=a');
+  await engine.run();
+  const sent = server.ops.get(record.clientOperationId);
+  assert.equal(sent.baseVersion, 't:2026-10-14T09:00:00.000Z');
+  assert.equal(sent.entityId, '7');
+
+  // اصلاح پس از تعارض از صفحهٔ تازه: نسخهٔ پایهٔ تازه.
+  server.ops.set(record.clientOperationId, { ...sent, status: 'Conflict' });
+  await repo.putMany([{ ...(await repo.get(record.clientOperationId)), status: Status.Conflict }]);
+  const fixed = await repo.resubmit(record.clientOperationId, payload, '2026-10-14', { baseVersion: 't:2026-10-14T10:00:00.000Z' });
+  assert.equal(fixed.baseVersion, 't:2026-10-14T10:00:00.000Z');
+  assert.equal(fixed.revision, 2);
+});
+
+test('prepare: details/edit pages of the most recent records of a menu list (same module only, limited)', () => {
+  const html = `<html><body><main>
+    <a href="/Sales/Details/9">9</a><a href="/Sales/Edit/9">e</a><a href="/Customers/Details/3">c</a>
+    <a href="/Sales/Details/8">8</a><a href="/Sales/Cancel/8">x</a><a href="/Sales/Details/7">7</a><a href="/Sales/Details/6">6</a>
+  </main></body></html>`;
+  assert.deepEqual(recordLinks(html, '/Sales', RECENT_RECORDS),
+    ['/sales/details/9', '/sales/edit/9', '/sales/details/8', '/sales/edit/8', '/sales/details/7', '/sales/edit/7']);
+  assert.deepEqual(recordLinks('<main></main>', '/Sales'), []);
 });

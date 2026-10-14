@@ -371,11 +371,11 @@
         <link rel="stylesheet" href="~/vendor/fonts/iransans/iransans.css" asp-append-version="true" />
 
     }
-    <link rel="icon" type="image/x-icon" href="~/MASHAL_White.ico" asp-append-version="true" />
-    <link rel="shortcut icon" type="image/x-icon" href="~/MASHAL_White.ico" asp-append-version="true" />
-    <link rel="apple-touch-icon" sizes="180x180" href="~/mashal-apple-touch-icon-180.png" asp-append-version="true" />
-    <link rel="icon" type="image/png" sizes="192x192" href="~/mashal-icon-192.png" asp-append-version="true" />
-    <link rel="icon" type="image/png" sizes="512x512" href="~/mashal-icon-512.png" asp-append-version="true" />
+    <link rel="icon" type="image/x-icon" href="~/mashal-logo.ico" asp-append-version="true" />
+    <link rel="shortcut icon" type="image/x-icon" href="~/mashal-logo.ico" asp-append-version="true" />
+    <link rel="apple-touch-icon" sizes="180x180" href="~/mashal-logo-180.png" asp-append-version="true" />
+    <link rel="icon" type="image/png" sizes="192x192" href="~/mashal-logo-192.png" asp-append-version="true" />
+    <link rel="icon" type="image/png" sizes="512x512" href="~/mashal-logo-512.png" asp-append-version="true" />
     @* PWA: نصب روی Android/iPhone/Windows و بازشدن آفلاین (sw.js فقط پوستهٔ آفلاین را cache می‌کند، نه صفحات واردشده). *@
     <link rel="manifest" href="~/manifest.webmanifest" asp-append-version="true" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -389,10 +389,13 @@
     @if (renderShellChrome && isAuthenticated)
     {
         @* مشعل آفلاین در همان صفحات: کاربر و فورم‌های اصلیِ مجاز برای ثبت آفلاین (offline/js/form-bridge.js). *@
+        var offlineTargets = PTGOilSystem.Web.Services.OfflineSync.OfflineFormRegistry.AllowedFor(User, ClientModules);
         var offlineConfig = System.Text.Json.JsonSerializer.Serialize(new
         {
             u = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value,
-            f = PTGOilSystem.Web.Services.OfflineSync.OfflineFormRegistry.AllowedFor(User, ClientModules).Select(t => t.Path)
+            f = offlineTargets.Where(t => t.HandledOnlineByDevice).Select(t => t.Path),
+            // عملیات روی رکورد و ثبت‌های بدون توکن: آنلاین همان مسیر عادی؛ فقط بدون سرور در دستگاه نگه داشته می‌شوند.
+            a =offlineTargets.Where(t => !t.HandledOnlineByDevice).Select(t => t.Pattern)
         });
         <meta name="ptg-offline" content="@offlineConfig" />
         <script type="module" src="~/offline/js/form-bridge.js" asp-append-version="true"></script>
@@ -686,6 +689,8 @@
                 }
 
                 <main class="boltz-content ptg-page" id="ptg-main-content" tabindex="-1">
+                    @* زمان سرورِ همین صفحه: نسخهٔ پایهٔ ویرایش/لغوِ آفلاین (همراه محتوای main در ناوبری SPA و نسخهٔ ذخیره). *@
+                    <span hidden data-ptg-rendered="@DateTime.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture)"></span>
                     @await Html.PartialAsync("_ToastNotifications")
 
                     @* Shared PageFrame: page-top cards, summary, tabs, header, form

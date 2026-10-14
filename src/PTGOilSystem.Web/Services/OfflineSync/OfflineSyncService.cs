@@ -97,6 +97,12 @@ public sealed class OfflineSyncService(
     /// <summary>پس از این مدت، قفل «در حال ثبت» رهاشده (مثلاً قطع برق سرور) دوباره قابل تلاش است.</summary>
     public static readonly TimeSpan StaleApplyingAfter = TimeSpan.FromMinutes(5);
 
+    /// <summary>خطای موقتِ تکراری (مثلاً تعارض نسخه‌ای که با تکرار رفع نمی‌شود) پس از این تعداد تلاش «نیازمند اصلاح» می‌شود.</summary>
+    public const int MaxTransientAttempts = 6;
+
+    /// <summary>نسخهٔ پایهٔ عملیات روی رکورد موجود: زمان سرورِ صفحه‌ای که کاربر دید (<c>t:2026-10-14T09:00:00.0000000Z</c>).</summary>
+    public const string BaseTimePrefix = "t:";
+
     /// <summary>فاصلهٔ حداقل میان دو تلاش خودکار برای عملیاتی که هنوز «دریافت‌شده» مانده است.</summary>
     public static readonly TimeSpan RetryReceivedAfter = TimeSpan.FromSeconds(30);
 
@@ -366,6 +372,8 @@ public sealed class OfflineSyncService(
                 .SetProperty(o => o.Revision, revision)
                 .SetProperty(o => o.BusinessDate, businessDate)
                 .SetProperty(o => o.DependenciesCsv, dependencies.Count == 0 ? null : string.Join(',', dependencies))
+                // اصلاح از نسخهٔ تازهٔ صفحه: نسخهٔ پایه هم تازه می‌شود (بررسی کهنگی روی همان چیزی که کاربر دوباره دید).
+                .SetProperty(o => o.BaseVersion, Trim(operation.BaseVersion, 64))
                 .SetProperty(o => o.Status, OfflineSyncStatus.Received)
                 .SetProperty(o => o.StatusNote, (string?)null)
                 .SetProperty(o => o.UpdatedAtUtc, now)
@@ -561,14 +569,20 @@ public sealed class OfflineSyncService(
                     + "«اصلاح در فورم اصلی» یا «ارسال دوباره» کنید.", null, null, ct);
             }
 
+            // ویرایش/لغو/حذف روی رکورد موجود: اگر کاربر دیگری پس از نسخهٔ دستگاه آن را تغییر داده، کورکورانه اجرا نمی‌شود.
+            if (target.IsAmbient && await StaleReasonAsync(row, target, ct) is { } stale)
+            {
+                return await FinishAsync(row, OfflineSyncStatus.Conflict, stale, null, null, ct);
+            }
+
             var result = await dispatcher.PostAsync(
                 target.Controller,
                 target.Action,
                 target.Fields,
                 user,
-                formToken,
-                wrapInTransaction: !target.UsesFormToken,
-                onCommittedInTransaction: target.UsesFormToken
+                target.IsAmbient ? null : formToken,
+                wrapInTransaction: !target.UsesFormToken && !target.IsAmbient,
+                onCommittedInTransaction: target.UsesFormToken || target.IsAmbient
                     ? null
                     : async (scopeDb, referenceId) =>
                     {
@@ -592,11 +606,22 @@ public sealed class OfflineSyncService(
                 ct,
                 target.ReferenceType,
                 target.FieldList,
-                target.Query);
+                target.Query,
+                target.IsAmbient
+                    ? new OfflineAmbientApply(token, $"Offline.{row.OperationType}", row.UserId, target.RouteId)
+                    : null);
 
             if (result.Committed)
             {
-                return await FinishAsync(row, OfflineSyncStatus.Applied, null, target.ReferenceType, result.ReferenceId, ct);
+                return await FinishAsync(row, OfflineSyncStatus.Applied, null, target.ReferenceType,
+                    result.ReferenceId ?? target.EntityId?.ToString(CultureInfo.InvariantCulture), ct);
+            }
+
+            if (result.TransientFailure && row.ApplyAttempts >= MaxTransientAttempts)
+            {
+                return await FinishAsync(row, OfflineSyncStatus.Conflict,
+                    $"پس از {row.ApplyAttempts} تلاش خودکار ثبت نشد؛ معلومات را بررسی و دوباره بفرستید. "
+                    + string.Join(" • ", result.Errors), null, null, ct);
             }
 
             if (result.TransientFailure)
@@ -821,6 +846,57 @@ public sealed class OfflineSyncService(
             AppliedReferenceType = row?.AppliedReferenceType,
             AppliedReferenceId = row?.AppliedReferenceId
         };
+
+    private sealed class RecordStamp
+    {
+        public DateTime? UpdatedAtUtc { get; set; }
+        public int? UpdatedByUserId { get; set; }
+    }
+
+    /// <summary>
+    /// بررسی کهنگی: رکورد هدف پس از زمان سرورِ صفحه‌ای که کاربر دید (BaseVersion) به‌دست کاربر دیگری تغییر کرده است؟
+    /// تغییرهای خودِ همین کاربر (عملیات آفلاین قبلی یا کار آنلاینش) مانع نیستند؛ Version و قواعد خود اکشن هم سر جایشان‌اند.
+    /// </summary>
+    private async Task<string?> StaleReasonAsync(OfflineSyncOperation row, OfflineApplyPlan plan, CancellationToken ct)
+    {
+        if (plan.Target is not { CheckStale: true } target || plan.EntityId is not { } entityId
+            || row.BaseVersion is not { } baseVersion || !baseVersion.StartsWith(BaseTimePrefix, StringComparison.Ordinal)
+            || !DateTime.TryParse(baseVersion[BaseTimePrefix.Length..], CultureInfo.InvariantCulture,
+                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var seenAtUtc))
+        {
+            return null;
+        }
+
+        var entityType = db.Model.GetEntityTypes()
+            .FirstOrDefault(t => t.ClrType.Name == target.ReferenceType && typeof(BaseEntity).IsAssignableFrom(t.ClrType));
+        if (entityType?.GetTableName() is not { } table)
+        {
+            return null;
+        }
+
+        var schema = entityType.GetSchema();
+        var store = Microsoft.EntityFrameworkCore.Metadata.StoreObjectIdentifier.Table(table, schema);
+        string Column(string property) => entityType.FindProperty(property)!.GetColumnName(store)!;
+        var from = schema is null ? $"\"{table}\"" : $"\"{schema}\".\"{table}\"";
+        var sql = $"SELECT \"{Column(nameof(BaseEntity.UpdatedAtUtc))}\" AS \"UpdatedAtUtc\", "
+            + $"\"{Column(nameof(BaseEntity.UpdatedByUserId))}\" AS \"UpdatedByUserId\" "
+            + $"FROM {from} WHERE \"{Column(nameof(BaseEntity.Id))}\" = {{0}}";
+        var stamp = await db.Database.SqlQueryRaw<RecordStamp>(sql, entityId).FirstOrDefaultAsync(ct);
+        if (stamp?.UpdatedAtUtc is not { } updated)
+        {
+            return null;
+        }
+
+        var updatedUtc = DateTime.SpecifyKind(updated, DateTimeKind.Utc);
+        if (updatedUtc <= seenAtUtc.AddSeconds(1) || stamp.UpdatedByUserId == row.UserId)
+        {
+            return null;
+        }
+
+        return "این رکورد پس از نسخه‌ای که در دستگاه دیده شد، به‌دست کاربر دیگری تغییر کرده است "
+            + $"(نسخهٔ دستگاه: {seenAtUtc:yyyy-MM-dd HH:mm:ss} UTC، تغییر سرور: {updatedUtc:yyyy-MM-dd HH:mm:ss} UTC). "
+            + "برای جلوگیری از بازنویسی کار دیگران اجرا نشد؛ صفحهٔ تازهٔ همین رکورد را باز کنید و تغییر را دوباره ثبت کنید.";
+    }
 
     private static string? Trim(string? value, int max)
     {

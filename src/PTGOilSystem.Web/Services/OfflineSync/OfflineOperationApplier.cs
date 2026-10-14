@@ -16,7 +16,13 @@ public sealed record OfflineApplyPlan(
     bool UsesFormToken,
     IReadOnlyList<KeyValuePair<string, string?>>? FieldList = null,
     IReadOnlyList<KeyValuePair<string, string?>>? Query = null,
-    string? FormToken = null);
+    string? FormToken = null,
+    OfflineFormTarget? Target = null,
+    int? RouteId = null,
+    int? EntityId = null)
+{
+    public bool IsAmbient => Target?.Mode == OfflineApplyMode.Ambient;
+}
 
 /// <summary>نتیجهٔ ساخت نقشه: یا نقشه، یا «سند لازم نیست» (یادداشت)، یا خطای قابل اصلاح، یا «پشتیبانی نمی‌شود».</summary>
 public sealed record OfflinePlanResult(OfflineApplyPlan? Plan, bool NoDocument, string? Error, bool Unsupported);
@@ -128,16 +134,22 @@ public sealed class OfflineOperationApplier(ApplicationDbContext db)
             }
 
             case OfflineOperationTypes.ExpenseRequest:
+            {
+                // «حساب پرداخت» انتخاب‌شده یعنی همان «پرداخت فوری» فورم وب؛ بدون آن کنترلر حساب نقدی را حذف می‌کند
+                // و صندوق کم نمی‌شود. بدون حساب، همان رفتار قبلی (تشخیص از طرف‌حساب) می‌ماند.
+                var cashAccountId = Number(payload, "cashAccountId");
                 return Plan("Expenses", "Create", nameof(ExpenseTransaction), usesFormToken: true, new()
                 {
+                    ["SettlementMode"] = cashAccountId is null ? null : nameof(ExpenseSettlementMode.PaidImmediately),
                     ["ExpenseTypeId"] = Number(payload, "expenseTypeId"),
                     ["ExpenseDate"] = date,
                     ["Amount"] = Number(payload, "amount"),
                     ["Currency"] = Text(payload, "currency"),
                     ["AppliedFxRateToUsd"] = Number(payload, "fxRate"),
-                    ["CashAccountId"] = Number(payload, "cashAccountId"),
+                    ["CashAccountId"] = cashAccountId,
                     ["Description"] = Text(payload, "description") ?? OfflineNote(payload, operation)
                 });
+            }
 
             case OfflineOperationTypes.LoadingNote:
                 return Plan("Loading", "Create", nameof(LoadingRegister), usesFormToken: true, new()
@@ -207,7 +219,7 @@ public sealed class OfflineOperationApplier(ApplicationDbContext db)
     /// </summary>
     private async Task<OfflinePlanResult> FormSubmitPlanAsync(JsonElement payload, int userId, CancellationToken ct)
     {
-        var target = OfflineFormRegistry.Find(Text(payload, "path"));
+        var target = OfflineFormRegistry.Find(Text(payload, "path"), out var routeId);
         if (target is null)
         {
             return new OfflinePlanResult(null, false, "این فورم برای ثبت آفلاین مجاز نیست.", Unsupported: true);
@@ -246,9 +258,19 @@ public sealed class OfflineOperationApplier(ApplicationDbContext db)
         }
 
         var token = Text(payload, "formToken");
+        // رکورد هدف: شناسهٔ آدرس، وگرنه فیلد Id همان فورم (ویرایش‌هایی که شناسه را در فورم می‌فرستند).
+        var entityId = routeId;
+        if (entityId is null && target.Mode == OfflineApplyMode.Ambient
+            && fields.FirstOrDefault(f => string.Equals(f.Key, "Id", StringComparison.OrdinalIgnoreCase)).Value is { } idText
+            && int.TryParse(idText, NumberStyles.None, CultureInfo.InvariantCulture, out var fieldId) && fieldId > 0)
+        {
+            entityId = fieldId;
+        }
+
         return new OfflinePlanResult(
             new OfflineApplyPlan(target.Controller, target.Action, new Dictionary<string, string?>(), target.ReferenceType,
-                target.UsesFormToken, fields, Pairs(payload, "query").ToList(), target.UsesFormToken ? token : null),
+                target.UsesFormToken, fields, Pairs(payload, "query").ToList(), target.UsesFormToken ? token : null,
+                target, routeId, entityId),
             false, null, false);
     }
 

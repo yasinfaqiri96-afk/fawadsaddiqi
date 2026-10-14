@@ -244,8 +244,8 @@ async function pollSql(query, expected, timeout = 90000) {
     check('PREPARE', 'dashboard, permitted main forms and their lists were stored encrypted for offline use',
       !!(await idbMeta(page, 'pageWarmup')) && (index?.entries?.length || 0) > 20, `${index?.entries?.length || 0} pages`);
 
-    await spaGo(page, '/Currencies/Create'); // فورم فقط-آنلاین؛ صفحه ذخیره می‌شود
-    await waitForm(page, 'Code');
+    await spaGo(page, '/ThreeWaySettlement'); // فورم فقط-آنلاین (پیش‌نمایش تسویه از مانده‌های لحظه‌ای سرور)؛ صفحه ذخیره می‌شود
+    await waitForm(page, 'SettlementDate');
 
     // ---- آنلاین: همان فورم، همان POST سرور
     await spaGo(page, '/Customers/Create');
@@ -300,13 +300,13 @@ async function pollSql(query, expected, timeout = 90000) {
     check('OFFLINE-QUEUE', 'three main-form operations are queued; nothing reached the server', true);
 
     // فورم فقط-آنلاین بدون سرور: فرستاده نمی‌شود و معلومات روی صفحه می‌ماند
-    await spaGo(page, '/Currencies/Create');
-    await waitForm(page, 'Code');
-    await page.fill('main form [name="Code"]', 'EUX');
-    await save(page);
+    await spaGo(page, '/ThreeWaySettlement');
+    await waitForm(page, 'SettlementDate');
+    await page.fill('main form [name="SettlementDate"]', '2026-09-30');
+    await page.click('main form[action*="Preview" i] button[type="submit"]');
     await waitFor(page, NOTICE, 'فقط با اتصال به سرور');
     check('ONLINE-ONLY', 'an online-only form is not sent offline and keeps the typed values',
-      (await page.inputValue('main form [name="Code"]')) === 'EUX');
+      (await page.inputValue('main form [name="SettlementDate"]')) === '2026-09-30');
 
     // ثبت سریع (مودال iframe از داخل فورم دیگر) بدون سرور: همان فورم مشتری، رکورد «در انتظار ثبت» به فورم مادر می‌رسد
     await spaGo(page, '/Payments/Create');

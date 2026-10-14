@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.EntityFrameworkCore;
 using PTGOilSystem.Web.Data;
 using PTGOilSystem.Web.Infrastructure.Api;
+using PTGOilSystem.Web.Models.Entities;
 using PTGOilSystem.Web.Models.OfflineSync;
 using PTGOilSystem.Web.Security;
 using PTGOilSystem.Web.Security.Mobile;
@@ -62,7 +63,18 @@ public sealed class OfflineSyncApiController(
             return InactiveUser();
         }
 
-        var company = await companies.GetOwnerCompanyAsync(ct);
+        Company company;
+        try
+        {
+            company = await companies.GetOwnerCompanyAsync(ct);
+        }
+        catch (SystemCompanyConfigurationException)
+        {
+            // پروفایل آفلاین به شرکت مالک بسته است؛ بدون آن فعال‌سازی ممکن نیست (پیام روشن به‌جای خطای 500).
+            return ApiProblem.Result(HttpContext, StatusCodes.Status409Conflict, ApiErrorCodes.BusinessRule,
+                "شرکت مالک سیستم تعیین نشده است (باید دقیقاً یک شرکت مالک باشد). مدیر سیستم آن را در «شرکت‌ها» تعیین کند؛ تا آن زمان کار بدون سرور فعال نمی‌شود.");
+        }
+
         return Ok(new OfflineSessionResponse
         {
             UserId = userId,

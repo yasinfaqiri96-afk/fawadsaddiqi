@@ -21,7 +21,17 @@ public sealed record MvcFormResult(
     string? ReferenceId,
     IReadOnlyList<string> Errors,
     bool Forbidden,
-    bool TransientFailure);
+    bool TransientFailure)
+{
+    /// <summary>درونی: اکشن با تراکنش تنبل سازگار نبود و باید بدون آن دوباره اجرا شود.</summary>
+    internal bool NestedTransaction { get; init; }
+}
+
+/// <summary>
+/// اجرای حالت <see cref="OfflineApplyMode.Ambient"/>: توکن یک‌بار در نخستین ذخیرهٔ اکشن (<see cref="OfflineApplyScope"/>)
+/// و شناسهٔ رکورد در آدرس (<c>/Contracts/Cancel/12</c>).
+/// </summary>
+public sealed record OfflineAmbientApply(string Token, string Purpose, int? UserId, int? RouteId);
 
 public interface IMvcFormDispatcher
 {
@@ -50,7 +60,8 @@ public interface IMvcFormDispatcher
         CancellationToken ct,
         string? referenceType = null,
         IReadOnlyList<KeyValuePair<string, string?>>? fieldList = null,
-        IReadOnlyList<KeyValuePair<string, string?>>? query = null);
+        IReadOnlyList<KeyValuePair<string, string?>>? query = null,
+        OfflineAmbientApply? ambient = null);
 }
 
 public sealed class MvcFormDispatcher(
@@ -73,7 +84,39 @@ public sealed class MvcFormDispatcher(
         CancellationToken ct,
         string? referenceType = null,
         IReadOnlyList<KeyValuePair<string, string?>>? fieldList = null,
-        IReadOnlyList<KeyValuePair<string, string?>>? query = null)
+        IReadOnlyList<KeyValuePair<string, string?>>? query = null,
+        OfflineAmbientApply? ambient = null)
+    {
+        if (ambient is null)
+        {
+            return await PostCoreAsync(controller, action, fields, user, formToken, wrapInTransaction, onCommittedInTransaction, ct,
+                referenceType, fieldList, query, null, allowLazy: false);
+        }
+
+        var first = await PostCoreAsync(controller, action, fields, user, null, false, null, ct,
+            referenceType, fieldList, query, ambient, allowLazy: true);
+        // اکشنی که پس از نخستین ذخیره خودش تراکنش باز می‌کند با تراکنش تنبل سازگار نیست؛ همه‌چیز Rollback شده و یک‌بار
+        // بدون تراکنش تنبل (همان رفتار آنلاین خود اکشن) اجرا می‌شود. توکن باز هم در نخستین ذخیره است.
+        return first.NestedTransaction
+            ? await PostCoreAsync(controller, action, fields, user, null, false, null, ct,
+                referenceType, fieldList, query, ambient, allowLazy: false)
+            : first;
+    }
+
+    private async Task<MvcFormResult> PostCoreAsync(
+        string controller,
+        string action,
+        IReadOnlyDictionary<string, string?> fields,
+        ClaimsPrincipal user,
+        string? formToken,
+        bool wrapInTransaction,
+        Func<ApplicationDbContext, string?, Task>? onCommittedInTransaction,
+        CancellationToken ct,
+        string? referenceType,
+        IReadOnlyList<KeyValuePair<string, string?>>? fieldList,
+        IReadOnlyList<KeyValuePair<string, string?>>? query,
+        OfflineAmbientApply? ambient,
+        bool allowLazy)
     {
         var descriptor = descriptors.ActionDescriptors.Items
             .OfType<ControllerActionDescriptor>()
@@ -85,6 +128,19 @@ public sealed class MvcFormDispatcher(
 
         await using var scope = scopes.CreateAsyncScope();
         var services = scope.ServiceProvider;
+        // Interceptor پیش از ساخت DbContext آماده می‌شود (همان نمونهٔ Scoped به DbContext داده می‌شود).
+        var applyScope = ambient is null ? null : services.GetService<OfflineApplyScope>();
+        if (ambient is not null && applyScope is null)
+        {
+            // میزبان بدون Interceptor (مثلاً آزمایش واحد): همان ضمانت حالت Wrapped.
+            wrapInTransaction = true;
+        }
+        else if (applyScope is not null)
+        {
+            applyScope.Begin(ambient!.Token, ambient.Purpose, referenceType, ambient.UserId);
+            applyScope.AllowLazyTransaction = allowLazy;
+        }
+
         var db = services.GetRequiredService<ApplicationDbContext>();
 
         var context = new DefaultHttpContext { RequestServices = services, User = user };
@@ -93,7 +149,10 @@ public sealed class MvcFormDispatcher(
         context.Request.Method = HttpMethods.Post;
         context.Request.Scheme = outer?.Request.Scheme ?? "https";
         context.Request.Host = outer?.Request.Host ?? new HostString("localhost");
-        context.Request.Path = $"/{descriptor.ControllerName}/{descriptor.ActionName}";
+        var routeId = ambient?.RouteId;
+        context.Request.Path = routeId is { } pathId
+            ? $"/{descriptor.ControllerName}/{descriptor.ActionName}/{pathId.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
+            : $"/{descriptor.ControllerName}/{descriptor.ActionName}";
         // نسخهٔ سبکِ Layout برای حالت خطا (همان قرارداد spa-nav)؛ بدنهٔ پاسخ دور ریخته می‌شود.
         context.Request.Headers["X-PTG-SPA"] = "1";
         context.Request.Headers["X-PTG-Offline-Apply"] = "1";
@@ -152,6 +211,10 @@ public sealed class MvcFormDispatcher(
         var routeData = new RouteData();
         routeData.Values["controller"] = descriptor.ControllerName;
         routeData.Values["action"] = descriptor.ActionName;
+        if (routeId is { } id)
+        {
+            routeData.Values["id"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
         context.Request.RouteValues = new RouteValueDictionary(routeData.Values);
         var endpoint = endpoints.Endpoints.FirstOrDefault(e => e.Metadata.GetMetadata<ControllerActionDescriptor>() == descriptor);
         if (endpoint is not null)
@@ -179,10 +242,38 @@ public sealed class MvcFormDispatcher(
             var redirected = context.Response.StatusCode is StatusCodes.Status302Found or StatusCodes.Status303SeeOther
                 or StatusCodes.Status301MovedPermanently or StatusCodes.Status307TemporaryRedirect;
             // شمارهٔ سند: از آدرس Redirect، وگرنه همان موجودیتی که اکشن در همین DbContext ساخت.
-            var referenceId = ExtractId(location) ?? TrackedReferenceId(db, referenceType);
+            var referenceId = routeId?.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                ?? ExtractId(location) ?? TrackedReferenceId(db, referenceType);
 
             bool committed;
-            if (!string.IsNullOrWhiteSpace(formToken))
+            if (applyScope is not null)
+            {
+                // تراکنش تنبل (اکشن بدون تراکنش) فقط با موفقیت اکشن Commit می‌شود؛ سپس حقیقت = توکن در دیتابیس.
+                if (applyScope.LazyTransaction is { } lazy)
+                {
+                    if (redirected && errors.Count == 0 && actionContext.ModelState.IsValid)
+                    {
+                        await lazy.CommitAsync(ct);
+                    }
+                    else
+                    {
+                        await lazy.RollbackAsync(ct);
+                    }
+                }
+
+                committed = await db.ProcessedFormTokens.AsNoTracking().AnyAsync(t => t.Token == ambient!.Token, ct);
+                if (!committed && !applyScope.HasSaved && redirected && errors.Count == 0 && actionContext.ModelState.IsValid)
+                {
+                    // اکشن بدون هیچ نوشتنی موفق برگشت (مثلاً «این فروش قبلاً لغو شده است»): کاری باقی نیست، سند تازه‌ای هم نیست.
+                    committed = true;
+                }
+
+                if (committed)
+                {
+                    errors = [];
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(formToken))
             {
                 // حقیقت نهایی: توکن فقط در همان تراکنشِ سند ذخیره می‌شود.
                 committed = await db.ProcessedFormTokens.AsNoTracking().AnyAsync(t => t.Token == formToken, ct);
@@ -220,17 +311,31 @@ public sealed class MvcFormDispatcher(
                 await transaction.RollbackAsync(CancellationToken.None);
             }
 
+            if (applyScope?.LazyTransaction is { } lazy)
+            {
+                await lazy.RollbackAsync(CancellationToken.None);
+            }
+
+            if (allowLazy && IsNestedTransaction(ex))
+            {
+                logger.LogInformation(
+                    "Offline apply of {Controller}.{Action} opens its own transaction after saving; retrying without the lazy transaction.",
+                    controller, action);
+                return new MvcFormResult(false, null, [], false, false) { NestedTransaction = true };
+            }
+
             var transient = ex is TimeoutException or DbUpdateConcurrencyException
                 || ex is Npgsql.NpgsqlException { IsTransient: true }
                 || ex.InnerException is Npgsql.NpgsqlException { IsTransient: true };
             logger.LogWarning(ex, "Offline apply of {Controller}.{Action} failed.", controller, action);
 
             // اگر سند پیش از خطا ثبت شده بود (مثلاً خطا در رندر پاسخ)، توکن آن را نشان می‌دهد.
-            if (!string.IsNullOrWhiteSpace(formToken))
+            var committedToken = formToken ?? ambient?.Token;
+            if (!string.IsNullOrWhiteSpace(committedToken))
             {
                 await using var checkScope = scopes.CreateAsyncScope();
                 var checkDb = checkScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                if (await checkDb.ProcessedFormTokens.AsNoTracking().AnyAsync(t => t.Token == formToken, CancellationToken.None))
+                if (await checkDb.ProcessedFormTokens.AsNoTracking().AnyAsync(t => t.Token == committedToken, CancellationToken.None))
                 {
                     return new MvcFormResult(true, null, [], false, false);
                 }
@@ -246,7 +351,29 @@ public sealed class MvcFormDispatcher(
             {
                 await transaction.DisposeAsync();
             }
+
+            if (applyScope?.LazyTransaction is { } lazyToDispose)
+            {
+                await lazyToDispose.DisposeAsync();
+            }
         }
+    }
+
+    /// <summary>EF: «اتصال از قبل در تراکنش است» — اکشن پس از ذخیره‌ای که تراکنش تنبل را باز کرد، خودش تراکنش خواست.</summary>
+    private static bool IsNestedTransaction(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is InvalidOperationException
+                && (current.Message.Contains("already in a transaction", StringComparison.OrdinalIgnoreCase)
+                    || current.Message.Contains("transaction has already been started", StringComparison.OrdinalIgnoreCase)
+                    || current.Message.Contains("already started a transaction", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>همان ترجمهٔ پیام کاربرپسند فیلتر قواعد تجاری؛ متن فنی فقط در لاگ.</summary>

@@ -6,13 +6,14 @@
  *  - هیچ پاسخ /api و هیچ HTMLِ صفحات MVC در Cache مرورگر ذخیره نمی‌شود. صفحات مشعل فقط رمزگذاری‌شده با کلید
  *    پروفایل همان کاربر در IndexedDB نگه داشته می‌شوند (offline/js/page-vault.js). وقتی سرور جواب نمی‌دهد، این‌جا فقط
  *    «بازکنندهٔ» /offline/page.html داده می‌شود که همان آدرس را از نسخهٔ رمزگذاری‌شده می‌سازد.
- *  - فایل‌های ثابت CSS/JS/فونت/تصویرِ صفحات (نه /uploads) همیشه اول از شبکه گرفته می‌شوند و نسخهٔ آخرشان برای
- *    زمان قطع سرور نگه داشته می‌شود (از هر فایل فقط آخرین نسخه).
+ *  - فایل‌های ثابت CSS/JS/فونت/تصویرِ صفحات (نه /uploads): نسخه‌دار (?v=، asp-append-version) تغییرناپذیرند و
+ *    مستقیم از نسخهٔ ذخیره داده می‌شوند (بدون شبکه و بدون بازنویسی در هر بارگذاری)؛ بی‌نسخه اول از شبکه. از هر فایل
+ *    فقط آخرین نسخه نگه داشته می‌شود.
  *  - به‌روزرسانی SW هرگز IndexedDB را پاک نمی‌کند؛ پس عملیات Pending و صفحات ذخیره‌شده با تغییر نسخه حفظ می‌شوند.
  */
 'use strict';
 
-const VERSION = 'mashal-offline-v7';
+const VERSION = 'mashal-offline-v9';
 const SHELL_CACHE = VERSION + '-shell';
 const OFFLINE_URL = '/offline/index.html';
 const PAGE_LOADER_URL = '/offline/page.html';
@@ -41,14 +42,16 @@ const SHELL_ASSETS = [
   '/offline/js/util.js',
   '/offline/js/session.js',
   '/offline/js/page-vault.js',
+  '/offline/js/page-resolve.js',
+  '/offline/js/prepare.js',
   '/offline/js/page-loader.js',
   '/offline/js/page-apply.js',
   '/offline/js/form-bridge.js',
   '/manifest.webmanifest',
-  '/mashal-icon-192.png',
-  '/mashal-icon-512.png',
-  '/mashal-apple-touch-icon-180.png',
-  '/MASHAL_White.ico',
+  '/mashal-logo-192.png',
+  '/mashal-logo-512.png',
+  '/mashal-logo-180.png',
+  '/mashal-logo.ico',
   '/vendor/fonts/vazirmatn/files/vazirmatn-400.woff2',
   '/vendor/fonts/vazirmatn/files/vazirmatn-700.woff2'
 ];
@@ -68,6 +71,10 @@ self.addEventListener('activate', (event) => {
     await Promise.all(keys
       .filter((key) => (key.startsWith('mashal-offline-') && !key.startsWith(VERSION)) || LEGACY_CACHES.includes(key))
       .map((key) => caches.delete(key)));
+    // ناوبری هم‌زمان با بیدارشدن SW از شبکه شروع می‌شود (تأخیر راه‌اندازی SW روی موبایل حذف).
+    if (self.registration.navigationPreload) {
+      await self.registration.navigationPreload.enable().catch(() => {});
+    }
     await self.clients.claim();
   })());
 });
@@ -117,23 +124,26 @@ function isPageAsset(raw) {
 async function rememberAsset(request, response) {
   const store = await caches.open(PAGE_ASSETS_CACHE);
   const url = new URL(request.url);
-  for (const old of await store.keys()) {
-    const oldUrl = new URL(old.url);
-    if (oldUrl.pathname === url.pathname && oldUrl.search !== url.search) {
-      await store.delete(old);
-    }
+  // فقط نسخه‌های دیگرِ همین مسیر (نه پیمایش کل Cache).
+  for (const old of await store.keys(url.origin + url.pathname, { ignoreSearch: true })) {
+    if (new URL(old.url).search !== url.search) await store.delete(old);
   }
   await store.put(request.url, response);
 }
 
-/** فایل صفحه: همیشه اول شبکه (با HTTP cache عادی مرورگر)؛ نسخهٔ ذخیره فقط وقتی سرور در دسترس نیست. */
+/** نسخه‌دار (?v=hash): محتوای این آدرس هرگز عوض نمی‌شود. */
+const isVersioned = (url) => /[?&]v=[^&]+/.test(url);
+
+/**
+ * فایل صفحه: نسخه‌دار = مستقیم از نسخهٔ ذخیره (بی‌شبکه)؛ وگرنه اول شبکه (با HTTP cache عادی مرورگر) و نسخهٔ ذخیره
+ * فقط وقتی سرور در دسترس نیست. فایلی که همین آدرس را در Cache دارد دوباره نوشته نمی‌شود.
+ */
 async function pageAsset(event) {
   const request = event.request;
-  const fromCache = async () => {
-    const store = await caches.open(PAGE_ASSETS_CACHE);
-    return (await store.match(request.url, { ignoreVary: true }))
-      || store.match(request.url, { ignoreSearch: true, ignoreVary: true });
-  };
+  const store = await caches.open(PAGE_ASSETS_CACHE);
+  const exact = await store.match(request.url, { ignoreVary: true });
+  if (exact && (isVersioned(request.url) || serverDown())) return exact;
+  const fromCache = async () => exact || store.match(request.url, { ignoreSearch: true, ignoreVary: true });
   if (serverDown()) {
     const cached = await fromCache();
     if (cached) return cached;
@@ -144,7 +154,7 @@ async function pageAsset(event) {
       markDown();
       return (await fromCache()) || response;
     }
-    if (response.ok && response.type === 'basic') {
+    if (response.ok && response.type === 'basic' && (!exact || changed(exact, response))) {
       event.waitUntil(rememberAsset(request, response.clone()).catch(() => {}));
     }
     return response;
@@ -156,6 +166,15 @@ async function pageAsset(event) {
     }
     throw error;
   }
+}
+
+/** فایل بی‌نسخه تغییر کرده؟ (ETag/Last-Modified/اندازه؛ بدون این‌ها = تغییر فرض می‌شود). */
+function changed(cached, response) {
+  const tag = (r) => r.headers.get('ETag') || r.headers.get('Last-Modified') || '';
+  const a = tag(cached);
+  const b = tag(response);
+  if (a && b) return a !== b;
+  return true;
 }
 
 function isShellAsset(url) {
@@ -177,7 +196,9 @@ async function shellAsset(event) {
     if (cached) return cached;
   }
   try {
-    const response = await withTimeout(fetch(request, { cache: 'no-cache' }), SHELL_TIMEOUT_MS);
+    // ناوبری مستقیم به /offline/* هم از navigation preload استفاده می‌کند (بدون درخواست دوم).
+    const response = await withTimeout(Promise.resolve(event.preloadResponse).catch(() => null)
+      .then((preloaded) => preloaded || fetch(request, { cache: 'no-cache' })), SHELL_TIMEOUT_MS);
     if (GATEWAY_DOWN.includes(response.status)) {
       markDown();
       return (await fromCache()) || response;
@@ -209,10 +230,28 @@ function withTimeout(promise, ms) {
   });
 }
 
-async function navigate(request) {
+/** همان آدرس از نسخهٔ رمزگذاری‌شدهٔ کاربر (page-loader.js) با همان ظاهر و منو. */
+async function offlineLoader() {
+  const cache = await caches.open(SHELL_CACHE);
+  const loader = (await cache.match(PAGE_LOADER_URL)) || (await cache.match(OFFLINE_URL));
+  return loader || new Response(
+    '<!doctype html><meta charset="utf-8"><title>مشعل</title><p dir="rtl">سرور در دسترس نیست.</p>',
+    { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}
+
+async function navigate(event) {
+  const request = event.request;
+  // دستگاه اصلاً شبکه ندارد: بی‌انتظار، نسخهٔ ذخیره.
+  if (self.navigator && self.navigator.onLine === false) {
+    markDown();
+    return offlineLoader();
+  }
   try {
     // صفحهٔ MVC همیشه از شبکه؛ هرگز cache نمی‌شود. پروکسیِ بدون سرور (502/503/504) هم یعنی آفلاین.
-    const response = await withTimeout(fetch(request), NAVIGATION_TIMEOUT_MS);
+    // navigation preload: درخواست هم‌زمان با بیدارشدن SW فرستاده شده است (همان یک درخواست، نه دو).
+    const pending = Promise.resolve(event.preloadResponse).catch(() => null).then((preloaded) => preloaded || fetch(request));
+    // سرور چند لحظه پیش جواب نداد: انتظار کوتاه‌تر پیش از نسخهٔ ذخیره.
+    const response = await withTimeout(pending, serverDown() ? 4000 : NAVIGATION_TIMEOUT_MS);
     if (!GATEWAY_DOWN.includes(response.status)) {
       markUp();
       return response;
@@ -220,12 +259,7 @@ async function navigate(request) {
     throw new Error('gateway');
   } catch {
     markDown();
-    // همان آدرس از نسخهٔ رمزگذاری‌شدهٔ کاربر (page-loader.js) با همان ظاهر و منو.
-    const cache = await caches.open(SHELL_CACHE);
-    const loader = (await cache.match(PAGE_LOADER_URL)) || (await cache.match(OFFLINE_URL));
-    return loader || new Response(
-      '<!doctype html><meta charset="utf-8"><title>مشعل</title><p dir="rtl">سرور در دسترس نیست.</p>',
-      { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    return offlineLoader();
   }
 }
 
@@ -252,7 +286,7 @@ self.addEventListener('fetch', (event) => {
 
   // ناوبری SPAی MVC (X-PTG-SPA) fetch عادی است، نه navigate؛ قطعِ آن را spa-nav + form-bridge مدیریت می‌کنند.
   if (request.mode === 'navigate') {
-    event.respondWith(navigate(request));
+    event.respondWith(navigate(event));
     return;
   }
 

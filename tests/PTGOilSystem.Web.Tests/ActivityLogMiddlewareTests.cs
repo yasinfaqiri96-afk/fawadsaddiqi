@@ -107,6 +107,22 @@ public sealed class ActivityLogMiddlewareTests
     }
 
     [Fact]
+    public async Task Background_Offline_Prepare_Reads_Are_Not_Audited_But_Their_Failures_Are()
+    {
+        var (middleware, audit) = NewMiddleware();
+        var prepare = NewRequest("GET", "/Customers");
+        prepare.Request.Headers[OfflinePrepareMiddleware.HeaderName] = "1";
+        await middleware.InvokeAsync(prepare);
+        Assert.Empty(audit.Entries);
+
+        var (failing, failingAudit) = NewMiddleware(statusCode: 500);
+        var failed = NewRequest("GET", "/Customers");
+        failed.Request.Headers[OfflinePrepareMiddleware.HeaderName] = "1";
+        await failing.InvokeAsync(failed);
+        Assert.Single(failingAudit.Entries);
+    }
+
+    [Fact]
     public async Task A_Different_Path_Or_Query_Is_Audited_Separately()
     {
         var (middleware, audit) = NewMiddleware();

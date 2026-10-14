@@ -223,7 +223,9 @@ process.on('exit', restoreSw);
       && !/(export|download|pdf|excel|print|backup)/i.test(href.toLowerCase()));
     const missing = [];
     const wantedKeys = await pageKeys(page, wanted);
-    wantedKeys.forEach((k, i) => { if (!keys.has(k)) missing.push(wanted[i]); });
+    // فهرست‌ها با ۲۰۰ سطر اخیر (?pageSize=200) ذخیره می‌شوند؛ صفحهٔ غیر فهرست با آدرس خودش.
+    const listKeys = await pageKeys(page, wanted.map((u) => `${u}${u.includes('?') ? '&' : '?'}pageSize=200`));
+    wantedKeys.forEach((k, i) => { if (!keys.has(k) && !keys.has(listKeys[i])) missing.push(wanted[i]); });
     check('PREPARE-SIDEBAR', 'every permitted sidebar page (plus dashboard, forms, quick-create) is stored for offline use',
       missing.length === 0 && keys.has('shell'), `${wanted.length} sidebar pages, ${index.length} stored; missing: ${missing.join(', ')}`);
 
@@ -287,10 +289,24 @@ process.on('exit', restoreSw);
       (await textOf(page, 'main')).length > 50 && !!(await page.$('#boltzSidebar')));
     await page.screenshot({ path: path.join(output, '05-offline-nav.png'), fullPage: true });
 
-    // صفحهٔ آماده‌نشده: همان پوسته و پیام در بخش اصلی (نه محیط جدا)
-    await page.goto(`${ORIGIN}/Customers?page=99&e2e=missing`);
-    await waitFor(page, 'main', 'هنوز روی این دستگاه آماده نشده');
-    check('MISSING-IN-SHELL', 'a page not prepared yet shows a message inside the same shell with the sidebar',
+    // فهرست با جستجو/صفحه‌بندیِ هرگز بازنشده: از سطرهای ذخیره‌شدهٔ همان فهرست، داخل همان پوسته
+    await page.goto(`${ORIGIN}/Customers?q=Existing&page=1&pageSize=20`);
+    await waitFor(page, 'main', 'ذخیره‌شده در این دستگاه');
+    const derived = await textOf(page, 'main');
+    check('UNVISITED-LIST', 'list URL never opened before works offline from the stored rows (search applied locally)',
+      derived.includes('E2E Existing Customer') && derived.includes('ذخیره‌شده در این دستگاه') && !!(await page.$('#boltzSidebar')),
+      derived.slice(0, 200));
+    await page.goto(`${ORIGIN}/Customers?q=zz-no-such`);
+    await waitFor(page, 'main', 'موردی پیدا نشد');
+    check('UNVISITED-SEARCH-EMPTY', 'local search with no match says so (no invented rows)', true);
+    await page.goto(`${ORIGIN}/Customers/Create?returnUrl=%2FCustomers`);
+    await page.waitForSelector('main form [name="Name"]', { timeout: 30000 });
+    check('UNVISITED-FORM', 'form URL with parameters never opened before opens from the stored form', true);
+
+    // جزئیات رکوردی که روی دستگاه نیست: همان پوسته و پیام روشن (هیچ عددی ساخته نمی‌شود)
+    await page.goto(`${ORIGIN}/Customers/Details/999999`);
+    await waitFor(page, 'main', 'هنوز روی این دستگاه دریافت نشده');
+    check('MISSING-IN-SHELL', 'a record not on the device shows a clear message inside the same shell with the sidebar',
       !!(await page.$('#boltzSidebar')) && !page.url().includes('/offline/'));
 
     // آیکن ابر سربرگ فقط مدیریت عملیات (بدون داشبورد/فورم موازی)

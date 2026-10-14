@@ -49,7 +49,7 @@ const ACKNOWLEDGED = new Set([Status.Received, Status.Applied, Status.Conflict])
 
 export class SyncEngine {
   constructor({ repo, store, api, monitor, profile, sealer, deviceAuth = null, clock = () => new Date(), random = Math.random,
-    batchSize = 10, deviceName = 'مرورگر', onEvent = () => {} }) {
+    batchSize = 10, deviceName = 'مرورگر', onEvent = () => {}, snapshot = true }) {
     this.deviceAuth = deviceAuth;
     this.repo = repo;
     this.store = store;
@@ -62,6 +62,8 @@ export class SyncEngine {
     this.batchSize = batchSize;
     this.deviceName = deviceName;
     this.onEvent = onEvent;
+    // مشعل اصلی (form-bridge) فهرست مرجع/داشبورد موبایل را لازم ندارد؛ فقط برنامهٔ عملیات آفلاین آن را می‌گیرد.
+    this.snapshot = snapshot;
     this.running = null;
   }
 
@@ -71,8 +73,8 @@ export class SyncEngine {
 
   /** پس از Restart: عملیاتی که وسط ارسال ماند، با همان شناسه دوباره فرستاده می‌شود. */
   async recoverInterrupted() {
-    const records = await this.repo.list();
-    const stuck = records.filter((r) => r.status === Status.Sending)
+    const records = await this.repo.listByStatus([Status.Sending]);
+    const stuck = records
       .map((r) => this.repo.withHistory({ ...r, nextAttemptAt: this.now().toISOString() }, Status.Pending,
         'پاسخ سرور نامعلوم ماند؛ با همان شناسه دوباره بررسی می‌شود.'));
     await this.repo.putMany(stuck);
@@ -183,9 +185,10 @@ export class SyncEngine {
   }
 
   /** عملیات قابل ارسال به ترتیب ایجاد، با رعایت پیش‌نیاز. */
-  selectBatch(records) {
+  selectBatch(records, statuses = null) {
     const nowIso = this.now().toISOString();
     const byId = new Map(records.map((r) => [r.clientOperationId, r]));
+    const statusOf = (id) => (statuses ? statuses.get(id) : byId.get(id)?.status);
     const conflicts = [];
     const batch = [];
     const inBatch = new Set();
@@ -197,15 +200,15 @@ export class SyncEngine {
       if (batch.length >= this.batchSize) break;
       let ready = true;
       for (const depId of record.dependencies || []) {
-        const dep = byId.get(depId);
-        if (!dep) continue; // روی این دستگاه نیست؛ سرور تصمیم می‌گیرد.
-        if (dep.status === Status.Rejected) {
+        const depStatus = statusOf(depId);
+        if (!depStatus) continue; // روی این دستگاه نیست؛ سرور تصمیم می‌گیرد.
+        if (depStatus === Status.Rejected) {
           conflicts.push(this.repo.withHistory({ ...record, serverNote: 'عملیات پیش‌نیاز رد شده است.' }, Status.Conflict,
             'عملیات پیش‌نیاز رد شده است.'));
           ready = false;
           break;
         }
-        if (!ACKNOWLEDGED.has(dep.status) && !inBatch.has(depId)) {
+        if (!ACKNOWLEDGED.has(depStatus) && !inBatch.has(depId)) {
           ready = false;
           break;
         }
@@ -220,8 +223,10 @@ export class SyncEngine {
 
   async pushPending(summary) {
     for (let round = 0; round < MAX_BATCHES_PER_RUN; round += 1) {
-      const records = await this.repo.list();
-      const { batch, conflicts } = this.selectBatch(records);
+      // فقط Pendingها رمزگشایی می‌شوند؛ وضعیت پیش‌نیازها از ستون آشکار وضعیت.
+      const statuses = await this.repo.statusMap();
+      const records = await this.repo.listByStatus([Status.Pending]);
+      const { batch, conflicts } = this.selectBatch(records, statuses);
       if (conflicts.length) {
         summary.conflicts += conflicts.length;
         await this.repo.putMany(conflicts);
@@ -288,7 +293,7 @@ export class SyncEngine {
   }
 
   async pollStatuses(summary) {
-    const records = await this.repo.list();
+    const records = await this.repo.listByStatus(SERVER_OPEN);
     // فقط عملیاتی که سرور دریافتش را تأیید کرده؛ تعارضِ محلی (پیش‌نیاز ردشده) هرگز به سرور نرفته است.
     const open = records.filter((r) => SERVER_OPEN.includes(r.status) && r.serverAckAt);
     for (let i = 0; i < open.length; i += 200) {
@@ -322,6 +327,7 @@ export class SyncEngine {
   }
 
   async refreshSnapshot(summary, force) {
+    if (!this.snapshot && !force) return;
     const meta = await this.store.get('meta', 'snapshot');
     const age = meta && meta.asOf ? this.now().getTime() - new Date(meta.fetchedAt || meta.asOf).getTime() : Infinity;
     if (!force && age < SNAPSHOT_MAX_AGE_MS) return;

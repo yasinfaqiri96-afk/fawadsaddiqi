@@ -17,16 +17,24 @@ import { ApiClient } from './api.js';
 import { ConnectivityMonitor } from './connectivity.js';
 import { SyncEngine } from './sync-engine.js';
 import { DeviceAuth } from './device-auth.js';
-import { FORM_SUBMIT, OutboxRepo, Status, canResubmit, typeLabel } from './operations.js';
+import { FORM_SUBMIT, OutboxRepo, Status, baseVersionFrom, canResubmit, matchActionPath, typeLabel } from './operations.js';
 import { formatDateTime, formatNumber, relativeAge, todayIso, uuid } from './util.js';
 import { SESSION_IDLE_MS, ensurePageKeys, forgetSession, hasSession, loadProfiles, openRegistry, rememberSession, rememberShellStyles, restoreSession, touchSession } from './session.js';
-import { PageVault } from './page-vault.js';
+import { MAX_BYTES, PageVault, Prio } from './page-vault.js';
+import { missingPageHtml, resolvePage } from './page-resolve.js';
+import { Preparer, RECENT_RECORDS } from './prepare.js';
 
 const STATUS_KEY = 'mashal.offline.status';
 const CHECK_MS = 30_000;
-const PAGE_REFRESH_MS = 10 * 60_000;
-const SHELL_REFRESH_MS = 6 * 60 * 60_000;
-const WARM_EVERY_MS = 6 * 60 * 60_000;
+const HOUR = 60 * 60_000;
+// تازگی نسخه‌ها در آماده‌سازی (پس از آن با ETag بررسی می‌شوند؛ بدون تغییر = 304 بدون دانلود).
+const MAX_AGE = Object.freeze({ shell: 6 * HOUR, core: HOUR, form: 2 * HOUR, list: 4 * HOUR, page: 12 * HOUR });
+const PREPARE_EVERY_MS = 15 * 60_000;
+const PREPARE_START_DELAY_MS = 2500;
+// همگام‌سازی دوره‌ای وقتی چیزی برای ارسال/پیگیری نیست (ارسال تازه همیشه بی‌درنگ است).
+const IDLE_SYNC_MS = 10 * 60_000;
+// آخرین بررسی «سرور در دسترس نیست» تا این مدت معتبر است: ناوبری مستقیم از نسخهٔ ذخیره، بی‌انتظار شبکه.
+const OFFLINE_TRUST_MS = 20_000;
 const OPS_LINK = '<a href="/offline/index.html#/ops">عملیات آفلاین</a>';
 const OFFER_KEY = 'mashal.offline.offer.';
 const OFFER_SNOOZE_MS = 30 * 24 * 60 * 60_000;
@@ -69,6 +77,13 @@ const state = {
   intents: new WeakMap(), // form → { status, note, payload }
   counts: null,
   warming: false,
+  preparer: null,
+  navigating: false,
+  navEndedAt: 0,
+  lastSyncAt: 0,
+  checkedAt: 0, // زمان آخرین پاسخ بررسی اتصال (ms)
+  pendingItems: null, // رکوردهای «در انتظار ثبت» برای فهرست‌های انتخاب؛ با تغییر Outbox باطل می‌شود
+  pendingAction: null, // عملیات روی رکورد که منتظر رمز محلی است: { ctx, intent }
   lastActivity: Date.now()
 };
 
@@ -78,11 +93,16 @@ const h = (value) => String(value ?? '').replace(/[&<>"']/g,
 function readConfig() {
   try {
     const config = JSON.parse(document.querySelector('meta[name="ptg-offline"]')?.content || '{}');
-    return { userId: Number(config.u) || 0, forms: new Set((config.f || []).map((p) => String(p).toLowerCase())) };
+    return {
+      userId: Number(config.u) || 0,
+      forms: new Set((config.f || []).map((p) => String(p).toLowerCase())),
+      actions: new Set((config.a || []).map((p) => String(p).toLowerCase()))
+    };
   } catch {
-    return { userId: 0, forms: new Set() };
+    return { userId: 0, forms: new Set(), actions: new Set() };
   }
 }
+
 
 const isCopy = () => document.documentElement.hasAttribute(ATTR_COPY);
 
@@ -121,14 +141,26 @@ function cacheable(raw) {
   }
 }
 
+/** فورم ثبت (نه جزئیات/ویرایش): الگوی ذخیره‌شده‌اش برای هر پارامتر آدرس قابل استفاده است. */
+const isFormPath = (path) => CONFIG.forms.has(path) || /\/(create|bulkcreate)[a-z]*$/.test(path);
+
 // ---------------------------------------------------------------- session
 
+let profileCache = null; // { at, value } — هر ناوبری Registry را دوباره باز نکند
+
 async function profileForUser() {
+  if (profileCache && Date.now() - profileCache.at < 15_000) return profileCache.value;
   try {
-    return (await loadProfiles(CONFIG.userId))[0] || null;
+    const value = (await loadProfiles(CONFIG.userId))[0] || null;
+    profileCache = { at: Date.now(), value };
+    return value;
   } catch {
     return null; // حالت خصوصی مرورگر / IndexedDB در دسترس نیست
   }
+}
+
+function forgetProfileCache() {
+  profileCache = null;
 }
 
 /** نشست بازشدهٔ همین زبانه (بدون پرسیدن رمز)، اگر وجود دارد. */
@@ -151,6 +183,7 @@ async function unlockWithPin(pin) {
   if (!profile || !pin) return { ok: false, message: 'رمز محلی را وارد کنید.' };
   const result = await unlockProfile(profile, pin);
   await (await openRegistry()).put('profiles', result.profile);
+  forgetProfileCache();
   if (!result.ok) {
     return {
       ok: false,
@@ -168,10 +201,12 @@ async function unlockWithPin(pin) {
 async function openSession(profile, dataKey) {
   closeSession(false);
   closeDrop();
+  closeCountStore();
   const store = await IdbStore.open(profileDbName(profile.companyId, profile.userId));
   const sealer = new Sealer(dataKey);
   // صندوق صفحات (یک‌بار): از این پس صفحات بدون رمز محلی هم آماده و فقط با رمز خوانده می‌شوند.
   const keyed = (await ensurePageKeys(profile.id, sealer).catch(() => null)) || profile;
+  forgetProfileCache();
   const pageSealer = (await PageSealer.forProfile(keyed, sealer)) || sealer;
   const repo = new OutboxRepo(store, sealer, profile);
   const deviceAuth = new DeviceAuth({
@@ -190,9 +225,16 @@ async function openSession(profile, dataKey) {
     profile,
     sealer,
     deviceName: navigator.userAgentData?.platform || navigator.platform || 'مرورگر',
-    onEvent: (event) => { if (event.type === 'sync-end') onSyncEnd(event.summary); }
+    snapshot: false,
+    onEvent: (event) => {
+      if (event.type === 'sync-end') {
+        state.lastSyncAt = Date.now();
+        state.pendingItems = null;
+        onSyncEnd(event.summary);
+      }
+    }
   });
-  state.session = { profile, store, repo, engine, vault: new PageVault(store, pageSealer) };
+  state.session = { profile, store, repo, engine, vault: new PageVault(store, pageSealer, await vaultOptions()) };
   await engine.recoverInterrupted();
   if (monitor.reachable) engine.run();
 }
@@ -206,6 +248,18 @@ function closeSession(forget = true) {
 }
 
 // ---------------------------------------------------------------- page writer (no PIN needed)
+
+let budgetPromise = null;
+
+/** سقف صفحات ذخیره‌شده: ۳۰٪ سهمیهٔ مرورگر برای این برنامه (حداکثر MAX_BYTES، حداقل ۱۰MB)؛ بقیه برای Outbox و سیستم. */
+function vaultOptions() {
+  if (!budgetPromise) {
+    budgetPromise = Promise.resolve(navigator.storage?.estimate?.())
+      .then((e) => (e?.quota ? { maxBytes: Math.max(10 * 1024 * 1024, Math.min(MAX_BYTES, Math.floor(e.quota * 0.3))) } : {}))
+      .catch(() => ({}));
+  }
+  return budgetPromise;
+}
 
 let dropPromise = null;
 
@@ -221,7 +275,7 @@ async function pageWriter() {
       const sealer = profile ? await PageSealer.forProfile(profile) : null;
       if (!sealer) return null;
       const store = await IdbStore.open(profileDbName(profile.companyId, profile.userId));
-      return { profile, store, vault: new PageVault(store, sealer) };
+      return { profile, store, vault: new PageVault(store, sealer, await vaultOptions()) };
     })().catch(() => null);
   }
   const drop = await dropPromise;
@@ -256,21 +310,33 @@ function onSyncEnd(summary) {
 
 // ---------------------------------------------------------------- status
 
-/** شمارش بدون بازکردن رمز (وضعیت و نوع عملیات در ردیف Outbox رمزگذاری نشده‌اند). */
+let countStore = null; // { profileId, promise } — پایگاه پروفایل بدون نشست، یک‌بار باز و نگه داشته می‌شود
+
+/** شمارش بدون بازکردن رمز و بدون خواندن ردیف‌ها (index وضعیت Outbox). */
 async function countRows(profile) {
-  const own = state.session?.profile.id === profile.id ? state.session.store : null;
-  const store = own || await IdbStore.open(profileDbName(profile.companyId, profile.userId));
-  try {
-    const counts = { pending: 0, conflicts: 0, drafts: 0 };
-    for (const row of await store.getAll('outbox')) {
-      if (row.status === Status.Pending || row.status === Status.Sending) counts.pending += 1;
-      if (row.status === Status.Conflict || row.status === Status.Rejected) counts.conflicts += 1;
-      if (row.status === Status.Draft) counts.drafts += 1;
+  let store = state.session?.profile.id === profile.id ? state.session.store : null;
+  if (!store) {
+    if (countStore?.profileId !== profile.id) {
+      countStore?.promise.then((s) => s.close()).catch(() => {});
+      countStore = { profileId: profile.id, promise: IdbStore.open(profileDbName(profile.companyId, profile.userId)) };
     }
-    return counts;
-  } finally {
-    if (!own) store.close();
+    store = await countStore.promise.catch(() => null);
+    if (!store) {
+      countStore = null;
+      return state.counts;
+    }
   }
+  const [pending, conflicts, drafts] = await Promise.all([
+    store.countBy('outbox', 'status', [Status.Pending, Status.Sending]),
+    store.countBy('outbox', 'status', [Status.Conflict, Status.Rejected]),
+    store.countBy('outbox', 'status', [Status.Draft])
+  ]);
+  return { pending, conflicts, drafts };
+}
+
+function closeCountStore() {
+  countStore?.promise.then((s) => s.close()).catch(() => {});
+  countStore = null;
 }
 
 /** همان شمارندهٔ سربرگ (pwa-register.js) با وضعیت واقعیِ دسترسی به سرور. */
@@ -294,13 +360,17 @@ function publishStatus() {
 
 let pinSeq = 0;
 
-function pinHtml(profile, buttonLabel) {
+function pinHtml(profile, buttonLabel, extraActions = '') {
   const id = `ptg-offline-pin-${++pinSeq}`;
-  return `<div class="ak-field mt-2">
-      <label class="ak-label" for="${id}">رمز محلی — ${h(profile.fullName || profile.username)}</label>
-      <input class="ak-input" id="${id}" type="password" autocomplete="current-password" data-offline-pin />
-    </div>
-    <button type="button" class="ak-save mt-2" data-offline-pin-ok>${h(buttonLabel)}</button>`;
+  return `<div class="ak-offline-setup">
+      <div class="ak-field">
+        <label class="ak-label" for="${id}">رمز محلی — ${h(profile.fullName || profile.username)}</label>
+        <input class="ak-input" id="${id}" type="password" autocomplete="current-password" data-offline-pin />
+      </div>
+      <div class="ak-offline-setup-actions">
+        <button type="button" class="ak-save" data-offline-pin-ok>${h(buttonLabel)}</button>${extraActions}
+      </div>
+    </div>`;
 }
 
 function paint(host, tone, parts) {
@@ -351,17 +421,19 @@ async function renderNotice(profile) {
     if (!state.pageMessage) tone = 'warning';
   } else if (!monitor.reachable && monitor.lastCheckAt && !formPanels) {
     parts.push(profile
-      ? 'سرور در دسترس نیست. صفحات و فورم‌هایی که پیش‌تر باز شده‌اند بدون سرور باز می‌شوند؛ ثبت‌های مجاز در دستگاه می‌ماند و پس از اتصال خودکار فرستاده می‌شود.'
+      ? 'سرور در دسترس نیست. داشبورد، منو، فهرست‌ها و فورم‌های آماده‌شدهٔ این دستگاه بدون سرور باز می‌شوند؛ ثبت‌های مجاز در دستگاه می‌ماند و پس از اتصال خودکار فرستاده می‌شود.'
       : 'سرور در دسترس نیست و کار بدون سرور در این دستگاه فعال نشده است (فعال‌سازی: یک‌بار با اینترنت، در داشبورد مشعل).');
     if (!state.pageMessage) tone = 'warning';
   }
   const needsPin = profile && !state.session
-    && (state.pendingNav || (state.counts?.pending > 0 && monitor.reachable && !formPanels));
+    && (state.pendingNav || state.pendingAction || (state.counts?.pending > 0 && monitor.reachable && !formPanels));
   if (needsPin) {
-    parts.push(state.pendingNav
-      ? 'برای بازکردن نسخهٔ ذخیره‌شده، رمز محلی را وارد کنید (در این نشست فقط یک‌بار).'
-      : `${formatNumber(state.counts.pending)} عملیات آفلاین منتظر ارسال است؛ برای ارسال خودکار، رمز محلی را وارد کنید.`);
-    parts.push(pinHtml(profile, state.pendingNav ? 'بازکردن' : 'تأیید رمز'));
+    parts.push(state.pendingAction
+      ? `برای نگه‌داشتن «${h(state.pendingAction.intent.payload?.label || 'عملیات')}» در این دستگاه، رمز محلی را وارد کنید (در این نشست فقط یک‌بار).`
+      : state.pendingNav
+        ? 'برای بازکردن نسخهٔ ذخیره‌شده، رمز محلی را وارد کنید (در این نشست فقط یک‌بار).'
+        : `${formatNumber(state.counts.pending)} عملیات آفلاین منتظر ارسال است؛ برای ارسال خودکار، رمز محلی را وارد کنید.`);
+    parts.push(pinHtml(profile, state.pendingAction ? 'ذخیره در دستگاه' : state.pendingNav ? 'بازکردن' : 'تأیید رمز'));
   } else if (!state.session && !hasSession() && monitor.reachable && !formPanels && offerSetup()) {
     if (!profile) {
       parts.push('<strong>کار بدون سرور در این دستگاه فعال نیست.</strong> با یک رمز محلی، همین مشعل (داشبورد، منو، صفحات و '
@@ -369,7 +441,7 @@ async function renderNotice(profile) {
       parts.push(activationHtml());
     } else if (!profile.pageKeys) {
       parts.push('برای آماده‌کردن صفحات مشعل در این دستگاه برای زمان قطع سرور، یک‌بار رمز محلی را وارد کنید.');
-      parts.push(pinHtml(profile, 'تأیید رمز') + laterHtml());
+      parts.push(pinHtml(profile, 'تأیید رمز', laterHtml()));
     }
   }
   paint(host, tone, parts);
@@ -392,20 +464,25 @@ function offerSetup() {
 }
 
 function laterHtml() {
-  return ' <button type="button" class="ak-cancel mt-2" data-offline-later>بعداً</button>';
+  return '<button type="button" class="ak-cancel" data-offline-later>بعداً</button>';
 }
 
 function activationHtml() {
   const id = ++pinSeq;
-  return `<div class="ak-field mt-2">
-      <label class="ak-label" for="ptg-offline-new-${id}">رمز محلی (حداقل ۶ حرف یا رقم؛ فقط روی همین دستگاه)</label>
-      <input class="ak-input" id="ptg-offline-new-${id}" type="password" autocomplete="new-password" data-offline-new-pin />
-    </div>
-    <div class="ak-field mt-2">
-      <label class="ak-label" for="ptg-offline-new2-${id}">تکرار رمز محلی</label>
-      <input class="ak-input" id="ptg-offline-new2-${id}" type="password" autocomplete="new-password" data-offline-new-pin />
-    </div>
-    <button type="button" class="ak-save mt-2" data-offline-activate>فعال‌سازی کار بدون سرور</button>${laterHtml()}`;
+  return `<div class="ak-offline-setup">
+      <div class="ak-field">
+        <label class="ak-label" for="ptg-offline-new-${id}">رمز محلی</label>
+        <input class="ak-input" id="ptg-offline-new-${id}" type="password" autocomplete="new-password" placeholder="حداقل ۶ حرف یا رقم" data-offline-new-pin />
+      </div>
+      <div class="ak-field">
+        <label class="ak-label" for="ptg-offline-new2-${id}">تکرار رمز محلی</label>
+        <input class="ak-input" id="ptg-offline-new2-${id}" type="password" autocomplete="new-password" data-offline-new-pin />
+      </div>
+      <div class="ak-offline-setup-actions">
+        <button type="button" class="ak-save" data-offline-activate>فعال‌سازی</button>${laterHtml()}
+      </div>
+      <div class="ak-offline-setup-hint">رمز فقط روی همین دستگاه نگه‌داری می‌شود.</div>
+    </div>`;
 }
 
 /** فعال‌سازی دستگاه در همان مشعل (همان createProfile و Registry برنامهٔ آفلاین؛ چیزی موازی ساخته نمی‌شود). */
@@ -420,11 +497,13 @@ async function onActivate(host) {
     const pinError = validatePin(pin1.value);
     if (pinError) return fail(pinError);
     const session = await api.session();
+    if (session.status === 409 && session.data?.detail) return fail(session.data.detail); // تنظیم سیستم (مثلاً شرکت مالک)
     if (!session.ok || !session.data || Number(session.data.userId) !== CONFIG.userId) {
       return fail('نشست ورود سرور تأیید نشد؛ صفحه را تازه کنید و دوباره تلاش کنید.');
     }
     const { profile, dataKey, rawKey } = await createProfile({ session: session.data, pin: pin1.value, deviceId: uuid() });
     await (await openRegistry()).put('profiles', profile);
+    forgetProfileCache();
     pin1.value = '';
     pin2.value = '';
     const persisted = rememberSession(profile, rawKey);
@@ -465,9 +544,11 @@ function contextOf(form) {
   const target = formTarget(form);
   if (!target || target.url.origin !== location.origin) return null;
   // فورم‌های مودالِ صفحه (iframe با modal=1) و ثبت سریع هم همان فورم اصلی‌اند؛ فقط فورمِ درون‌خطیِ مودال Bootstrap نه.
-  const offline = CONFIG.forms.has(target.path) && !form.closest('.modal');
+  // عملیات روی رکورد (لغو/حذف/ویرایش…، حتی داخل مودال تأیید): آنلاین دست‌نخورده؛ پیام‌ها در اعلان صفحه، نه پنل فورم.
+  const action = CONFIG.forms.has(target.path) ? null : matchActionPath(target.path, CONFIG.actions);
+  const offline = (CONFIG.forms.has(target.path) && !form.closest('.modal')) || !!action;
   let panel = null;
-  if (offline) {
+  if (offline && !action) {
     panel = form.querySelector(':scope > [data-offline-panel]');
     if (!panel) {
       panel = document.createElement('div');
@@ -480,11 +561,26 @@ function contextOf(form) {
       form.prepend(panel);
     }
   }
-  return { form, path: target.path, url: target.url, offline, panel, quick: isQuickCreatePage() };
+  return {
+    form, path: target.path, url: target.url, offline, panel, quick: isQuickCreatePage(),
+    ambient: !!action, entityId: action?.entityId || null
+  };
 }
 
+/** فورم‌های ثبت تازه با پنل خودشان (عملیات روی رکورد پنل ندارند). */
 function formContexts() {
+  return [...document.querySelectorAll('form')].map(contextOf).filter((ctx) => ctx?.offline && !ctx.ambient);
+}
+
+/** همهٔ فورم‌های قابل نگه‌داری آفلاین، از جمله عملیات روی رکورد. */
+function offlineContexts() {
   return [...document.querySelectorAll('form')].map(contextOf).filter((ctx) => ctx?.offline);
+}
+
+/** زمان سرورِ صفحه‌ای که کاربر می‌بیند (نسخهٔ پایهٔ ویرایش/لغو). */
+function pageBaseVersion(form) {
+  const marker = form.closest('main')?.querySelector('[data-ptg-rendered]') || document.querySelector('main [data-ptg-rendered]');
+  return baseVersionFrom(marker?.getAttribute('data-ptg-rendered'));
 }
 
 function formLabel() {
@@ -519,9 +615,17 @@ function capture(ctx, submitter) {
       label: formLabel(),
       fields,
       // پارامترهای مودال/ثبت سریع کنار گذاشته می‌شوند: سرور همان ثبت عادی را انجام می‌دهد (Redirect، نه JSONِ مودال).
-      query: [...ctx.url.searchParams].filter(([name]) => !['modal', 'quickCreate', 'offlineEdit'].includes(name))
+      query: [...ctx.url.searchParams].filter(([name]) => !['modal', 'quickCreate', 'offlineEdit'].includes(name)),
+      // صفحه‌ای که فورم در آن بود (برای «اصلاح در فورم اصلی» وقتی خود آدرس فورم صفحهٔ GET ندارد، مثلاً لغو از فهرست).
+      ...(ctx.ambient ? { page: pageAddress() } : {})
     }
   };
+}
+
+function pageAddress() {
+  const url = new URL(location.href);
+  url.searchParams.delete('offlineEdit');
+  return url.pathname + url.search;
 }
 
 /**
@@ -579,6 +683,7 @@ function rotateFormToken(form) {
 }
 
 function setMessage(ctx, tone, html) {
+  if (!ctx.panel) return setPageMessage(tone, html);
   state.messages.set(ctx.panel, { tone, html });
   return refreshAll();
 }
@@ -614,7 +719,13 @@ function refreshPanel(ctx, profile) {
 
 async function refreshAll() {
   const profile = await profileForUser();
-  if (profile) state.counts = await countRows(profile).catch(() => state.counts);
+  state.hasProfile = !!profile;
+  if (profile) {
+    state.counts = await countRows(profile).catch(() => {
+      closeCountStore();
+      return state.counts;
+    });
+  }
   publishStatus();
   for (const ctx of formContexts()) refreshPanel(ctx, profile);
   await renderNotice(profile).catch(() => {});
@@ -624,13 +735,19 @@ async function refreshAll() {
 
 /** ذخیرهٔ همان فورم در Outbox (Pending = ارسال خودکار؛ Draft = منتظر بررسی کاربر). */
 async function saveLocal(ctx, intent) {
-  const { repo, engine } = state.session;
+  const { repo, engine, vault } = state.session;
+  const write = () => (intent.status === Status.Draft
+    ? repo.saveDraft(FORM_SUBMIT, intent.payload, todayIso())
+    : repo.submit(FORM_SUBMIT, intent.payload, todayIso(), { ...(intent.meta || {}) }));
   let record;
   try {
-    if (intent.status === Status.Draft) {
-      record = await repo.saveDraft(FORM_SUBMIT, intent.payload, todayIso());
-    } else {
-      record = await repo.submit(FORM_SUBMIT, intent.payload, todayIso());
+    try {
+      record = await write();
+    } catch (e) {
+      if (!isQuotaError(e)) throw e;
+      // دستگاه پر است: عملیات کاربر مهم‌تر از صفحات ذخیره‌شده است؛ کم‌اولویت‌ترین صفحات جا باز می‌کنند.
+      await vault.shrink(Math.max(5 * 1024 * 1024, (await vault.usage()).bytes / 2));
+      record = await write();
     }
   } catch (e) {
     state.intents.delete(ctx.form);
@@ -640,8 +757,24 @@ async function saveLocal(ctx, intent) {
     return;
   }
   state.intents.delete(ctx.form);
+  state.pendingItems = null;
   if (ctx.quick && intent.status !== Status.Draft && completeQuickCreate(record)) {
     engine.run();
+    return;
+  }
+  if (ctx.ambient) {
+    // عملیات روی رکورد: فورم همان می‌ماند (کاربر می‌بیند چه چیزی در صف است)؛ مودال تأیید بسته می‌شود.
+    try {
+      const modal = ctx.form.closest('.modal');
+      if (modal && window.bootstrap?.Modal) window.bootstrap.Modal.getOrCreateInstance(modal).hide();
+    } catch {
+      // مودال بدون Bootstrap؛ اثری ندارد.
+    }
+    await setMessage(ctx, 'success', `«${h(intent.payload.label || 'عملیات')}» در این دستگاه نگه داشته شد و تا تأیید سرور قطعی نیست. `
+      + 'پس از اتصال، خودکار با همان قواعد و صلاحیت سرور اجرا می‌شود؛ اگر این سند در این فاصله به‌دست کاربر دیگری تغییر کرده باشد، '
+      + `اجرا نمی‌شود و برای بررسی در ${OPS_LINK} می‌ماند.`);
+    engine.run();
+    markPendingRecords();
     return;
   }
   resetForm(ctx.form);
@@ -675,12 +808,23 @@ async function keepLocally(ctx, intent, submitter) {
     return;
   }
   intent.payload = intent.formToken ? { ...captured.payload, formToken: intent.formToken } : captured.payload;
+  if (ctx.ambient) {
+    const idField = captured.payload.fields.find(([name]) => name.toLowerCase() === 'id')?.[1];
+    intent.meta = { entityId: ctx.entityId || (/^\d+$/.test(idField || '') ? idField : null), baseVersion: pageBaseVersion(ctx.form) };
+  }
   if (!(await profileForUser())) {
     await setMessage(ctx, 'warning', `${h(intent.note)} این دستگاه برای ثبت آفلاین فعال نشده است؛ معلومات فورم روی صفحه باقی است. `
       + 'پس از اتصال دوباره «ذخیره» کنید، یا یک‌بار با اینترنت «مشعل آفلاین» را فعال کنید.');
     return;
   }
   if (!(await ensureSession())) {
+    if (ctx.ambient) {
+      // رمز در اعلان بالای صفحه گرفته می‌شود؛ پس از رمز همین عملیات ذخیره می‌شود.
+      state.pendingAction = { ctx, intent };
+      await setPageMessage('warning', h(intent.note));
+      document.querySelector('[data-offline-notice] [data-offline-pin]')?.focus();
+      return;
+    }
     state.intents.set(ctx.form, intent);
     await setMessage(ctx, 'warning', h(intent.note));
     ctx.panel.querySelector('[data-offline-pin]')?.focus();
@@ -730,12 +874,14 @@ function applyValues(form, byName, notify) {
   return missing;
 }
 
-async function enterEditMode(ctx, id) {
+async function enterEditMode(contexts, id) {
   if (!(await ensureSession())) {
     state.pendingNav = { url: location.href, push: false };
     return;
   }
   const record = await state.session.repo.get(id);
+  // صفحه ممکن است چند فورم داشته باشد (مثلاً دکمه‌های لغو هر سطر)؛ فورمِ همان عملیات انتخاب می‌شود.
+  const ctx = contexts.find((c) => c.path === record?.payload?.path) || contexts[0];
   if (!record || record.operationType !== FORM_SUBMIT || record.payload?.path !== ctx.path
     || !(record.status === Status.Draft || canResubmit(record))) {
     await setMessage(ctx, 'danger', 'این عملیات آفلاین برای این فورم پیدا نشد یا دیگر قابل اصلاح نیست.');
@@ -743,6 +889,7 @@ async function enterEditMode(ctx, id) {
   }
   const missing = fillForm(ctx.form, record.payload.fields || []);
   state.edit = { id, form: ctx.form };
+  ctx.form.scrollIntoView?.({ block: 'nearest' });
   await setMessage(ctx, 'info', `اصلاح عملیات آفلاین «${h(typeLabel(record.operationType, record.payload))}».`
     + (record.serverNote ? ` دلیل سرور: ${h(record.serverNote)}.` : '')
     + (missing ? ` ${formatNumber(missing)} فیلد (مثلاً سطرهای اضافه) در فورم پیدا نشد؛ آن‌ها را دوباره وارد کنید.` : '')
@@ -763,7 +910,8 @@ async function saveEdit(ctx, submitter) {
     if (record?.status === Status.Draft) {
       await repo.submit(FORM_SUBMIT, payload, record.businessDate, { fromDraftId: record.clientOperationId });
     } else {
-      await repo.resubmit(state.edit.id, payload, record?.businessDate);
+      // عملیات روی رکورد: کاربر نسخهٔ تازهٔ همین صفحه را دید؛ نسخهٔ پایه همان می‌شود.
+      await repo.resubmit(state.edit.id, payload, record?.businessDate, { baseVersion: ctx.ambient ? pageBaseVersion(ctx.form) : null });
     }
   } catch (e) {
     await setMessage(ctx, 'danger', h(e.message || 'ذخیره انجام نشد.'));
@@ -854,6 +1002,47 @@ async function submitOnline(ctx, submitter) {
   return { done: true };
 }
 
+/**
+ * عملیات روی رکورد (ویرایش، لغو، حذف، تأیید…) و ثبت‌های بدون توکن. آنلاین هیچ دخالتی نیست: تأیید، اسکریپت‌های صفحه
+ * و ارسال عادی همان است. فقط وقتی آخرین بررسی گفته سرور در دسترس نیست (یا اصلاح عملیات تعارض‌دار است)، پس از تأیید
+ * کاربر درخواست در دستگاه نگه داشته می‌شود و پس از اتصال با همان اکشن سرور اجرا می‌شود.
+ */
+function onActionSubmit(event, ctx) {
+  const form = ctx.form;
+  const fixing = state.edit?.form === form && !!state.session;
+  if (!fixing && (monitor.reachable || !monitor.lastCheckAt)) return;
+  // دیالوگ تأیید مشعل (data-ptg-confirm): اول همان دیالوگ؛ پس از «تأیید» فورم با ptgConfirmed=1 دوباره فرستاده می‌شود.
+  const usesDialog = form.getAttribute('data-ptg-confirm') === 'true';
+  if (usesDialog && form.dataset.ptgConfirmed !== '1') return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const confirmed = usesDialog;
+  if (usesDialog) form.dataset.ptgConfirmed = '';
+  // confirm درون‌خطی (onsubmit="return confirm(…)") پیش از نگه‌داشتن.
+  else if (typeof form.onsubmit === 'function' && form.onsubmit.call(form, event) === false) return;
+  const submitter = event.submitter && event.submitter.form === form ? event.submitter : undefined;
+  if (form.dataset.offlineBusy === '1') return;
+  form.dataset.offlineBusy = '1';
+  (async () => {
+    try {
+      if (fixing) {
+        await saveEdit(ctx, submitter);
+        return;
+      }
+      if (await checkNow()) {
+        // سرور برگشت: همان ارسال عادی صفحه (بدون پرسیدن دوبارهٔ دیالوگ تأیید).
+        form.dataset.offlinePass = '1';
+        if (confirmed) form.dataset.ptgConfirmed = '1';
+        form.requestSubmit(submitter);
+        return;
+      }
+      await keepLocally(ctx, { status: Status.Pending, note: NOTE.offline }, submitter);
+    } finally {
+      delete form.dataset.offlineBusy;
+    }
+  })();
+}
+
 function isLogout(form) {
   return /\/auth\/logout/i.test(form.getAttribute('action') || '');
 }
@@ -868,13 +1057,17 @@ async function onSubmit(event) {
   if (isLogout(form)) return;
   const ctx = contextOf(form);
   if (!ctx) return;
+  if (ctx.ambient) {
+    onActionSubmit(event, ctx);
+    return;
+  }
 
   if (!ctx.offline) {
     // فورم فقط-آنلاین: وقتی آخرین بررسی «سرور در دسترس نیست» گفته، پیش از ارسال دوباره سنجیده می‌شود تا معلومات نرود.
     if (monitor.reachable || !monitor.lastCheckAt) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (await monitor.check()) {
+    if (await checkNow()) {
       form.dataset.offlinePass = '1';
       try {
         form.requestSubmit(event.submitter && event.submitter.form === form ? event.submitter : undefined);
@@ -896,7 +1089,7 @@ async function onSubmit(event) {
     if (monitor.reachable && (monitor.lastCheckAt || !isCopy())) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (await monitor.check()) {
+    if (await checkNow()) {
       form.dataset.offlinePass = '1';
       form.requestSubmit();
       return;
@@ -917,7 +1110,7 @@ async function onSubmit(event) {
       await saveEdit(ctx, event.submitter);
       return;
     }
-    const reachable = await monitor.check();
+    const reachable = await checkNow();
     const outcome = pendingRef
       ? { status: Status.Pending, note: NOTE.pendingRef }
       : reachable ? await submitOnline(ctx, event.submitter) : { status: Status.Pending, note: NOTE.offline };
@@ -955,8 +1148,12 @@ async function onPin(host) {
     }
     if (!ctx) state.pageMessage = null;
     const intent = ctx && state.intents.get(ctx.form);
+    const pendingAction = !ctx && state.pendingAction;
+    state.pendingAction = null;
     if (intent) {
       await saveLocal(ctx, intent);
+    } else if (pendingAction?.ctx.form.isConnected) {
+      await saveLocal(pendingAction.ctx, pendingAction.intent);
     } else if (ctx) {
       state.messages.delete(ctx.panel);
     }
@@ -975,27 +1172,38 @@ async function onPin(host) {
 }
 
 function afterUnlock() {
+  state.pendingItems = null;
   injectPendingOptions();
   editFromUrl();
-  if (monitor.reachable) {
-    captureCurrent();
-    warmUp();
-  }
+  if (monitor.reachable) schedulePrepare(300);
 }
 
 // ---------------------------------------------------------------- pages (encrypted copies)
+
+const pathOf = (raw) => {
+  try {
+    return new URL(raw, location.href).pathname.toLowerCase().replace(/\/+$/, '') || '/';
+  } catch {
+    return '';
+  }
+};
+
+/** کار سنگین پس‌زمینه (رمزگذاری/نوشتن) پس از نمایش صفحه، در زمان بیکار مرورگر. */
+const idle = (task, timeout = 2000) => (typeof window.requestIdleCallback === 'function'
+  ? window.requestIdleCallback(() => task(), { timeout })
+  : setTimeout(task, 200));
 
 async function capturePage(url, html, full = false) {
   if (!html || !url || !cacheable(url) || !/<main[\s>]/i.test(html)) return;
   const vault = await pageWriter();
   if (!vault) return;
-  await vault.put(url, html, { full }).catch(() => {});
+  // صفحه‌ای که کاربر خودش باز کرد از صفحات پیمایش خودکار مهم‌تر است (دیرتر جا خالی می‌کند).
+  await vault.put(url, html, { full, prio: CONFIG.forms.has(pathOf(url)) ? Prio.Form : Prio.List }).catch(() => {});
   warmAssets(html, url);
 }
 
-/** پوستهٔ کامل Layout (منو، سربرگ) + فایل‌های CSS/JSِ آن؛ نشانی CSSها برای صفحهٔ رمزِ بدون سرور. */
-async function captureShell(vault, html) {
-  await vault.putShell(html);
+/** فایل‌های پوستهٔ Layout برای Service Worker + نشانی CSSها برای صفحهٔ رمزِ بدون سرور (بدون معلومات). */
+async function rememberShellAssets(html) {
   warmAssets(html, location.href);
   const styles = [...html.matchAll(/<link\b[^>]*\brel="stylesheet"[^>]*>/gi)]
     .map((m) => /\bhref="([^"]+)"/i.exec(m[0])?.[1]?.replace(/&amp;/g, '&'))
@@ -1004,114 +1212,157 @@ async function captureShell(vault, html) {
   if (profile && styles.length) await rememberShellStyles(profile.id, styles).catch(() => {});
 }
 
-/** CSS/JSِ همان صفحه به Service Worker سپرده می‌شود تا نسخهٔ ذخیره‌شده بدون سرور هم با همان ظاهر و رفتار باز شود. */
+const sentAssets = new Set();
+
+/** CSS/JSِ همان صفحه به Service Worker سپرده می‌شود (هر فایل یک‌بار در هر بارگذاری) تا نسخهٔ ذخیره بدون سرور هم با همان ظاهر باز شود. */
 function warmAssets(html, base) {
   const worker = navigator.serviceWorker?.controller;
   if (!worker) return;
-  const urls = new Set();
+  const urls = [];
   for (const match of html.matchAll(/<(?:link|script)\b[^>]*?\b(?:href|src)="([^"]+)"/gi)) {
     try {
       const url = new URL(match[1].replace(/&amp;/g, '&'), base);
-      if (url.origin === location.origin) urls.add(url.href);
+      if (url.origin === location.origin && !sentAssets.has(url.href)) {
+        sentAssets.add(url.href);
+        urls.push(url.href);
+      }
     } catch {
       // نادیده
     }
   }
-  if (urls.size) worker.postMessage({ type: 'mashal:cache-assets', urls: [...urls] });
+  if (urls.length) worker.postMessage({ type: 'mashal:cache-assets', urls });
 }
 
 const isHtml = (response) => response.ok && !response.redirected && (response.headers.get('Content-Type') || '').includes('text/html');
 
-/** صفحهٔ فعلی (و پوستهٔ کامل Layout) اگر نسخهٔ تازه ندارد، یک‌بار در پس‌زمینه گرفته و رمزگذاری می‌شود. */
+/** صفحهٔ بارگذاری کامل (نه SPA) فقط اگر هیچ نسخه‌ای ندارد، یک‌بار در زمان بیکار گرفته می‌شود. */
 async function captureCurrent() {
   if (isCopy() || !monitor.reachable || !cacheable(location.href)) return;
   const vault = await pageWriter();
-  if (!vault) return;
+  if (!vault || await vault.entry(location.href).catch(() => null)) return;
   try {
-    if (isModalUrl(location.href)) {
-      // صفحهٔ مودال: سند کامل خودش (بدون پوستهٔ منو) نگه داشته می‌شود.
-      const savedAt = await vault.savedAt(location.href);
-      if (savedAt && Date.now() - new Date(savedAt).getTime() < PAGE_REFRESH_MS) return;
-      const response = await fetch(location.href, { credentials: 'same-origin', cache: 'no-store' });
-      if (isHtml(response)) await capturePage(location.href, await response.text(), true);
-      return;
-    }
-    const shell = (await vault.index()).find((e) => e.key === 'shell');
-    if (!shell || Date.now() - new Date(shell.savedAt).getTime() > SHELL_REFRESH_MS) {
-      const response = await fetch(location.href, { credentials: 'same-origin', cache: 'no-store' });
-      if (isHtml(response)) await captureShell(vault, await response.text());
-    }
-    const savedAt = await vault.savedAt(location.href);
-    if (savedAt && Date.now() - new Date(savedAt).getTime() < PAGE_REFRESH_MS) return;
-    const response = await fetch(location.href, { credentials: 'same-origin', cache: 'no-store', headers: { 'X-PTG-SPA': '1' } });
-    if (isHtml(response)) await capturePage(location.href, await response.text());
+    const modal = isModalUrl(location.href);
+    const headers = modal ? { 'X-PTG-Prepare': '1' } : { 'X-PTG-SPA': '1', 'X-PTG-Prepare': '1' };
+    const response = await fetch(location.href, { credentials: 'same-origin', cache: 'no-store', headers, priority: 'low' });
+    if (isHtml(response)) await capturePage(location.href, await response.text(), modal);
   } catch {
     // دفعهٔ بعد.
   }
 }
 
 /**
- * صفحاتی که برای کار بدون سرور آماده می‌شوند: داشبورد، همهٔ گزینه‌های منوی کناری همین کاربر (سرور فقط گزینه‌های مجاز نقش
- * او را می‌سازد)، فورم‌های مجاز ثبت آفلاین، فهرست ماژول آن‌ها و فورم‌های ثبت سریع (مودال).
+ * کارهای آماده‌سازی: پوسته و داشبورد → فورم‌های مجاز و ثبت سریع → صفحات منوی کناری همین کاربر (سرور فقط گزینه‌های
+ * مجاز نقش او را می‌سازد) و فهرست ماژول فورم‌ها (۲۰۰ سطر اخیر) → زیرصفحات صفحات هاب (از دور قبل).
  */
-function warmUrls() {
-  const urls = new Set(['/']);
+function prepareTasks(crawled = []) {
+  const tasks = [
+    { url: '/', mode: 'shell', prio: Prio.Core, maxAgeMs: MAX_AGE.shell },
+    { url: '/', prio: Prio.Core, maxAgeMs: MAX_AGE.core, crawl: true, crawlMaxAgeMs: MAX_AGE.page }
+  ];
+  for (const path of CONFIG.forms) tasks.push({ url: path, prio: Prio.Form, maxAgeMs: MAX_AGE.form });
+  // ثبت‌های تازهٔ بدون توکن (صندوق، محصول، کارمند…): همان صفحهٔ فورم؛ عملیات روی رکورد صفحهٔ مستقل ندارند.
+  const actionForms = [...CONFIG.actions].filter((p) => /\/create$/.test(p) && cacheable(p));
+  for (const path of actionForms) tasks.push({ url: path, prio: Prio.Form, maxAgeMs: MAX_AGE.form });
+  // ثبت سریعِ طرف‌حساب/وسیله از داخل فورم‌های دیگر (مودال)، همان نشانی که core.js باز می‌کند.
+  for (const path of new Set(Object.values(REFERENCE_FORMS))) {
+    if (CONFIG.forms.has(path)) tasks.push({ url: `${path}?modal=1&quickCreate=1`, mode: 'modal', prio: Prio.Form, maxAgeMs: MAX_AGE.form });
+  }
+  const menu = new Set();
   for (const link of document.querySelectorAll('#boltzSidebar .boltz-sidebar-nav a[href]')) {
     try {
       const url = new URL(link.getAttribute('href'), location.href);
-      if (cacheable(url.href)) urls.add(url.pathname + url.search);
+      if (url.origin === location.origin && url.pathname !== '/' && cacheable(url.href)) menu.add(url.pathname + url.search);
     } catch {
       // نادیده
     }
   }
-  for (const path of CONFIG.forms) {
-    urls.add(path);
-    urls.add('/' + path.split('/')[1]);
+  for (const path of [...CONFIG.forms, ...actionForms]) menu.add('/' + path.split('/')[1]);
+  for (const url of menu) {
+    const list = !url.includes('?');
+    // فهرست‌های منو: جزئیات/ویرایشِ چند رکورد اخیر هم (با کمترین اولویت) تا ویرایش/لغوِ آن‌ها بدون بازدید قبلی ممکن باشد.
+    tasks.push({ url, prio: Prio.List, maxAgeMs: MAX_AGE.list, crawl: true, crawlMaxAgeMs: MAX_AGE.page, list, records: list ? RECENT_RECORDS : 0 });
   }
-  // ثبت سریعِ طرف‌حساب/وسیله از داخل فورم‌های دیگر (مودال)، همان نشانی که core.js باز می‌کند.
-  for (const path of new Set(Object.values(REFERENCE_FORMS))) {
-    if (CONFIG.forms.has(path)) urls.add(`${path}?modal=1&quickCreate=1`);
+  const menuPaths = new Set([...menu].map((u) => u.toLowerCase()));
+  for (const url of crawled) {
+    if (!menuPaths.has(url.toLowerCase()) && cacheable(url)) tasks.push({ url, prio: Prio.Page, maxAgeMs: MAX_AGE.page, list: true });
   }
-  return [...urls];
+  return tasks;
+}
+
+let prepareTimer = null;
+
+/** آماده‌سازی پس از نمایش صفحه و در زمان بیکار؛ هرگز مسیر بازشدن صفحه را منتظر نمی‌گذارد. */
+function schedulePrepare(delay = PREPARE_START_DELAY_MS) {
+  if (prepareTimer || state.warming) return;
+  prepareTimer = setTimeout(() => idle(() => {
+    prepareTimer = null;
+    if (!state.capturedInitial) {
+      state.capturedInitial = true;
+      captureCurrent();
+    }
+    prepare();
+  }, 5000), delay);
 }
 
 /**
- * آماده‌سازی کار بدون سرور (آرام، پشت‌سرهم، در پس‌زمینه): هر ۶ ساعت یا وقتی فهرست منو/فورم‌ها عوض شود. صفحه‌ای که
- * کمتر از ۳ ساعت پیش ذخیره شده دوباره گرفته نمی‌شود. بدون رمز محلی هم کار می‌کند (pageWriter).
+ * آماده‌سازی کار بدون سرور (prepare.js): هر ۱۵ دقیقه بررسی سبک؛ هر صفحه فقط پس از گذشت تازگی‌اش با ETag بررسی
+ * می‌شود (بدون تغییر = 304). بدون رمز محلی هم کار می‌کند (pageWriter، کلید عمومی صندوق صفحات).
  */
-async function warmUp() {
+async function prepare(force = false) {
   if (state.warming || isCopy() || !monitor.reachable || document.visibilityState === 'hidden') return;
-  let vault = await pageWriter();
+  const vault = await pageWriter();
   if (!vault) return;
-  const urls = warmUrls();
-  const signature = urls.join('|');
-  const meta = await vault.store.get('meta', 'pageWarmup').catch(() => null);
-  if (meta && meta.signature === signature && Date.now() - new Date(meta.at).getTime() < WARM_EVERY_MS) return;
+  const meta = await vault.store.get('meta', 'prepare').catch(() => null);
+  const crawled = meta?.links || [];
+  const tasks = prepareTasks(crawled);
+  const signature = tasks.filter((t) => t.prio <= Prio.List).map((t) => `${t.mode || 'page'}:${t.url}`).join('|');
+  if (!force && meta && meta.signature === signature && Date.now() - Date.parse(meta.at) < PREPARE_EVERY_MS) return;
+  const connection = navigator.connection;
+  // صرفه‌جویی داده یا شبکهٔ 2G: فقط پوسته، داشبورد و فورم‌ها؛ یکی‌یکی.
+  const slow = !!connection && (connection.saveData || /(^|-)2g$/.test(connection.effectiveType || ''));
   state.warming = true;
-  try {
-    for (const url of urls) {
-      if (!monitor.reachable) return;
-      vault = await pageWriter();
-      if (!vault) return;
-      const absolute = new URL(url, location.href).href;
-      try {
-        const savedAt = await vault.savedAt(absolute);
-        if (savedAt && Date.now() - new Date(savedAt).getTime() < WARM_EVERY_MS / 2) continue;
-        const modal = isModalUrl(url);
-        const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: modal ? {} : { 'X-PTG-SPA': '1' } });
-        if (isHtml(response)) await capturePage(absolute, await response.text(), modal);
-      } catch {
-        // صفحهٔ بعدی.
-      }
-      await new Promise((resolve) => setTimeout(resolve, 150));
+  const preparer = new Preparer({
+    vault: pageWriter,
+    isReachable: () => monitor.reachable,
+    isBusy: () => state.navigating || Date.now() - state.navEndedAt < 800 || document.visibilityState === 'hidden'
+      || !!document.querySelector('form[data-offline-busy]'),
+    allowed: (path) => cacheable(path),
+    concurrency: slow ? 1 : 2,
+    onPage: (url, html, task) => {
+      if (task.mode === 'shell') rememberShellAssets(html);
+      else warmAssets(html, new URL(url, location.href).href);
     }
-    await vault.store.put('meta', { key: 'pageWarmup', at: new Date().toISOString(), signature }).catch(() => {});
+  });
+  state.preparer = preparer;
+  try {
+    const summary = await preparer.run(slow ? tasks.filter((t) => t.prio <= Prio.Form) : tasks);
+    const links = [...new Set([...crawled, ...summary.crawlLinks])].slice(0, 250);
+    const at = new Date().toISOString();
+    const { fetched, notModified, skipped, failed, lists, bytes, records } = summary;
+    await vault.store.atomic([
+      { store: 'meta', type: 'put', value: summary.aborted ? { ...(meta || { at: null, signature: null }), key: 'prepare', links }
+        : { key: 'prepare', at, signature, links, summary: { fetched, notModified, skipped, failed, lists, bytes, records, slow } } },
+      ...(summary.aborted ? [] : [{ store: 'meta', type: 'put', value: { key: 'pageWarmup', at, signature } }])
+    ]).catch(() => {});
   } finally {
     state.warming = false;
+    state.preparer = null;
   }
 }
 
-/** بدون سرور: همان صفحه از نسخهٔ رمزگذاری‌شده، با همان ناوبری SPA و همان ظاهر. */
+/** پوستهٔ فعلی با پیام در بخش اصلی (برای صفحه‌ای که روی دستگاه نیست). */
+function shellDocument(mainHtml) {
+  const attrs = [...document.body.attributes].map((a) => `${a.name}="${h(a.value)}"`).join(' ');
+  const main = document.querySelector('main');
+  return `<!DOCTYPE html><html><head><title>${h(document.title)}</title></head><body ${attrs}>`
+    + `<div class="boltz-shell-frame"><main class="${h((main?.className || 'boltz-content ptg-page').replace(/\bptg-page-(swap|reveal)\b/g, ''))}">${mainHtml}</main></div>`
+    + '<div id="ptg-page-scripts"></div></body></html>';
+}
+
+/**
+ * بدون سرور: همان صفحه از نسخهٔ رمزگذاری‌شده، با همان ناوبری SPA و همان ظاهر. آدرسی که دقیقاً ذخیره نشده از
+ * نسخهٔ هم‌مسیر ساخته می‌شود (فهرست با جستجو/صفحه‌بندی محلی، فورم از الگو)؛ وگرنه پیام روشن داخل همان پوسته.
+ */
 async function renderFromVault(url, push) {
   if (!(await ensureSession())) {
     if (await profileForUser()) {
@@ -1123,15 +1374,18 @@ async function renderFromVault(url, push) {
     }
     return;
   }
-  const page = await state.session.vault.get(url).catch(() => null);
+  const absolute = new URL(url, location.href).href;
+  const page = await resolvePage(state.session.vault, absolute, isFormPath).catch(() => null);
+  state.pageMessage = null;
   if (!page) {
-    await setPageMessage('warning', 'سرور در دسترس نیست و این صفحه هنوز برای دسترسی آفلاین ذخیره نشده است. '
-      + 'صفحاتی که یک‌بار آنلاین باز شوند، بدون سرور هم باز می‌شوند. ' + OPS_LINK);
+    const pages = (await state.session.vault.list().catch(() => []))
+      .sort((a, b) => (a.title || '').localeCompare(b.title || '', 'fa'));
+    document.documentElement.removeAttribute(ATTR_COPY);
+    await window.PTG.spaApplyHtml(absolute, shellDocument(missingPageHtml(absolute, pages)), push !== false);
     return;
   }
-  state.pageMessage = null;
   document.documentElement.setAttribute(ATTR_COPY, page.savedAt);
-  await window.PTG.spaApplyHtml(new URL(url, location.href).href, page.html, push !== false);
+  await window.PTG.spaApplyHtml(absolute, page.html, push !== false);
 }
 
 // ---------------------------------------------------------------- lookups (JSON)
@@ -1182,18 +1436,17 @@ function installLookupCache() {
 
 // ---------------------------------------------------------------- pending references
 
-/** رکوردی که آفلاین ساخته شد (مشتری، موتر، …) در فهرست‌های انتخاب فورم‌های بعدی: پیش از ثبت با op:، پس از ثبت با شناسهٔ واقعی. */
-async function injectPendingOptions() {
-  if (!state.session) return;
-  let records;
-  try {
-    records = await state.session.repo.list();
-  } catch {
-    return;
-  }
+const RECENT_APPLIED_MS = 7 * 24 * HOUR;
+
+/** فقط عملیات ساخت طرف‌حساب/وسیلهٔ ثبت‌نشده یا تازه‌ثبت‌شده رمزگشایی می‌شوند (نه کل تاریخچهٔ Outbox). */
+async function loadPendingItems() {
+  const recent = Date.now() - RECENT_APPLIED_MS;
+  const records = await state.session.repo.listByStatus(
+    [Status.Pending, Status.Sending, Status.Received, Status.Conflict, Status.Applied],
+    (row) => (row.operationType === FORM_SUBMIT || row.operationType === 'Customer.Draft')
+      && (row.status !== Status.Applied || Date.parse(row.createdAt) > recent));
   const items = [];
   for (const record of records) {
-    if (record.status === Status.Draft || record.status === Status.Rejected) continue;
     let path = null;
     let name = '';
     if (record.operationType === FORM_SUBMIT) {
@@ -1204,14 +1457,81 @@ async function injectPendingOptions() {
       path = '/customers/create';
       name = record.payload?.name || '';
     }
-    if (!path || !name) continue;
+    if (!path || !name || !Object.values(REFERENCE_FORMS).includes(path)) continue;
     const realId = record.status === Status.Applied && record.appliedRef ? (record.appliedRef.match(/(\d+)\s*$/) || [])[1] : null;
     items.push({ path, value: realId || `op:${record.clientOperationId}`, label: `${name} (${realId ? 'تازه' : 'در انتظار ثبت'})` });
   }
-  for (const select of document.querySelectorAll('form select[name]')) {
-    const path = REFERENCE_FORMS[select.name.split('.').pop().toLowerCase()];
-    if (!path) continue;
-    for (const item of items.filter((i) => i.path === path)) {
+  return items;
+}
+
+/**
+ * تغییرهای ثبت‌نشده روی رکوردهای موجود (ویرایش، لغو، حذف… در صف دستگاه): کنار همان سطر فهرست و عنوان صفحهٔ همان رکورد
+ * نشان «در انتظار همگام‌سازی» (یا «نیازمند اصلاح») می‌آید؛ صفحه هرگز وضعیت ثبت‌نشده را قطعی نشان نمی‌دهد.
+ */
+async function markPendingRecords() {
+  const main = document.querySelector('main');
+  if (!main) return;
+  main.querySelectorAll('[data-offline-pending-mark]').forEach((el) => el.remove());
+  if (!state.session) return;
+  let records;
+  try {
+    records = await state.session.repo.listByStatus([Status.Pending, Status.Sending, Status.Received, Status.Conflict],
+      (row) => row.operationType === FORM_SUBMIT);
+  } catch {
+    return;
+  }
+  const here = pathOf(location.href);
+  const links = [...main.querySelectorAll('form[action], a[href]')]
+    .map((el) => ({ el, path: pathOf(el.getAttribute('action') || el.getAttribute('href') || '') }));
+  for (const record of records) {
+    const segments = String(record.payload?.path || '').split('/').filter(Boolean);
+    const controller = segments[0];
+    const id = /^\d+$/.test(segments[2] || '') ? segments[2] : record.entityId;
+    if (!controller || !id || !/^\d+$/.test(String(id))) continue;
+    const recordPages = new Set([`/${controller}/${segments[1]}/${id}`, `/${controller}/details/${id}`, `/${controller}/edit/${id}`]);
+    // فورم سطر که شناسه را در فیلد مخفی دارد (/expenses/cancel + id=12).
+    for (const form of main.querySelectorAll('form[action]')) {
+      if (pathOf(form.getAttribute('action')) === record.payload.path && form.querySelector(`input[name="id" i][value="${id}"]`)) {
+        links.push({ el: form, path: recordPages.values().next().value });
+      }
+    }
+    const conflict = record.status === Status.Conflict;
+    const badge = () => {
+      const span = document.createElement('span');
+      span.className = `ak-badge ${conflict ? 'ak-badge-danger' : 'ak-badge-warning'}`;
+      span.setAttribute('data-offline-pending-mark', '');
+      span.title = record.payload.label || '';
+      span.textContent = conflict ? 'تغییر آفلاین: نیازمند اصلاح' : 'تغییر آفلاین: در انتظار همگام‌سازی';
+      return span;
+    };
+    const hosts = new Set(links.filter((l) => recordPages.has(l.path)).map((l) => l.el.closest('tr')).filter(Boolean));
+    for (const row of hosts) {
+      if (!row.querySelector('[data-offline-pending-mark]')) (row.querySelector('td') || row).append(' ', badge());
+    }
+    if (recordPages.has(here)) {
+      const heading = main.querySelector('h1, .ak-page-title, h2');
+      if (heading && !heading.querySelector('[data-offline-pending-mark]')) heading.append(' ', badge());
+    }
+  }
+}
+
+/** رکوردی که آفلاین ساخته شد (مشتری، موتر، …) در فهرست‌های انتخاب فورم‌های بعدی: پیش از ثبت با op:، پس از ثبت با شناسهٔ واقعی. */
+async function injectPendingOptions() {
+  if (!state.session) return;
+  markPendingRecords();
+  const selects = [...document.querySelectorAll('form select[name]')]
+    .map((select) => ({ select, path: REFERENCE_FORMS[select.name.split('.').pop().toLowerCase()] }))
+    .filter((s) => s.path);
+  if (!selects.length) return;
+  if (!state.pendingItems) {
+    try {
+      state.pendingItems = await loadPendingItems();
+    } catch {
+      return;
+    }
+  }
+  for (const { select, path } of selects) {
+    for (const item of state.pendingItems.filter((i) => i.path === path)) {
       if ([...select.options].some((o) => o.value === item.value)) continue;
       const option = new Option(item.label, item.value);
       option.dataset.offlineRef = '1';
@@ -1248,11 +1568,25 @@ function refreshStaleDates() {
 function editFromUrl() {
   const id = new URL(location.href).searchParams.get('offlineEdit');
   if (!id || state.edit) return;
-  const ctx = formContexts()[0];
-  if (ctx) enterEditMode(ctx, id).then(refreshAll);
+  const contexts = offlineContexts();
+  if (contexts.length) enterEditMode(contexts, id).then(refreshAll);
 }
 
 // ---------------------------------------------------------------- lifecycle
+
+/** بررسی واقعی اتصال (ping) با زمان پاسخ، برای تصمیم «مستقیم از نسخهٔ ذخیره». */
+async function checkNow() {
+  const reachable = await monitor.check();
+  state.checkedAt = Date.now();
+  return reachable;
+}
+
+/** همگام‌سازی دوره‌ای فقط وقتی چیزی برای ارسال/پیگیری هست یا مدتی گذشته (هر ۳۰ ثانیه درخواست بی‌حاصل نه). */
+function maybeSync() {
+  if (!state.session || !monitor.reachable) return;
+  const busy = (state.counts?.pending || 0) > 0;
+  if (busy || Date.now() - state.lastSyncAt > IDLE_SYNC_MS) state.session.engine.run();
+}
 
 async function scan() {
   await ensureSession().catch(() => null);
@@ -1260,10 +1594,7 @@ async function scan() {
   injectPendingOptions();
   editFromUrl();
   await refreshAll();
-  if (monitor.reachable) {
-    captureCurrent();
-    warmUp();
-  }
+  if (monitor.reachable) schedulePrepare();
 }
 
 function start() {
@@ -1271,14 +1602,22 @@ function start() {
   window.PTG = window.PTG || {};
   window.PTG.offlineNavigate = (url, push) => {
     monitor.reachable = false;
+    state.checkedAt = Date.now();
     monitor.emit();
     renderFromVault(url, push);
+    // سرور برگشته باشد، پیام «نمایش نسخهٔ تازه» ظاهر می‌شود.
+    setTimeout(() => checkNow(), 1500);
     return true;
   };
+  // آخرین بررسی همین حالا گفت سرور در دسترس نیست و دستگاه فعال است: ناوبری بی‌انتظار شبکه از نسخهٔ ذخیره.
+  window.PTG.offlineShouldSkipNetwork = () => state.hasProfile && !!monitor.lastCheckAt && !monitor.reachable
+    && Date.now() - state.checkedAt < OFFLINE_TRUST_MS;
+  // ناوبری کند: spa-nav می‌پرسد سرور واقعاً در دسترس است یا نه.
+  window.PTG.offlineProbe = () => (state.hasProfile ? checkNow() : Promise.resolve(true));
   window.PTG.offlinePostFailed = () => {
     setPageMessage('danger', 'ارسال به سرور انجام نشد (سرور در دسترس نیست یا پاسخ نداد). معلومات فورم روی صفحه باقی است. '
       + 'اگر مطمئن نیستید ثبت شد یا نه، پس از اتصال ابتدا فهرست را بررسی کنید.');
-    monitor.check();
+    checkNow();
     return true;
   };
 
@@ -1325,13 +1664,27 @@ function start() {
     }, { passive: true });
   }
 
+  // ناوبری کاربر: آماده‌سازی پس‌زمینه مکث می‌کند تا پهنای باند و CPU به صفحهٔ کاربر برسد.
+  let navGuard = null;
+  window.addEventListener('ptg:nav-start', () => {
+    state.navigating = true;
+    clearTimeout(navGuard);
+    navGuard = setTimeout(() => { state.navigating = false; }, 15000);
+  });
   window.addEventListener('ptg:page-html', (event) => {
     // صفحهٔ تازه از سرور: نسخهٔ قبلی جایگزین می‌شود و نشانگر «نسخهٔ ذخیره» برداشته می‌شود.
     document.documentElement.removeAttribute(ATTR_COPY);
     state.pageMessage = null;
-    capturePage(event.detail?.url, event.detail?.html);
+    const { url, html } = event.detail || {};
+    // رمزگذاری و نوشتن پس از نمایش صفحه (زمان بیکار)، نه هم‌زمان با جای‌گذاری.
+    idle(() => capturePage(url, html));
   });
-  window.addEventListener('ptg:page-ready', () => { scan(); });
+  window.addEventListener('ptg:page-ready', () => {
+    state.navigating = false;
+    state.navEndedAt = Date.now();
+    clearTimeout(navGuard);
+    scan();
+  });
 
   let wasReachable = monitor.reachable;
   monitor.onChange(() => {
@@ -1339,13 +1692,13 @@ function start() {
     wasReachable = monitor.reachable;
     if (cameOnline) {
       state.session?.engine.run();
-      captureCurrent();
+      schedulePrepare(5000);
     }
     refreshAll();
   });
-  window.addEventListener('online', () => monitor.check());
-  window.addEventListener('offline', () => monitor.check());
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') monitor.check(); });
+  window.addEventListener('online', () => checkNow());
+  window.addEventListener('offline', () => checkNow());
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkNow(); });
   setInterval(async () => {
     if (state.session && (Date.now() - state.lastActivity > SESSION_IDLE_MS || (state.session.persisted && !hasSession()))) {
       // ۱۵ دقیقه بی‌فعالیتی یا خروج: کلید از حافظه برداشته می‌شود؛ معلومات دستگاه می‌ماند.
@@ -1353,12 +1706,13 @@ function start() {
       refreshAll();
     }
     if (document.visibilityState === 'hidden') return;
-    await monitor.check();
-    if (state.session && monitor.reachable) state.session.engine.run();
+    await checkNow();
+    maybeSync();
+    if (monitor.reachable) schedulePrepare(1000);
   }, CHECK_MS);
 }
 
 if (CONFIG.userId > 0) {
   start();
-  monitor.check().finally(scan);
+  checkNow().finally(scan);
 }

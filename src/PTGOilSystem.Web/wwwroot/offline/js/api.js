@@ -64,8 +64,9 @@ export class ApiClient {
     }
   }
 
+  /** ping بی‌نام است (AllowAnonymous)؛ توکن دستگاه برایش خوانده/تازه نمی‌شود (هر ۳۰ ثانیه و پیش از هر ذخیره). */
   ping() {
-    return this.request('GET', '/ping', undefined, 6000);
+    return this.request('GET', '/ping', undefined, 6000, { useAuth: false });
   }
 
   session() {

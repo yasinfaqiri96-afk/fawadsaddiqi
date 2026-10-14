@@ -813,7 +813,13 @@ public class PaymentsController : Controller
             // بودن Pilot هیچ اثری روی مسیر قدیمی ندارد؛ خطای واقعی همان Rollback را می‌گیرد.
             if (_paymentAccounting is not null)
             {
-                await _paymentAccounting.TryPostPaymentAsync(payment);
+                var accounting = await _paymentAccounting.TryPostPaymentAsync(payment);
+                // فقط اطلاع‌رسانی (قاعدهٔ حسابداری تغییر نکرده): ثبت موفقِ بدون سند دفتر کل نباید کامل به نظر برسد.
+                if (accounting is { Status: Services.Accounting.PaymentPostingStatus.Skipped, Reason: "PAYMENT_COMPANY_UNKNOWN" })
+                {
+                    TempData["warn"] = "دریافت/پرداخت در روزنامچه ثبت شد، ولی سند دفتر کل (حسابداری دوطرفه) برایش ساخته نشد: "
+                        + "شرکتِ آن از قرارداد، فروش یا محموله مشخص نیست. برای اثر در دفتر کل، قرارداد یا سند مرتبط را تعیین کنید.";
+                }
             }
 
             await _audit.LogAsync(

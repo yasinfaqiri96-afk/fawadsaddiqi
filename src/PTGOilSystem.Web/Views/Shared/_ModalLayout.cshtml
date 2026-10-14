@@ -58,7 +58,7 @@
     <link rel="stylesheet" href="~/vendor/bootstrap-icons/font/bootstrap-icons.min.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/vendor/fonts/poppins/poppins.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/vendor/fonts/vazirmatn/vazirmatn.css" asp-append-version="true" />
-    <link rel="stylesheet" href="~/vendor/fonts/iransans/iransans.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/vendor/fonts/iransans/iransans.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/_variables.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/_utilities.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
@@ -101,12 +101,13 @@
     @if (User.Identity?.IsAuthenticated == true)
     {
         @* مشعل آفلاین: فورم‌های مودال و ثبت سریع هم بدون سرور در دستگاه ذخیره می‌شوند (offline/js/form-bridge.js). *@
+        var offlineTargets = PTGOilSystem.Web.Services.OfflineSync.OfflineFormRegistry.AllowedFor(User,
+            Context.RequestServices.GetService(typeof(PTGOilSystem.Web.Security.ClientModuleProfile)) as PTGOilSystem.Web.Security.ClientModuleProfile);
         var offlineConfig = System.Text.Json.JsonSerializer.Serialize(new
         {
             u = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value,
-            f = PTGOilSystem.Web.Services.OfflineSync.OfflineFormRegistry.AllowedFor(User,
-                Context.RequestServices.GetService(typeof(PTGOilSystem.Web.Security.ClientModuleProfile)) as PTGOilSystem.Web.Security.ClientModuleProfile)
-                .Select(t => t.Path)
+            f = offlineTargets.Where(t => t.HandledOnlineByDevice).Select(t => t.Path),
+            a = offlineTargets.Where(t => !t.HandledOnlineByDevice).Select(t => t.Pattern)
         });
         <meta name="ptg-offline" content="@offlineConfig" />
         <script type="module" src="~/offline/js/form-bridge.js" asp-append-version="true"></script>
@@ -121,6 +122,7 @@
       data-calendar="@(PTGOilSystem.Web.Helpers.DateDisplay.IsSolarHijri ? "solar" : "gregorian")">
     @await Html.PartialAsync("_FlashAlerts")
     <main class="ak-form-page ptg-modal-body-shell">
+        <span hidden data-ptg-rendered="@DateTime.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture)"></span>
         @RenderBody()
     </main>
 

@@ -16,14 +16,24 @@ export class DeviceAuth {
     this.refreshImpl = refreshImpl;
     this.clock = clock;
     this.cache = undefined;
+    this.loading = null;
     this.refreshing = null;
   }
 
-  async load() {
-    if (this.cache !== undefined) return this.cache;
-    const row = await this.store.get('meta', META_KEY);
-    this.cache = row?.sealed ? await this.sealer.open(row.sealed) : null;
-    return this.cache;
+  /** خواندن تک‌پرواز: خواندن کُند و هم‌زمان، توکنِ چرخیده را با نسخهٔ قدیمی (استفادهٔ دوباره) جایگزین نمی‌کند. */
+  load() {
+    if (this.cache !== undefined) return Promise.resolve(this.cache);
+    if (!this.loading) {
+      this.loading = (async () => {
+        const row = await this.store.get('meta', META_KEY);
+        const tokens = row?.sealed ? await this.sealer.open(row.sealed) : null;
+        if (this.cache === undefined) this.cache = tokens;
+        return this.cache;
+      })().finally(() => {
+        this.loading = null;
+      });
+    }
+    return this.loading;
   }
 
   async has() {
@@ -52,17 +62,21 @@ export class DeviceAuth {
     let tokens = await this.load();
     if (!tokens) return null;
     if (new Date(tokens.accessTokenExpiresAtUtc).getTime() - EARLY_REFRESH_MS <= this.clock()) {
-      tokens = await this.refresh();
+      tokens = await this.refresh(tokens);
     }
     return tokens ? `Bearer ${tokens.accessToken}` : null;
   }
 
-  /** تازه‌سازی تک‌پرواز: چند درخواست هم‌زمان یک توکن را دوبار مصرف نمی‌کنند (چرخش امن). */
-  refresh() {
+  /**
+   * تازه‌سازی تک‌پرواز: چند درخواست هم‌زمان یک توکن را دوبار مصرف نمی‌کنند (چرخش امن).
+   * expired: توکنی که فراخواننده منقضی دید؛ اگر در این فاصله چرخیده باشد، همان توکن تازه برمی‌گردد.
+   */
+  refresh(expired = null) {
     if (!this.refreshing) {
       this.refreshing = (async () => {
         const tokens = await this.load();
         if (!tokens) return null;
+        if (expired && tokens.accessToken !== expired.accessToken) return tokens;
         const result = await this.refreshImpl(tokens.refreshToken, this.deviceId);
         if (result.ok && result.data?.accessToken) {
           await this.save(result.data);

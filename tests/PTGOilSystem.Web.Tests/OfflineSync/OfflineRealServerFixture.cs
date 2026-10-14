@@ -251,7 +251,7 @@ public sealed class OfflineClient(HttpClient http, string cookie)
     }
 
     public static object Op(Guid id, int userId, string type, object payload, string businessDate,
-        int revision = 1, IEnumerable<Guid>? dependencies = null)
+        int revision = 1, IEnumerable<Guid>? dependencies = null, string? baseVersion = null, string? entityId = null)
     {
         var json = JsonSerializer.Serialize(payload, Json);
         return new
@@ -259,6 +259,8 @@ public sealed class OfflineClient(HttpClient http, string cookie)
             clientOperationId = id,
             userId,
             operationType = type,
+            entityId,
+            baseVersion,
             payloadJson = json,
             payloadHash = OfflineSyncService.ComputeHash(json),
             createdAtUtc = DateTime.UtcNow,

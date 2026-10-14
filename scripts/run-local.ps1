@@ -132,6 +132,17 @@ function Set-LocalRunnerEnvironment {
     # Database updates are explicit through -ApplyMigrations/-MigrateOnly.
     # Normal and watch startup must never repeat migration discovery implicitly.
     $env:PTG_AUTO_MIGRATE = "false"
+    # Trusted-device (offline PWA) session key: same DPAPI-protected per-user key as run-pwa-local.ps1.
+    # Without it a Production run cannot issue device sessions (/api/sync/v1/device-session returns 503).
+    $jwtKeyFile = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "PTGOilSystem\pwa-local-jwt.key"
+    if (-not (Test-Path -LiteralPath $jwtKeyFile)) {
+        New-Item -ItemType Directory -Path (Split-Path $jwtKeyFile -Parent) -Force | Out-Null
+        $keyBytes = New-Object byte[] 48
+        [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($keyBytes)
+        ConvertTo-SecureString -String ([Convert]::ToBase64String($keyBytes)) -AsPlainText -Force |
+            ConvertFrom-SecureString | Set-Content -LiteralPath $jwtKeyFile -Encoding ASCII
+    }
+    $env:PTG_MOBILE_JWT_SIGNING_KEY = Unprotect-LocalSecret -Value (Get-Content -LiteralPath $jwtKeyFile -Raw).Trim()
     $env:PTG_BOOTSTRAP_ADMIN_USERNAME = $BootstrapAdminUsername
     $env:PTG_BOOTSTRAP_ADMIN_FULLNAME = $BootstrapAdminFullName
 

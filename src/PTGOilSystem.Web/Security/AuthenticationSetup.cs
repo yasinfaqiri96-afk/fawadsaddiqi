@@ -35,7 +35,11 @@ public static class AuthenticationSetup
         services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
             .AddCookie(options =>
             {
-                options.Cookie.Name = "PTGOilSystem.Auth";
+                // کوکی‌ها به پورت وابسته نیستند: اجرای محلیِ دوم (مثلاً PWA روی 5400) نام جدا می‌گیرد تا ورود/خروج
+                // یک نسخه نشست نسخهٔ دیگر را عوض نکند. بدون تنظیم، همان نام همیشگی.
+                options.Cookie.Name = string.IsNullOrWhiteSpace(configuration["PTG_AUTH_COOKIE_NAME"])
+                    ? "PTGOilSystem.Auth"
+                    : configuration["PTG_AUTH_COOKIE_NAME"];
                 options.Cookie.HttpOnly = true;
                 options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
                 options.Cookie.SameSite = SameSiteMode.Lax;

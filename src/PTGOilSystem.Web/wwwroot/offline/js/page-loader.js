@@ -7,6 +7,7 @@ import { IdbStore, profileDbName } from './store.js';
 import { PageSealer, Sealer, unlockProfile } from './vault.js';
 import { ensurePageKeys, loadProfiles, openRegistry, rememberSession, restoreSession } from './session.js';
 import { PageVault } from './page-vault.js';
+import { missingPageHtml, resolvePage } from './page-resolve.js';
 import { formatDateTime, relativeAge } from './util.js';
 
 const ATTR_COPY = 'data-ptg-offline-copy';
@@ -41,7 +42,7 @@ function showLogin(profiles, html) {
   }
   document.body.className = 'app-body boltz-shell app-shell-public boltz-rtl';
   root.innerHTML = `<div class="ptg-login-page"><div class="ptg-login-card">
-      <section class="ptg-login-art"><img class="ptg-login-brand" src="/mashal-icon-512.png" alt="مشعل" width="160" height="160" /></section>
+      <section class="ptg-login-art"><img class="ptg-login-brand" src="/mashal-logo-512.png" alt="مشعل" width="160" height="160" /></section>
       <section class="ptg-login-panel">${html}</section></div></div>`;
 }
 
@@ -129,7 +130,11 @@ async function open(profile, dataKey) {
     const sealer = new Sealer(dataKey);
     const keyed = (await ensurePageKeys(profile.id, sealer).catch(() => null)) || profile;
     const vault = new PageVault(store, (await PageSealer.forProfile(keyed, sealer)) || sealer);
-    const [page, shell] = await Promise.all([vault.get(location.href).catch(() => null), vault.getShell().catch(() => null)]);
+    const shell = await vault.getShell().catch(() => null);
+    // فهرست فورم‌های مجاز همان کاربر (meta ptg-offline پوسته): فورم ثبت از الگو برای هر پارامتر آدرس.
+    const forms = formsOf(shell?.html);
+    const isForm = (path) => forms.has(path) || /\/(create|bulkcreate)[a-z]*$/.test(path);
+    const page = await resolvePage(vault, location.href, isForm).catch(() => null);
     if (page?.full) {
       // صفحهٔ مودال/ثبت سریع: همان سند کامل خودش.
       writeDocument(page.html, page.savedAt);
@@ -142,7 +147,7 @@ async function open(profile, dataKey) {
     const pages = (await vault.list()).sort((a, b) => (a.title || '').localeCompare(b.title || '', 'fa'));
     if (shell) {
       // همان پوسته (منو، سربرگ، سایدبار) با پیام در بخش اصلی؛ ناوبری منو به صفحات ذخیره‌شده ادامه دارد.
-      render(shell.html, null, missingHtml(pages), shell.savedAt);
+      render(shell.html, null, missingPageHtml(location.href, pages), shell.savedAt);
       return;
     }
     show(`<h2>این صفحه بدون سرور در دسترس نیست</h2>
@@ -185,16 +190,14 @@ function render(shellHtml, page, mainHtml = '', savedAt = null) {
   document.close();
 }
 
-/** پیام «این صفحه هنوز آماده نشده» داخل همان بخش اصلی مشعل، با پیوند صفحات آماده‌شده. */
-function missingHtml(pages) {
-  const items = pages.slice(0, 150).map((p) => `<li><a href="${h(p.url)}">${h(p.title || p.url)}</a>
-    <small class="text-muted">— ${h(formatDateTime(p.savedAt))} (${h(relativeAge(p.savedAt))})</small></li>`).join('');
-  return `<div class="alert ak-form-alert alert-warning" role="status">
-      <div class="mb-1"><strong>این صفحه هنوز روی این دستگاه آماده نشده است.</strong></div>
-      <div class="mb-1">سرور در دسترس نیست. منوی مشعل و صفحاتی که آماده شده‌اند بدون سرور باز می‌شوند؛ صفحات منو هنگام اتصال خودکار آماده می‌شوند.</div>
-      <div class="mb-1"><a href="/">داشبورد</a> · <a href="/offline/index.html#/ops">عملیات آفلاین</a> · <a href="${h(location.href)}">تلاش دوباره با سرور</a></div>
-    </div>
-    ${items ? `<div class="alert ak-form-alert alert-info"><div class="mb-1">صفحات آماده برای کار بدون سرور:</div><ul class="mb-0">${items}</ul></div>` : ''}`;
+function formsOf(shellHtml) {
+  try {
+    const meta = /<meta\s+name="ptg-offline"\s+content="([^"]*)"/i.exec(shellHtml || '');
+    const config = meta ? JSON.parse(meta[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&')) : {};
+    return new Set((config.f || []).map((p) => String(p).toLowerCase()));
+  } catch {
+    return new Set();
+  }
 }
 
 export async function applyStoredPage() {

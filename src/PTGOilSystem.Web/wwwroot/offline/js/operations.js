@@ -143,7 +143,33 @@ function normalizeFormSubmit(payload) {
   const query = pairList(payload.query);
   if (query.length) result.query = query;
   if (payload.formToken) result.formToken = String(payload.formToken);
+  // صفحهٔ مبدأ (فقط آدرس داخلی همین سایت) برای اصلاح عملیاتی که فورمش صفحهٔ مستقل ندارد.
+  const page = String(payload.page || '');
+  if (page.startsWith('/') && !page.startsWith('//')) result.page = page.slice(0, 400);
   return result;
+}
+
+/**
+ * عملیات روی رکورد (ویرایش، لغو، حذف، تأیید…) یا ثبت بدون توکن: «/sales/cancel/12» با الگوی «/sales/cancel/{id}».
+ * @param {string} path مسیر کوچک‌حرفِ فورم بدون / پایانی
+ * @param {Set<string>} actions الگوهای مجاز (meta ptg-offline، کلید a)
+ * @returns {{ pattern: string, entityId: string|null } | null}
+ */
+export function matchActionPath(path, actions) {
+  if (!path || !actions) return null;
+  // شناسه در فیلد مخفی (id) به‌جای آدرس: «/expenses/cancel» برای الگوی «/expenses/cancel/{id}».
+  if (actions.has(path) || actions.has(`${path}/{id}`)) return { pattern: actions.has(path) ? path : `${path}/{id}`, entityId: null };
+  const match = /^(.*)\/(\d+)$/.exec(path);
+  if (match && actions.has(`${match[1]}/{id}`)) return { pattern: `${match[1]}/{id}`, entityId: match[2] };
+  return null;
+}
+
+/** نسخهٔ پایه: زمان سرورِ صفحه‌ای که کاربر دید (data-ptg-rendered داخل main). */
+export const BASE_TIME_PREFIX = 't:';
+
+export function baseVersionFrom(renderedAt) {
+  const time = Date.parse(renderedAt || '');
+  return Number.isFinite(time) ? BASE_TIME_PREFIX + new Date(time).toISOString() : null;
 }
 
 export function isOperationReference(value) {
@@ -158,7 +184,9 @@ export function validatePayload(type, payload) {
     return 'نوع عملیات پشتیبانی نمی‌شود.';
   }
   if (type === FORM_SUBMIT) {
-    return payload?.path && Array.isArray(payload.fields) && payload.fields.length ? null : 'فیلدهای فورم خالی است.';
+    // عملیات روی رکورد (/x/toggleactive/12) گاهی جز شناسهٔ آدرس فیلدی ندارد.
+    return payload?.path && Array.isArray(payload.fields) && (payload.fields.length || /\/\d+$/.test(payload.path))
+      ? null : 'فیلدهای فورم خالی است.';
   }
   for (const field of form.fields) {
     const value = payload[field.name];
@@ -243,6 +271,21 @@ export class OutboxRepo {
     return records.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   }
 
+  /**
+   * فقط عملیات با وضعیت‌های داده‌شده (و در صورت نیاز نوع) رمزگشایی می‌شوند؛ تاریخچهٔ ثبت‌شده‌ها با رشد Outbox
+   * در هر همگام‌سازی/ناوبری دوباره باز نمی‌شود.
+   */
+  async listByStatus(statuses, filter = () => true) {
+    const rows = (await this.store.getAllBy('outbox', 'status', statuses)).filter(filter);
+    const records = await Promise.all(rows.map((row) => this.sealer.open(row.sealed)));
+    return records.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }
+
+  /** شناسه → وضعیت (آشکار در ردیف؛ بدون بازکردن رمز). */
+  async statusMap() {
+    return new Map((await this.store.indexEntries('outbox', 'status')).map(([status, id]) => [id, status]));
+  }
+
   async get(id) {
     const row = await this.store.get('outbox', id);
     return row ? this.sealer.open(row.sealed) : null;
@@ -319,7 +362,7 @@ export class OutboxRepo {
    * ثبت عملیات در دستگاه: معلومات عملیات و دستور ارسال (وضعیت Pending) در یک تراکنش ذخیره می‌شوند.
    * @param {object[]} extraWrites نوشتن‌های دیگری که باید در همان تراکنش باشند (مثلاً meta).
    */
-  async submit(type, rawPayload, businessDate, { dependencies = [], fromDraftId = null, extraWrites = [] } = {}) {
+  async submit(type, rawPayload, businessDate, { dependencies = [], fromDraftId = null, extraWrites = [], entityId = null, baseVersion = null } = {}) {
     const payload = normalizePayload(type, rawPayload);
     const error = validatePayload(type, payload);
     if (error) {
@@ -338,6 +381,9 @@ export class OutboxRepo {
     }
     record.dependencies = [...new Set([...dependencies, ...referencedOperations(payload)])]
       .filter((d) => d && d !== record.clientOperationId);
+    // عملیات روی رکورد موجود: شناسهٔ رکورد و زمان سرورِ نسخه‌ای که کاربر دید (سرور تغییرِ کاربر دیگر را می‌سنجد).
+    if (entityId) record.entityId = String(entityId);
+    if (baseVersion) record.baseVersion = baseVersion;
     record.payloadJson = JSON.stringify(record.payload);
     record.payloadHash = await sha256Hex(record.payloadJson);
     record.nextAttemptAt = now.toISOString();
@@ -351,7 +397,7 @@ export class OutboxRepo {
    * سرور فقط نسخهٔ بزرگ‌تر از نسخهٔ ذخیره‌شده را می‌پذیرد. ردشده‌ای که هرگز در سرور ذخیره نشد (خطای اعتبارسنجی)
    * هم با همان شناسه دوباره فرستاده می‌شود.
    */
-  async resubmit(id, rawPayload, businessDate) {
+  async resubmit(id, rawPayload, businessDate, { baseVersion = null } = {}) {
     const record = await this.get(id);
     if (!record || !canResubmit(record)) {
       throw new Error('این عملیات قابل اصلاح نیست.');
@@ -371,6 +417,8 @@ export class OutboxRepo {
       businessDate: businessDate || record.businessDate,
       revision: record.status === Status.Conflict ? (record.revision || 1) + 1 : (record.revision || 1),
       dependencies: [...new Set([...(record.dependencies || []), ...referencedOperations(payload)])],
+      // اصلاح از صفحهٔ تازه: نسخهٔ پایهٔ تازه (همان رکوردی که کاربر دوباره دید).
+      baseVersion: baseVersion || record.baseVersion || null,
       serverNote: null,
       lastError: null,
       nextAttemptAt: now.toISOString()

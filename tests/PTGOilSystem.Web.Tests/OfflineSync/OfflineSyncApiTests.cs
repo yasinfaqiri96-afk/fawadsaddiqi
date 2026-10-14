@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using PTGOilSystem.Web.Data;
+using PTGOilSystem.Web.Infrastructure.Api;
 using PTGOilSystem.Web.Models.Entities;
 using PTGOilSystem.Web.Models.OfflineSync;
 using PTGOilSystem.Web.Security;
@@ -51,7 +52,7 @@ public sealed class OfflineSyncApiTests
 
         public object Op(Guid id, string type, object payload, int? userId = null, int? companyId = null,
             string? businessDate = "2026-10-01", IEnumerable<Guid>? dependencies = null, string? hashOverride = null, int revision = 1,
-            DateTime? createdAtUtc = null)
+            DateTime? createdAtUtc = null, string? baseVersion = null)
         {
             var json = JsonSerializer.Serialize(payload);
             return new
@@ -60,6 +61,7 @@ public sealed class OfflineSyncApiTests
                 userId = userId ?? User.Id,
                 companyId = companyId ?? CompanyId,
                 operationType = type,
+                baseVersion,
                 payloadJson = json,
                 payloadHash = hashOverride ?? OfflineSyncService.ComputeHash(json),
                 createdAtUtc = createdAtUtc ?? DateTime.UtcNow,
@@ -106,12 +108,15 @@ public sealed class OfflineSyncApiTests
         public List<(IReadOnlyList<KeyValuePair<string, string?>>? FieldList, IReadOnlyList<KeyValuePair<string, string?>>? Query, bool Wrapped)> Extras { get; } = [];
         public Dictionary<string, MvcFormResult> ResultByController { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, string> ReferenceByController { get; } = new(StringComparer.Ordinal);
+        public List<OfflineAmbientApply?> Ambient { get; } = [];
 
         public Task<MvcFormResult> PostAsync(string controller, string action, IReadOnlyDictionary<string, string?> fields,
             ClaimsPrincipal user, string? formToken, bool wrapInTransaction,
             Func<ApplicationDbContext, string?, Task>? onCommittedInTransaction, CancellationToken ct, string? referenceType = null,
-            IReadOnlyList<KeyValuePair<string, string?>>? fieldList = null, IReadOnlyList<KeyValuePair<string, string?>>? query = null)
+            IReadOnlyList<KeyValuePair<string, string?>>? fieldList = null, IReadOnlyList<KeyValuePair<string, string?>>? query = null,
+            OfflineAmbientApply? ambient = null)
         {
+            Ambient.Add(ambient);
             Calls.Add((controller, action, fields, formToken));
             Extras.Add((fieldList, query, wrapInTransaction));
             var result = ResultByController.TryGetValue(controller, out var configured)
@@ -191,6 +196,26 @@ public sealed class OfflineSyncApiTests
         Assert.Equal(h.User.Id, session.UserId);
         Assert.Equal(h.CompanyId, session.CompanyId);
         Assert.Contains(session.OperationTypes, t => t.Key == OfflineOperationTypes.SaleRequest);
+    }
+
+    [Fact]
+    public async Task Session_Without_A_System_Owner_Company_Returns_A_Clear_Conflict_Instead_Of_500()
+    {
+        await using var h = await StartAsync();
+        await h.Host.WithDbAsync(async db =>
+        {
+            var company = await db.Companies.SingleAsync(c => c.Id == h.CompanyId);
+            company.IsSystemOwner = false;
+            await db.SaveChangesAsync();
+            return 0;
+        });
+
+        var response = await h.Get("/session");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(ApiErrorCodes.BusinessRule, body.RootElement.GetProperty("code").GetString());
+        Assert.Contains("شرکت مالک", body.RootElement.GetProperty("detail").GetString());
     }
 
     [Fact]
@@ -482,6 +507,108 @@ public sealed class OfflineSyncApiTests
     }
 
     [Fact]
+    public async Task Record_Action_Is_Replayed_On_The_Same_Record_With_A_One_Time_Token_And_No_Outer_Transaction()
+    {
+        await using var h = await StartAsync(AuthRoles.Admin);
+        await h.RegisterDeviceAsync();
+        var customerId = await h.Host.WithDbAsync(async db => (await db.Customers.FirstAsync()).Id);
+        var id = Guid.NewGuid();
+
+        var result = await Single(await h.PushAsync(h.Op(id, OfflineOperationTypes.FormSubmit, new
+        {
+            path = $"/customers/edit/{customerId}",
+            label = "ویرایش مشتری",
+            fields = new[] { new[] { "Id", customerId.ToString() }, new[] { "Name", "مشتری اصلاح‌شده" } }
+        }, baseVersion: "t:" + DateTime.UtcNow.AddMinutes(1).ToString("O"))));
+
+        Assert.Equal(nameof(OfflineSyncStatus.Applied), result.Status);
+        var call = Assert.Single(h.Dispatcher.Calls);
+        Assert.Equal(("Customers", "Edit"), (call.Controller, call.Action));
+        Assert.Null(call.Token);
+        Assert.False(Assert.Single(h.Dispatcher.Extras).Wrapped);
+        var ambient = Assert.Single(h.Dispatcher.Ambient);
+        Assert.NotNull(ambient);
+        Assert.Equal(customerId, ambient!.RouteId);
+        Assert.Equal(OfflineOperationApplier.FormTokenFor(id), ambient.Token);
+    }
+
+    [Fact]
+    public async Task Record_Changed_By_Another_User_After_The_Device_Copy_Is_A_Conflict_And_Is_Not_Replayed()
+    {
+        await using var h = await StartAsync(AuthRoles.Admin);
+        await h.RegisterDeviceAsync();
+        var seenAt = DateTime.UtcNow.AddMinutes(-10);
+        var customerId = await h.Host.WithDbAsync(async db =>
+        {
+            var customer = await db.Customers.FirstAsync();
+            customer.Notes = "تغییر کاربر دیگر";
+            await db.SaveChangesAsync(); // بدون کاربر جاری = کاربر دیگری غیر از صاحب عملیات
+            return customer.Id;
+        });
+        object Edit(Guid id, int revision, string baseVersion) => h.Op(id, OfflineOperationTypes.FormSubmit, new
+        {
+            path = $"/customers/toggleactive/{customerId}",
+            label = "فعال/غیرفعال مشتری",
+            fields = Array.Empty<string[]>()
+        }, revision: revision, baseVersion: baseVersion);
+
+        var opId = Guid.NewGuid();
+        var stale = await Single(await h.PushAsync(Edit(opId, 1, "t:" + seenAt.ToString("O"))));
+        Assert.Equal(nameof(OfflineSyncStatus.Conflict), stale.Status);
+        Assert.Contains("کاربر دیگری", stale.Message);
+        Assert.Empty(h.Dispatcher.Calls);
+
+        // کاربر صفحهٔ تازه را دید و همان عملیات را دوباره فرستاد (نسخهٔ بزرگ‌تر، نسخهٔ پایهٔ تازه).
+        var resent = await Single(await h.PushAsync(Edit(opId, 2, "t:" + DateTime.UtcNow.AddMinutes(1).ToString("O"))));
+        Assert.Equal(nameof(OfflineSyncStatus.Applied), resent.Status);
+        Assert.Single(h.Dispatcher.Calls);
+    }
+
+    [Fact]
+    public async Task Record_Changed_Only_By_The_Same_User_Is_Not_Treated_As_Stale()
+    {
+        await using var h = await StartAsync(AuthRoles.Admin);
+        await h.RegisterDeviceAsync();
+        var customerId = await h.Host.WithDbAsync(async db =>
+        {
+            var customer = await db.Customers.FirstAsync();
+            customer.Notes = "تغییر خودِ همین کاربر";
+            await db.SaveChangesAsync();
+            await db.Customers.Where(c => c.Id == customer.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(c => c.UpdatedByUserId, h.User.Id));
+            return customer.Id;
+        });
+
+        var result = await Single(await h.PushAsync(h.Op(Guid.NewGuid(), OfflineOperationTypes.FormSubmit, new
+        {
+            path = $"/customers/toggleactive/{customerId}",
+            label = "فعال/غیرفعال مشتری",
+            fields = Array.Empty<string[]>()
+        }, baseVersion: "t:" + DateTime.UtcNow.AddMinutes(-10).ToString("O"))));
+
+        Assert.Equal(nameof(OfflineSyncStatus.Applied), result.Status);
+    }
+
+    [Fact]
+    public async Task Repeated_Transient_Failure_Becomes_A_Conflict_Instead_Of_Retrying_Forever()
+    {
+        await using var h = await StartAsync();
+        await h.RegisterDeviceAsync();
+        h.Dispatcher.Fail("Sales", "تعارض نسخه", transient: true);
+        var id = Guid.NewGuid();
+        var op = h.Op(id, OfflineOperationTypes.SaleRequest, SalePayload);
+
+        OfflineOperationResult last = await Single(await h.PushAsync(op));
+        for (var attempt = 1; attempt < OfflineSyncService.MaxTransientAttempts && last.Status == nameof(OfflineSyncStatus.Received); attempt++)
+        {
+            last = await Single(await h.PushAsync(op));
+        }
+
+        Assert.Equal(nameof(OfflineSyncStatus.Conflict), last.Status);
+        Assert.Contains("تلاش خودکار", last.Message);
+    }
+
+    [Fact]
     public async Task Main_Form_Submit_Of_A_Token_Form_Uses_The_Offline_Token_Or_The_Original_Page_Token()
     {
         await using var h = await StartAsync(AuthRoles.Admin);
@@ -587,7 +714,8 @@ public sealed class OfflineSyncApiTests
             .Where(t => typeof(Microsoft.AspNetCore.Mvc.Controller).IsAssignableFrom(t))
             .SelectMany(t => t.GetMethods().Select(m => (Controller: t.Name[..^"Controller".Length], Method: m)))
             .Where(x => x.Method.GetCustomAttributes(typeof(Microsoft.AspNetCore.Mvc.HttpPostAttribute), true).Length > 0)
-            .Select(x => $"{x.Controller}/{x.Method.Name}")
+            // نام واقعی اکشن MVC: [ActionName] (مثلاً BulkDeleteConfirm → BulkDelete).
+            .Select(x => $"{x.Controller}/{(x.Method.GetCustomAttributes(typeof(Microsoft.AspNetCore.Mvc.ActionNameAttribute), true).FirstOrDefault() as Microsoft.AspNetCore.Mvc.ActionNameAttribute)?.Name ?? x.Method.Name}")
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var target in OfflineFormRegistry.All)

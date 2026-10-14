@@ -73,6 +73,41 @@ export class IdbStore {
     return promisify(tx.objectStore(storeName).count());
   }
 
+  /** شمارش با index (مثلاً وضعیت Outbox) بدون خواندن ردیف‌ها. */
+  async countBy(storeName, indexName, keys) {
+    const tx = this.db.transaction(storeName, 'readonly');
+    const index = tx.objectStore(storeName).index(indexName);
+    const counts = await Promise.all(keys.map((key) => promisify(index.count(key))));
+    return counts.reduce((sum, n) => sum + n, 0);
+  }
+
+  /** ردیف‌های یک یا چند مقدار index (مثلاً فقط Pending)، بدون خواندن بقیه. */
+  async getAllBy(storeName, indexName, keys) {
+    const tx = this.db.transaction(storeName, 'readonly');
+    const index = tx.objectStore(storeName).index(indexName);
+    return (await Promise.all(keys.map((key) => promisify(index.getAll(key))))).flat();
+  }
+
+  /** [مقدار index، کلید اصلی] همهٔ ردیف‌ها بدون خواندن بدنهٔ رمزگذاری‌شده. */
+  async indexEntries(storeName, indexName) {
+    const tx = this.db.transaction(storeName, 'readonly');
+    const index = tx.objectStore(storeName).index(indexName);
+    return new Promise((resolve, reject) => {
+      const result = [];
+      const request = index.openKeyCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve(result);
+          return;
+        }
+        result.push([cursor.key, cursor.primaryKey]);
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
   async put(storeName, value) {
     return this.atomic([{ store: storeName, type: 'put', value }]);
   }
@@ -128,6 +163,20 @@ export class MemoryStore {
 
   async count(storeName) {
     return this.data.get(storeName).size;
+  }
+
+  async countBy(storeName, indexName, keys) {
+    return (await this.getAllBy(storeName, indexName, keys)).length;
+  }
+
+  async getAllBy(storeName, indexName, keys) {
+    const field = (STORES[storeName]?.indexes || []).find(([name]) => name === indexName)?.[1] || indexName;
+    return [...this.data.get(storeName).values()].filter((v) => keys.includes(v[field])).map((v) => this.clone(v));
+  }
+
+  async indexEntries(storeName, indexName) {
+    const field = (STORES[storeName]?.indexes || []).find(([name]) => name === indexName)?.[1] || indexName;
+    return [...this.data.get(storeName).values()].map((v) => [v[field], v[this.keyPaths[storeName]]]);
   }
 
   async put(storeName, value) {

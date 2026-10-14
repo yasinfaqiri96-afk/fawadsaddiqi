@@ -6,7 +6,7 @@ import { ApiClient } from './api.js';
 import { ConnState, ConnectivityMonitor } from './connectivity.js';
 import { SyncEngine } from './sync-engine.js';
 import { DeviceAuth } from './device-auth.js';
-import { OPERATION_FORMS, OPERATION_REFERENCE_PREFIX, OutboxRepo, STATUS_LABELS, STATUS_SHORT, Status, canResubmit, isOperationReference, normalizePayload, typeLabel, validatePayload } from './operations.js';
+import { OPERATION_FORMS, OPERATION_REFERENCE_PREFIX, OutboxRepo, STATUS_LABELS, STATUS_SHORT, Status, baseVersionFrom, canResubmit, isOperationReference, normalizePayload, typeLabel, validatePayload } from './operations.js';
 import { MIN_BACKUP_PASSWORD, backupFileName, backupWarning, createBackup, mergeBackup, openBackup } from './backup.js';
 import { formatDateTime, formatNumber, relativeAge, todayIso, uuid } from './util.js';
 import { ensurePageKeys, forgetSession, rememberSession, restoreSession } from './session.js';
@@ -134,8 +134,9 @@ function fieldDisplay(field, value) {
 /** عملیاتِ ثبت‌شده در فورم اصلی مشعل: اصلاح در همان فورم (همان شناسه). */
 function mainFormUrl(record) {
   const p = record.payload || {};
-  const url = new URL(p.path || '/', location.origin);
-  for (const [name, value] of p.query || []) url.searchParams.append(name, value ?? '');
+  // عملیات روی رکورد (لغو از فهرست، …): صفحه‌ای که فورم در آن بود؛ ثبت تازه: خود آدرس فورم.
+  const url = new URL(p.page || p.path || '/', location.origin);
+  if (!p.page) for (const [name, value] of p.query || []) url.searchParams.append(name, value ?? '');
   url.searchParams.set('offlineEdit', record.clientOperationId);
   return url.pathname + url.search;
 }
@@ -222,7 +223,10 @@ async function loadProfiles() {
   return (await app.registry.getAll('profiles')).sort((a, b) => (a.lastUnlockAt < b.lastUnlockAt ? 1 : -1));
 }
 
+let lockRenderSeq = 0;
+
 async function renderLock(message = '') {
+  const seq = ++lockRenderSeq;
   setActiveTab(null);
   $('[data-tabs]').hidden = true;
   $('[data-profile-name]').textContent = 'کار آنلاین و آفلاین';
@@ -256,6 +260,11 @@ async function renderLock(message = '') {
   } else {
     activation = '<p class="ox-muted">فعال‌سازی دستگاه تازه فقط با اینترنت و ورود موفق ممکن است.</p>';
   }
+
+  // رندرهای هم‌زمان (شروع برنامه + تغییر اتصال): فقط آخرین؛ و رمزی که کاربر همین حالا تایپ کرده پاک نمی‌شود.
+  if (seq !== lockRenderSeq) return;
+  const active = document.activeElement;
+  if (!message && active && main.contains(active) && active.tagName === 'INPUT' && active.value) return;
 
   main.innerHTML = `
     ${message ? `<section class="ox-card"><p class="ox-error">${h(message)}</p></section>` : ''}
@@ -791,7 +800,7 @@ async function renderOp(id) {
         ${canRetryNow ? '<button class="ox-btn" type="button" data-retry>ارسال اکنون</button>' : ''}
         ${canReturn ? '<button class="ox-btn ox-btn--ghost" type="button" data-return>بازگشت به پیش‌نویس</button>' : ''}
         ${canFix ? `<a class="ox-btn" href="${isMainForm ? h(mainFormUrl(record)) : `#/edit/${encodeURIComponent(record.clientOperationId)}`}">${isMainForm ? 'اصلاح در فورم اصلی و ارسال دوباره' : 'اصلاح و ارسال دوباره'}</a>` : ''}
-        ${canFix && record.status === Status.Conflict ? '<button class="ox-btn ox-btn--ghost" type="button" data-resend>ارسال دوباره بدون تغییر</button>' : ''}
+        ${canFix && record.status === Status.Conflict ? `<button class="ox-btn ox-btn--ghost" type="button" data-resend>${record.baseVersion ? 'وضعیت فعلی سند را دیدم؛ ارسال دوباره' : 'ارسال دوباره بدون تغییر'}</button>` : ''}
         ${canCopy ? '<button class="ox-btn ox-btn--ghost" type="button" data-copy>ثبت تازه از روی همین</button>' : ''}
         <a class="ox-btn ox-btn--ghost" href="#/ops">بازگشت</a>
       </div>
@@ -825,7 +834,9 @@ async function renderOp(id) {
   $('[data-resend]')?.addEventListener('click', async () => {
     // مثلاً پس از رسیدن موجودی یا وقتی «احتمال تکرار» بررسی شد: همان عملیات، نسخهٔ تازه.
     try {
-      await app.repo.resubmit(record.clientOperationId, record.payload, record.businessDate);
+      // عملیات روی رکورد: کاربر وضعیت فعلی سند را دید و آگاهانه دوباره می‌فرستد؛ نسخهٔ پایه = همین حالا.
+      await app.repo.resubmit(record.clientOperationId, record.payload, record.businessDate,
+        { baseVersion: record.baseVersion ? baseVersionFrom(new Date().toISOString()) : null });
       await reloadRecords();
       toast('دوباره برای ثبت فرستاده می‌شود.');
       syncNow();

@@ -1227,7 +1227,13 @@ public partial class ExpensesController : Controller
                 // مرحله ۵ — Dual-write داخل همان Transaction قدیمی.
                 if (_expenseAccounting is not null)
                 {
-                    await _expenseAccounting.TryPostExpenseAsync(expense);
+                    var accounting = await _expenseAccounting.TryPostExpenseAsync(expense);
+                    // فقط اطلاع‌رسانی (قاعدهٔ حسابداری تغییر نکرده): ثبت موفقِ بدون سند دفتر کل نباید کامل به نظر برسد.
+                    if (accounting is { Status: Services.Accounting.PaymentPostingStatus.Skipped, Reason: "EXPENSE_COMPANY_UNKNOWN" })
+                    {
+                        TempData["warn"] = "مصرف ثبت شد، ولی سند دفتر کل (حسابداری دوطرفه) برایش ساخته نشد: شرکتِ آن از قرارداد، "
+                            + "محموله یا حمل مشخص نیست. برای اثر در دفتر کل، قرارداد یا سند مرتبط را تعیین کنید.";
+                    }
                 }
 
                 await _audit.LogAndSaveAsync(
