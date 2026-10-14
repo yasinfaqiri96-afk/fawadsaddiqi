@@ -61,9 +61,9 @@ public interface ICommodityLoanService
 }
 
 /// <summary>
-/// قرض جنسی. هر سند در یک تراکنش: حرکتِ موجودیِ ملکی از همان <see cref="IInventoryMovementWriter"/>
-/// (با نگهبان موجودی و ظرفیت)، ارزش از همان Pool میانگین (<see cref="IInventoryValuationService"/>)
-/// و ژورنال روی همان <see cref="IAccountingPostingService"/>. وقتی دفتر کل روشن است و سیاست ارزش‌گذاری،
+/// قرض تیل. هر سند در یک تراکنش: حرکتِ موجودیِ ملکی از همان <see cref="IInventoryMovementWriter"/>
+/// (با نگهبان موجودی و ظرفیت)، ارزش از همان Pool اوسط (<see cref="IInventoryValuationService"/>)
+/// و ژورنال روی همان <see cref="IAccountingPostingService"/>. وقتی دفتر کل روشن است و سیاست تعیین قیمت،
 /// حساب‌های قرارداد یا ارزشِ معتبر موجودی کامل نیست، سند ثبت نمی‌شود — نه موجودی و نه ژورنال.
 /// </summary>
 public sealed class CommodityLoanService(
@@ -104,10 +104,10 @@ public sealed class CommodityLoanService(
             var loanDate = ToUtc(input.LoanDate);
             var dueDate = ToUtc(input.DueDate);
             if (dueDate.Date < loanDate.Date)
-                throw Rule("LOAN_DUE_DATE", "سررسید پیش از تاریخ قرض نمی‌شود.");
+                throw Rule("LOAN_DUE_DATE", "وقت برگشت پیش از تاریخ قرض نمی‌شود.");
             var quality = Required(input.QualitySpec, "کیفیت/مشخصات جنس", 300);
             var obligation = Required(input.ReturnObligation, "تعهد برگشت", 500);
-            var agreement = Required(input.AgreementReference, "مرجع قرارداد قرض", 300);
+            var agreement = Required(input.AgreementReference, "شماره سند قرض", 300);
             await RequireCounterpartyAsync(input.CounterpartyType, input.CounterpartyId, ct);
             if (!await db.Products.AnyAsync(p => p.Id == input.ProductId, ct))
                 throw Rule("LOAN_PRODUCT", "جنس را انتخاب کنید.");
@@ -115,33 +115,33 @@ public sealed class CommodityLoanService(
 
             var borrow = input.Direction == CommodityLoanDirection.Borrow;
             if (borrow && (input.BorrowBasis is null || !Enum.IsDefined(input.BorrowBasis.Value)))
-                throw Rule("LOAN_BORROW_BASIS", "مبنای قرض‌گرفتن (حق مصرف یا مالکیت قراردادی) را تعیین کنید.");
+                throw Rule("LOAN_BORROW_BASIS", "مبنای قرض گرفتن تیل (اجازه مصرف تیل یا مالکیت طبق قرارداد) را تعیین کنید.");
             if (input.ValuationPolicy is { } policy)
             {
                 if (!Enum.IsDefined(policy))
-                    throw Rule("LOAN_VALUATION", "روش ارزش‌گذاری معتبر نیست.");
+                    throw Rule("LOAN_VALUATION", "روش تعیین قیمت معتبر نیست.");
                 if (!borrow && policy != CommodityLoanValuation.BookCost)
-                    throw Rule("LOAN_VALUATION", "قرض‌دادن از موجودی ملکی فقط به بهای دفتری موجودی ارزش‌گذاری می‌شود.");
+                    throw Rule("LOAN_VALUATION", "قرض دادن تیل از موجودی ملکی فقط به قیمت ثبت‌شده موجودی تعیین قیمت می‌شود.");
                 if (borrow && policy != CommodityLoanValuation.AgreedValue)
-                    throw Rule("LOAN_VALUATION", "قرض‌گرفتن فقط با ارزش توافقیِ قرارداد (با مرجع) شناسایی می‌شود.");
+                    throw Rule("LOAN_VALUATION", "قرض گرفتن تیل فقط با ارزش توافقیِ قرارداد (با سند) شناسایی می‌شود.");
             }
             if (borrow && input.ValuationPolicy == CommodityLoanValuation.AgreedValue)
             {
                 if (input.AgreedUnitValueUsd is not > 0m)
                     throw Rule("LOAN_AGREED_VALUE", "ارزش توافقیِ هر تُن را وارد کنید.");
-                Required(input.ValuationReference, "مرجع ارزش توافقی", 300);
+                Required(input.ValuationReference, "سند قیمت توافق‌شده", 300);
             }
             if (input.QuantityTolerancePercent is < 0m or > 10m)
-                throw Rule("LOAN_TOLERANCE", "تلورانس مقدار باید بین ۰ و ۱۰ فیصد باشد.");
+                throw Rule("LOAN_TOLERANCE", "فرق مجاز مقدار مقدار باید بین ۰ و ۱۰ فیصد باشد.");
             if (input.CashSettlementAllowed)
             {
                 if (input.CashSettlementUnitPriceUsd is not > 0m)
-                    throw Rule("LOAN_CASH_TERMS", "برای تسویهٔ نقدی، قیمتِ توافقیِ هر تُن را وارد کنید.");
-                Required(input.CashSettlementReference, "مرجع توافق تسویهٔ نقدی", 300);
+                    throw Rule("LOAN_CASH_TERMS", "برای پرداخت پول به‌جای تیل، قیمتِ توافقیِ هر تُن را وارد کنید.");
+                Required(input.CashSettlementReference, "سند توافق پرداخت پول به‌جای تیل", 300);
             }
             var companyId = await systemCompany.GetOwnerCompanyIdAsync(ct);
             await RequireAccountAsync(input.LoanAccountId, companyId, borrow ? AccountType.Liability : AccountType.Asset,
-                borrow ? "حساب بدهی جنسی باید از نوع بدهی باشد." : "حساب طلب جنسی باید از نوع دارایی باشد.", ct);
+                borrow ? "حساب قرض گرفته‌شده باید از نوع بدهی باشد." : "حساب قرض داده‌شده باید از نوع دارایی باشد.", ct);
             await RequireAccountAsync(input.DifferenceAccountId, companyId, null, null, ct);
 
             AccountingSettings? settings = null;
@@ -149,11 +149,11 @@ public sealed class CommodityLoanService(
             {
                 settings = await RequireGlReadyAsync(companyId, ct);
                 if (input.ValuationPolicy is null)
-                    throw Rule("LOAN_VALUATION_REQUIRED", "دفتر کل فعال است؛ روش ارزش‌گذاریِ تأییدشده باید در قرارداد تعیین شود.");
+                    throw Rule("LOAN_VALUATION_REQUIRED", "دفتر کل فعال است؛ روش تعیین قیمتِ تأییدشده باید در قرارداد تعیین شود.");
                 if (input.LoanAccountId is null)
                     throw Rule("LOAN_ACCOUNT_REQUIRED", borrow
-                        ? "دفتر کل فعال است؛ حسابِ بدهی جنسی را در قرارداد تعیین کنید."
-                        : "دفتر کل فعال است؛ حسابِ طلب جنسی را در قرارداد تعیین کنید.");
+                        ? "دفتر کل فعال است؛ حسابِ تیل قرضداریم را در قرارداد تعیین کنید."
+                        : "دفتر کل فعال است؛ حسابِ تیل طلب داریم را در قرارداد تعیین کنید.");
             }
 
             var key = Guid.NewGuid();
@@ -165,9 +165,9 @@ public sealed class CommodityLoanService(
                 MovementDate = loanDate,
                 QuantityMt = input.QuantityMt,
                 ReferenceDocument = LoanReferencePrefix + key.ToString("N"),
-                Notes = borrow ? "قرض‌گرفتنِ جنس" : "قرض‌دادنِ جنس از موجودی ملکی"
+                Notes = borrow ? "قرض گرفتن تیلِ جنس" : "قرض دادن تیلِ جنس از موجودی ملکی"
             };
-            // قرض‌دادن از موجودیِ آزادِ همان محل؛ هیچ نقطه‌ای از خط زمانی منفی نمی‌شود.
+            // قرض دادن تیل از موجودیِ آزادِ همان محل؛ هیچ نقطه‌ای از خط زمانی منفی نمی‌شود.
             var movement = borrow
                 ? await movements.PostInboundAsync(request, ct)
                 : await movements.PostOutboundAsync(request, StockGuard.Full, ct);
@@ -184,7 +184,7 @@ public sealed class CommodityLoanService(
                 {
                     var consumption = await valuation.TryConsumeAsync(companyId, input.ProductId, input.TerminalId, input.QuantityMt, ct);
                     if (!consumption.Succeeded || consumption.CostUsd <= 0m)
-                        throw Rule("LOAN_NOT_VALUED", "موجودیِ این جنس در این ترمینال ارزش دفتریِ کافی ندارد؛ بهای دفتری حدس زده نمی‌شود و قرض ثبت نشد.");
+                        throw Rule("LOAN_NOT_VALUED", "موجودیِ این جنس در این ترمینال ارزش ثبت‌شدهِ کافی ندارد؛ قیمت ثبت‌شده حدس زده نمی‌شود و قرض ثبت نشد.");
                     carrying = consumption.CostUsd;
                 }
             }
@@ -248,20 +248,20 @@ public sealed class CommodityLoanService(
             return loan.Id;
         }, ct);
 
-    // ---------------------------------------------------------------- تسویه (برگشت جنس، نقدی، تفاوت مقدار)
+    // ---------------------------------------------------------------- برگشت قرض (برگشت قرض، نقدی، تفاوت مقدار)
 
     public Task<int> SettleAsync(CommodityLoanSettlementInput input, CancellationToken ct = default)
         => InTransactionAsync(async () =>
         {
             if (!Enum.IsDefined(input.Kind))
-                throw Rule("LOAN_SETTLEMENT_KIND", "نوع تسویه معتبر نیست.");
-            RequirePositive(input.QuantityMt, "مقدار تسویه");
+                throw Rule("LOAN_SETTLEMENT_KIND", "نوع برگشت قرض معتبر نیست.");
+            RequirePositive(input.QuantityMt, "مقدار برگشت قرض");
             var loan = await LockLoanAsync(input.LoanId, ct);
             if (loan.Status != CommodityLoanStatus.Active)
                 throw Rule("LOAN_CANCELLED", "این قرض لغو شده است.");
             var date = ToUtc(input.SettlementDate);
             if (date.Date < loan.LoanDate.Date)
-                throw Rule("LOAN_SETTLEMENT_DATE", "تاریخ تسویه پیش از تاریخ قرض نمی‌شود.");
+                throw Rule("LOAN_SETTLEMENT_DATE", "تاریخ برگشت قرض پیش از تاریخ قرض نمی‌شود.");
 
             var active = await db.CommodityLoanSettlements.AsNoTracking()
                 .Where(s => s.CommodityLoanId == loan.Id && s.Status == CommodityLoanStatus.Active)
@@ -269,7 +269,7 @@ public sealed class CommodityLoanService(
                 .ToListAsync(ct);
             var outstanding = loan.QuantityMt - active.Sum(s => s.QuantityMt);
             if (input.QuantityMt > outstanding)
-                throw Rule("LOAN_OVER_SETTLEMENT", $"ماندهٔ این قرض {Qty(outstanding)} تُن است؛ بیشتر از آن تسویه نمی‌شود.");
+                throw Rule("LOAN_OVER_SETTLEMENT", $"باقی قرض {Qty(outstanding)} تُن است؛ بیشتر از آن ثبت نمی‌شود.");
             decimal? carried = loan.CarryingValueUsd is { } carrying
                 ? input.QuantityMt == outstanding
                     ? carrying - active.Sum(s => s.CarryingValueUsd ?? 0m)
@@ -283,7 +283,7 @@ public sealed class CommodityLoanService(
             {
                 settings = await RequireGlReadyAsync(companyId, ct);
                 if (carried is null || loan.LoanAccountId is null)
-                    throw Rule("LOAN_NOT_VALUED", "این قرض ارزش دفتری ندارد (پیش از فعال‌شدن دفتر کل ثبت شده)؛ تسویهٔ مالی بدون مبنای ارزش ثبت نمی‌شود.");
+                    throw Rule("LOAN_NOT_VALUED", "این قرض ارزش ثبت‌شده ندارد (پیش از فعال‌شدن دفتر کل ثبت شده)؛ برگشت قرضٔ مالی بدون مبنای ارزش ثبت نمی‌شود.");
             }
 
             var key = Guid.NewGuid();
@@ -306,7 +306,7 @@ public sealed class CommodityLoanService(
                 case CommodityLoanSettlementKind.InKindReturn:
                 {
                     if (input.TerminalId is not { } terminalId)
-                        throw Rule("LOAN_LOCATION", "محلِ برگشت جنس را انتخاب کنید.");
+                        throw Rule("LOAN_LOCATION", "محلِ برگشت قرض را انتخاب کنید.");
                     await RequireLocationAsync(terminalId, input.StorageTankId, ct);
                     var request = new InventoryMovementRequest
                     {
@@ -316,7 +316,7 @@ public sealed class CommodityLoanService(
                         MovementDate = date,
                         QuantityMt = input.QuantityMt,
                         ReferenceDocument = SettlementReferencePrefix + key.ToString("N"),
-                        Notes = borrow ? $"برگشتِ جنسِ قرض‌گرفته {label}" : $"برگشتِ جنسِ قرض‌داده {label}"
+                        Notes = borrow ? $"برگشتِ جنسِ قرض گرفته‌شده {label}" : $"برگشتِ جنسِ قرض داده‌شده {label}"
                     };
                     var movement = borrow
                         ? await movements.PostOutboundAsync(request, StockGuard.Full, ct)
@@ -328,11 +328,11 @@ public sealed class CommodityLoanService(
                     {
                         if (borrow)
                         {
-                            // جنسِ برگشتی از موجودیِ همان محل به بهای میانگین خارج می‌شود؛ تفاوتش با ارزش
+                            // جنسِ برگشتی از موجودیِ همان محل به بهای اوسط خارج می‌شود؛ تفاوتش با ارزش
                             // دفتریِ بدهی فقط با حسابِ تفاوتِ قرارداد ثبت می‌شود.
                             var consumption = await valuation.TryConsumeAsync(companyId, loan.ProductId, terminalId, input.QuantityMt, ct);
                             if (!consumption.Succeeded || consumption.CostUsd <= 0m)
-                                throw Rule("LOAN_NOT_VALUED", "موجودیِ این محل ارزش دفتریِ کافی ندارد؛ برگشت جنس ثبت نشد.");
+                                throw Rule("LOAN_NOT_VALUED", "موجودیِ این محل ارزش ثبت‌شدهِ کافی ندارد؛ برگشت قرض ثبت نشد.");
                             settlement.InventoryValueUsd = consumption.CostUsd;
                             settlement.DifferenceUsd = carried!.Value - consumption.CostUsd;
                             lines.Add(Line(loan.LoanAccountId!.Value, carried.Value, 0m, loan.CounterpartyType, loan.CounterpartyId, loan, $"Commodity loan {label} returned"));
@@ -340,7 +340,7 @@ public sealed class CommodityLoanService(
                         }
                         else
                         {
-                            // جنسِ قرض‌داده با همان ارزش دفتری که خارج شده بود به موجودی برمی‌گردد.
+                            // جنسِ قرض داده‌شده با همان ارزش ثبت‌شده که خارج شده بود به موجودی برمی‌گردد.
                             await valuation.ApplyReceiptAsync(companyId, loan.ProductId, terminalId, input.QuantityMt, carried!.Value, ct);
                             settlement.InventoryValueUsd = carried.Value;
                             settlement.DifferenceUsd = 0m;
@@ -353,7 +353,7 @@ public sealed class CommodityLoanService(
                 case CommodityLoanSettlementKind.CashSettlement:
                 {
                     if (!loan.CashSettlementAllowed || loan.CashSettlementUnitPriceUsd is not > 0m)
-                        throw Rule("LOAN_CASH_NOT_ALLOWED", "قرارداد این قرض تسویهٔ نقدی را با قیمت و مرجعِ توافق مجاز نکرده است.");
+                        throw Rule("LOAN_CASH_NOT_ALLOWED", "قرارداد این قرض پرداخت پول به‌جای تیل را با قیمت و سندِ توافق مجاز نکرده است.");
                     if (input.CashAccountId is not { } cashAccountId)
                         throw Rule("LOAN_CASH_ACCOUNT", "صندوق یا بانک را انتخاب کنید.");
                     await RequireUsdCashAccountAsync(cashAccountId, ct);
@@ -379,16 +379,16 @@ public sealed class CommodityLoanService(
                 case CommodityLoanSettlementKind.QuantityDifference:
                 {
                     if (loan.QuantityTolerancePercent is not { } tolerance)
-                        throw Rule("LOAN_TOLERANCE_NOT_SET", "تلورانسِ تفاوت مقدار در قرارداد تعیین نشده است؛ بستنِ تفاوت مقدار ممکن نیست.");
+                        throw Rule("LOAN_TOLERANCE_NOT_SET", "فرق مجاز مقدارِ تفاوت مقدار در قرارداد تعیین نشده است؛ بستنِ تفاوت مقدار ممکن نیست.");
                     if (input.QuantityMt != outstanding)
-                        throw Rule("LOAN_DIFFERENCE_REMAINDER", "تفاوت مقدار فقط برای کلِ ماندهٔ باقی‌مانده ثبت می‌شود.");
+                        throw Rule("LOAN_DIFFERENCE_REMAINDER", "فرق مقدار فقط برای تمام باقی قرض ثبت می‌شود.");
                     if (outstanding > loan.QuantityMt * tolerance / 100m)
-                        throw Rule("LOAN_DIFFERENCE_EXCEEDS", $"ماندهٔ {Qty(outstanding)} تُن از تلورانس قرارداد ({tolerance:0.####}٪) بیشتر است؛ باید برگشت یا تسویه شود.");
+                        throw Rule("LOAN_DIFFERENCE_EXCEEDS", $"باقی قرض {Qty(outstanding)} تُن است و از فرق مجاز قرارداد ({tolerance:0.####} فیصد) بیشتر است؛ تیل باید برگردد یا طبق قرارداد با پول پرداخت شود.");
                     if (string.IsNullOrWhiteSpace(input.DocumentNumber) && string.IsNullOrWhiteSpace(input.Notes))
-                        throw Rule("LOAN_DIFFERENCE_DOCUMENT", "برای بستن تفاوت مقدار، سند یا توضیحِ تأیید لازم است.");
+                        throw Rule("LOAN_DIFFERENCE_DOCUMENT", "برای بستن باقی کم قرض، سند یا توضیحِ تأیید لازم است.");
                     if (settings is not null)
                     {
-                        // قرض‌دادن: طلبِ باقی زیان است؛ قرض‌گرفتن: بدهیِ باقی سود است.
+                        // قرض دادن تیل: طلبِ باقی ضرر است؛ قرض گرفتن تیل: بدهیِ باقی مفاد است.
                         settlement.DifferenceUsd = borrow ? carried!.Value : -carried!.Value;
                         if (carried.Value > 0m)
                         {
@@ -405,7 +405,7 @@ public sealed class CommodityLoanService(
             if (settings is not null && settlement.DifferenceUsd is { } difference && difference != 0m)
             {
                 if (loan.DifferenceAccountId is not { } differenceAccount)
-                    throw Rule("LOAN_DIFFERENCE_ACCOUNT", "این تسویه تفاوتِ ارزش دارد اما «حساب تفاوت» در قرارداد تعیین نشده است؛ سند ثبت نشد.");
+                    throw Rule("LOAN_DIFFERENCE_ACCOUNT", "این برگشت قرض تفاوتِ ارزش دارد اما «حساب تفاوت» در قرارداد تعیین نشده است؛ سند ثبت نشد.");
                 lines.Add(difference > 0m
                     ? Line(differenceAccount, 0m, difference, null, null, loan, $"Commodity loan {label} settlement difference")
                     : Line(differenceAccount, -difference, 0m, null, null, loan, $"Commodity loan {label} settlement difference"));
@@ -448,15 +448,15 @@ public sealed class CommodityLoanService(
         {
             var why = Required(reason, "دلیل لغو", 500);
             var settlement = await db.CommodityLoanSettlements.FirstOrDefaultAsync(s => s.Id == settlementId, ct)
-                ?? throw Rule("LOAN_SETTLEMENT_NOT_FOUND", "تسویه پیدا نشد.");
+                ?? throw Rule("LOAN_SETTLEMENT_NOT_FOUND", "برگشت قرض پیدا نشد.");
             var loan = await LockLoanAsync(settlement.CommodityLoanId, ct);
             await db.Entry(settlement).ReloadAsync(ct);
             if (settlement.Status != CommodityLoanStatus.Active)
-                throw Rule("LOAN_SETTLEMENT_CANCELLED", "این تسویه قبلاً لغو شده است.");
-            // ارزشِ هر تسویه بر پایهٔ تسویه‌های پیش از آن است؛ لغو از آخر به اول.
+                throw Rule("LOAN_SETTLEMENT_CANCELLED", "این برگشت قرض قبلاً لغو شده است.");
+            // ارزشِ هر برگشت قرض بر پایهٔ برگشت قرض‌های پیش از آن است؛ لغو از آخر به اول.
             if (await db.CommodityLoanSettlements.AnyAsync(s => s.CommodityLoanId == loan.Id && s.Status == CommodityLoanStatus.Active
                     && s.Id > settlement.Id, ct))
-                throw Rule("LOAN_SETTLEMENT_NOT_LATEST", "تسویه‌های بعدیِ همین قرض را اول لغو کنید.");
+                throw Rule("LOAN_SETTLEMENT_NOT_LATEST", "برگشت قرض‌های بعدیِ همین قرض را اول لغو کنید.");
 
             var companyId = await systemCompany.GetOwnerCompanyIdAsync(ct);
             var journaled = await JournalExistsAsync(SettlementEventId(settlement.Id), ct);
@@ -473,14 +473,14 @@ public sealed class CommodityLoanService(
                         var reversed = await valuation.TryReverseReceiptAsync(companyId, loan.ProductId, settlement.TerminalId!.Value,
                             settlement.QuantityMt, settlement.InventoryValueUsd ?? 0m, ct);
                         if (!reversed.Succeeded)
-                            throw Rule("LOAN_CANCEL_CONSUMED", "جنسِ برگشتی دیگر در موجودیِ ارزش‌گذاری‌شدهٔ این محل نیست (فروخته یا مصرف شده)؛ لغو ممکن نیست.");
+                            throw Rule("LOAN_CANCEL_CONSUMED", "جنسِ برگشتی دیگر در موجودیِ با قیمت ثبت‌شدهٔ این محل نیست (فروخته یا مصرف شده)؛ لغو ممکن نیست.");
                     }
                 }
                 var original = await db.InventoryMovements.SingleAsync(m => m.Id == movementId, ct);
                 // برگشتِ ورود (جنسی که به موجودی آمده بود) نباید موجودی را منفی کند.
-                var reversal = await movements.PostReversalAsync(original, DateTime.UtcNow.Date, $"لغو تسویهٔ قرض {loan.LoanNumber}: {why}", ct,
+                var reversal = await movements.PostReversalAsync(original, DateTime.UtcNow.Date, $"لغو برگشت قرضٔ قرض {loan.LoanNumber}: {why}", ct,
                     original.Direction == MovementDirection.In ? StockGuard.Full : StockGuard.None)
-                    ?? throw Rule("LOAN_ALREADY_REVERSED", "حرکت موجودیِ این تسویه قبلاً برگشت خورده است.");
+                    ?? throw Rule("LOAN_ALREADY_REVERSED", "حرکت موجودیِ این برگشت قرض قبلاً برگشت خورده است.");
                 _ = reversal;
             }
             if (settlement.PaymentTransactionId.HasValue)
@@ -511,7 +511,7 @@ public sealed class CommodityLoanService(
             if (loan.Status != CommodityLoanStatus.Active)
                 throw Rule("LOAN_CANCELLED", "این قرض قبلاً لغو شده است.");
             if (await db.CommodityLoanSettlements.AnyAsync(s => s.CommodityLoanId == loan.Id && s.Status == CommodityLoanStatus.Active, ct))
-                throw Rule("LOAN_HAS_SETTLEMENTS", "برای این قرض تسویه ثبت شده است؛ اول تسویه‌ها را لغو کنید.");
+                throw Rule("LOAN_HAS_SETTLEMENTS", "برای این قرض برگشت قرض ثبت شده است؛ اول برگشت قرض‌ها را لغو کنید.");
 
             var companyId = await systemCompany.GetOwnerCompanyIdAsync(ct);
             var journaled = await JournalExistsAsync(LoanEventId(loan.Id), ct);
@@ -523,7 +523,7 @@ public sealed class CommodityLoanService(
                     var reversed = await valuation.TryReverseReceiptAsync(companyId, loan.ProductId, loan.TerminalId, loan.QuantityMt,
                         loan.CarryingValueUsd ?? 0m, ct);
                     if (!reversed.Succeeded)
-                        throw Rule("LOAN_CANCEL_CONSUMED", "جنسِ قرض‌گرفته دیگر در موجودیِ ارزش‌گذاری‌شدهٔ این محل نیست (فروخته یا مصرف شده)؛ لغو ممکن نیست.");
+                        throw Rule("LOAN_CANCEL_CONSUMED", "جنسِ قرض گرفته‌شده دیگر در موجودیِ با قیمت ثبت‌شدهٔ این محل نیست (فروخته یا مصرف شده)؛ لغو ممکن نیست.");
                 }
                 else
                 {
@@ -531,7 +531,7 @@ public sealed class CommodityLoanService(
                 }
             }
             var original = await db.InventoryMovements.SingleAsync(m => m.Id == loan.InventoryMovementId, ct);
-            _ = await movements.PostReversalAsync(original, DateTime.UtcNow.Date, $"لغو قرض جنسی {loan.LoanNumber}: {why}", ct,
+            _ = await movements.PostReversalAsync(original, DateTime.UtcNow.Date, $"لغو قرض تیل {loan.LoanNumber}: {why}", ct,
                     original.Direction == MovementDirection.In ? StockGuard.Full : StockGuard.None)
                 ?? throw Rule("LOAN_ALREADY_REVERSED", "حرکت موجودیِ این قرض قبلاً برگشت خورده است.");
             if (journaled)
@@ -551,7 +551,7 @@ public sealed class CommodityLoanService(
     private async Task<AccountingSettings> RequireGlReadyAsync(int companyId, CancellationToken ct)
     {
         if (!_options.Pilots.CommodityLoan)
-            throw Rule("LOAN_GL_NOT_READY", "ثبت دفتر کلِ قرض جنسی فعال نیست (Accounting:Pilots:CommodityLoan)؛ سند ثبت نشد.");
+            throw Rule("LOAN_GL_NOT_READY", "ثبت دفتر کلِ قرض تیل فعال نیست (Accounting:Pilots:CommodityLoan)؛ سند ثبت نشد.");
         var settings = await db.AccountingSettings.AsNoTracking().SingleOrDefaultAsync(x => x.CompanyId == companyId, ct)
             ?? throw Rule("LOAN_GL_NOT_READY", "تنظیمات حسابداری شرکت ثبت نشده است؛ سند ثبت نشد.");
         if (!string.Equals(settings.FunctionalCurrencyCode?.Trim(), "USD", StringComparison.OrdinalIgnoreCase))
@@ -593,7 +593,7 @@ public sealed class CommodityLoanService(
         if (type.HasValue && account.AccountType != type)
             throw Rule("LOAN_ACCOUNT", typeMessage!);
         if (type is null && account.AccountType is not (AccountType.Revenue or AccountType.Expense))
-            throw Rule("LOAN_ACCOUNT", "حساب تفاوت باید حساب درآمد یا مصرف (سود/زیان) باشد.");
+            throw Rule("LOAN_ACCOUNT", "حساب تفاوت باید حساب درآمد یا مصرف (مفاد/ضرر) باشد.");
     }
 
     private async Task RequireUsdCashAccountAsync(int cashAccountId, CancellationToken ct)
@@ -603,7 +603,7 @@ public sealed class CommodityLoanService(
         if (!cash.IsActive)
             throw Rule("LOAN_CASH_ACCOUNT", "این صندوق/بانک غیرفعال است.");
         if (cash.AccountType != CashAccountType.Mixed && !string.Equals(cash.Currency, "USD", StringComparison.OrdinalIgnoreCase))
-            throw Rule("LOAN_CASH_ACCOUNT", "تسویهٔ نقدیِ قرض جنسی به دالر است؛ این صندوق/بانک دالری نیست.");
+            throw Rule("LOAN_CASH_ACCOUNT", "پرداخت پول به‌جای تیلِ قرض تیل به دالر است؛ این صندوق/بانک دالری نیست.");
     }
 
     private async Task<CommodityLoan> LockLoanAsync(int loanId, CancellationToken ct)
@@ -611,7 +611,7 @@ public sealed class CommodityLoanService(
         if (IsPostgres)
             await db.Database.ExecuteSqlInterpolatedAsync($@"SELECT ""Id"" FROM ""CommodityLoans"" WHERE ""Id"" = {loanId} FOR UPDATE", ct);
         var loan = await db.CommodityLoans.FirstOrDefaultAsync(l => l.Id == loanId, ct)
-            ?? throw Rule("LOAN_NOT_FOUND", "قرض جنسی پیدا نشد.");
+            ?? throw Rule("LOAN_NOT_FOUND", "قرض تیل پیدا نشد.");
         await db.Entry(loan).ReloadAsync(ct);
         return loan;
     }
@@ -646,7 +646,7 @@ public sealed class CommodityLoanService(
 
     private PaymentTransaction NewPayment(CommodityLoan loan, CommodityLoanSettlement settlement, int companyId, bool reversal)
     {
-        // قرض‌دادن: طرف به شرکت می‌پردازد؛ قرض‌گرفتن: شرکت به طرف می‌پردازد. نوع Manual عمداً: سطر صندوقِ
+        // قرض دادن تیل: طرف به شرکت می‌پردازد؛ قرض گرفتن تیل: شرکت به طرف می‌پردازد. نوع Manual عمداً: سطر صندوقِ
         // ژورنال فقط از همین سرویس می‌آید و تطبیق دریافت/پرداختِ عادی آن را به قراردادها نمی‌چسباند.
         var inbound = loan.Direction == CommodityLoanDirection.Lend;
         if (reversal) inbound = !inbound;
@@ -664,7 +664,7 @@ public sealed class CommodityLoanService(
             AppliedFxRateToUsd = 1m,
             AmountUsd = settlement.CashAmountUsd.Value,
             Reference = reversal ? reference + "-REV" : reference,
-            Description = (reversal ? "لغو تسویهٔ نقدی قرض جنسی " : "تسویهٔ نقدی قرض جنسی ") + loan.LoanNumber,
+            Description = (reversal ? "لغو پرداخت پول به‌جای تیل قرض تیل " : "پرداخت پول به‌جای تیل قرض تیل ") + loan.LoanNumber,
             CreatedByUserId = currentUser?.UserId
         };
     }
@@ -685,7 +685,7 @@ public sealed class CommodityLoanService(
     private static void RequirePositive(decimal value, string label)
     {
         if (value <= 0m) throw Rule("LOAN_QUANTITY", $"{label} باید بیشتر از صفر باشد.");
-        if (decimal.Round(value, 4) != value) throw Rule("LOAN_PRECISION", $"{label} حداکثر چهار رقم اعشار دارد.");
+        if (decimal.Round(value, 4) != value) throw Rule("LOAN_PRECISION", $"{label} بیشترین چهار رقم اعشار دارد.");
     }
 
     private static string Required(string? value, string label, int max)

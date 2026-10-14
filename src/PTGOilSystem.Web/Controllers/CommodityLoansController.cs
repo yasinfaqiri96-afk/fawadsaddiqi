@@ -17,7 +17,7 @@ using PTGOilSystem.Web.Services.Time;
 
 namespace PTGOilSystem.Web.Controllers;
 
-// قرض جنسی — قرض‌دادن از موجودی ملکی و قرض‌گرفتن با تعهد برگشت جنس. جدا از امانی.
+// قرض تیل — قرض دادن تیل از موجودی ملکی و قرض گرفتن تیل با تعهد برگشت قرض. جدا از امانی.
 [Authorize]
 public class CommodityLoansController(
     ApplicationDbContext db,
@@ -94,7 +94,7 @@ public class CommodityLoansController(
                     Notes = form.Notes,
                     FormToken = formToken
                 });
-                TempData["ok"] = "قرض جنسی ثبت شد.";
+                TempData["ok"] = "قرض تیل ثبت شد.";
                 return RedirectToAction(nameof(Details), new { id });
             }
             catch (Exception ex) when (ex is BusinessRuleException or AccountingValidationException)
@@ -165,7 +165,7 @@ public class CommodityLoansController(
             }
             catch (DbUpdateException ex) when (formTokens.IsDuplicate(ex))
             {
-                TempData["err"] = "این تسویه قبلاً ثبت شده است و دوباره ثبت نشد.";
+                TempData["err"] = "این برگشت قرض قبلاً ثبت شده است و دوباره ثبت نشد.";
                 return RedirectToAction(nameof(Details), new { id = form.LoanId });
             }
         }
@@ -179,7 +179,7 @@ public class CommodityLoansController(
         try
         {
             await loans.CancelSettlementAsync(id, reason ?? "");
-            TempData["ok"] = "تسویه لغو شد و اثر موجودی، صندوق و دفتر کل آن برگشت.";
+            TempData["ok"] = "برگشت قرض لغو شد و اثر موجودی، صندوق و دفتر کل آن برگشت.";
         }
         catch (Exception ex) when (ex is BusinessRuleException or AccountingValidationException)
         {
@@ -195,7 +195,7 @@ public class CommodityLoansController(
         try
         {
             await loans.CancelLoanAsync(id, reason ?? "");
-            TempData["ok"] = "قرض جنسی لغو شد و موجودی و دفتر کل برگشت.";
+            TempData["ok"] = "قرض تیل لغو شد و موجودی و دفتر کل برگشت.";
         }
         catch (Exception ex) when (ex is BusinessRuleException or AccountingValidationException)
         {

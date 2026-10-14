@@ -138,8 +138,8 @@ public static class OfflineFormRegistry
         Token("Custody", "SaleReturn", "برگشت فروش امانی", "CustodyMovement"),
         Token("Custody", "Finance", "تمویل امانی", "CustodyMovement"),
         Token("Custody", "ConvertPurchase", "تبدیل امانی به خرید", "CustodyMovement"),
-        Token("CommodityLoans", "Create", "قرض جنسی", "CommodityLoan"),
-        Token("CommodityLoans", "Settle", "تسویهٔ قرض جنسی", "CommodityLoan"),
+        Token("CommodityLoans", "Create", "قرض تیل", "CommodityLoan"),
+        Token("CommodityLoans", "Settle", "برگشت قرض تیل", "CommodityLoan"),
 
         // دارایی‌های عملیاتی: ثبت‌های عملیاتیِ بدون اثر مالی (سند مصرفِ موجود فقط ارجاع می‌شود)
         Wrapped("OperationalAssets", "AddMeterReading", "ثبت کارکرد موتر/دستگاه", "AssetMeterReading"),
@@ -200,7 +200,7 @@ public static class OfflineFormRegistry
         Act("QualityInspections", "Edit", "ویرایش بررسی کیفیت", "QualityInspection", checkStale: true),
 
         // موجودی، مخزن، توزیع، ضایعات
-        Act("Inventory", "Create", "حرکت موجودی", "InventoryMovement"),
+        Token("Inventory", "Create", "سند موجودی", "InventoryMovement"),
         OnRecord("Dispatch", "Edit", "ویرایش توزیع", "TruckDispatch"),
         OnRecord("Dispatch", "Unload", "تخلیهٔ توزیع", "TruckDispatch"),
         OnRecord("Dispatch", "Cancel", "لغو توزیع", "TruckDispatch"),
@@ -279,8 +279,8 @@ public static class OfflineFormRegistry
         OnRecord("Custody", "TransitResponsibility", "مسئولیت کسر در راه امانی", "CustodyLot", checkStale: false),
         Act("Custody", "FxAgreement", "توافق اسعار امانی", "CustodyLot"),
         Act("Custody", "Reconcile", "تطبیق امانی", "CustodyLot"),
-        OnRecord("CommodityLoans", "Cancel", "لغو قرض جنسی", "CommodityLoan"),
-        OnRecord("CommodityLoans", "CancelSettlement", "لغو تسویهٔ قرض جنسی", "CommodityLoanSettlement", checkStale: false),
+        OnRecord("CommodityLoans", "Cancel", "لغو قرض تیل", "CommodityLoan"),
+        OnRecord("CommodityLoans", "CancelSettlement", "لغو برگشت قرض تیل", "CommodityLoanSettlement", checkStale: false),
 
         // طرف‌حساب‌ها و معلومات پایه
         OnRecord("Customers", "Edit", "ویرایش مشتری", "Customer"),

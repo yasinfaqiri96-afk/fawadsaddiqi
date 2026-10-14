@@ -20,6 +20,26 @@ public class InventoryMovementCreateViewModel
     [Display(Name = "مخزن")]
     public int? StorageTankId { get; set; }
 
+    [Display(Name = "ترمینال مقصد")]
+    public int? DestinationTerminalId { get; set; }
+
+    [Display(Name = "مخزن مقصد")]
+    public int? DestinationStorageTankId { get; set; }
+
+    [Display(Name = "نوع اصلاح موجودی")]
+    public bool NegativeAdjustment { get; set; }
+
+    [Display(Name = "دلیل اصلاح / انتقال")]
+    [StringLength(700)]
+    public string? Reason { get; set; }
+
+    [Display(Name = "ارزش مجموع ورودی (دالر)")]
+    [Range(typeof(decimal), "0.0001", "9999999999999999")]
+    public decimal? ValueUsd { get; set; }
+
+    [Display(Name = "حساب مقابل موجودی")]
+    public int? OffsetAccountId { get; set; }
+
     [Display(Name = "نوع حرکت")]
     [Required(ErrorMessage = "نوع حرکت الزامی است.")]
     public MovementDirection Direction { get; set; } = MovementDirection.In;
@@ -32,7 +52,7 @@ public class InventoryMovementCreateViewModel
     [DataType(DataType.Date)]
     public DateTime MovementDate { get; set; } = AfghanistanBusinessClock.SystemToday;
 
-    [Display(Name = "مرجع")]
+    [Display(Name = "شماره سند")]
     [StringLength(500)]
     public string? ReferenceDocument { get; set; }
 

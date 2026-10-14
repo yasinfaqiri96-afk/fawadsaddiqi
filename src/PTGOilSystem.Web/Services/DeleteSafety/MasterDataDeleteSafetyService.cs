@@ -40,7 +40,7 @@ public class MasterDataDeleteSafetyService
         if (await _db.CustodyLots.AnyAsync(l => l.ProductId == productId))
             usageAreas.Add("امانی");
         if (await _db.CommodityLoans.AnyAsync(l => l.ProductId == productId))
-            usageAreas.Add("قرض جنسی");
+            usageAreas.Add("قرض تیل");
 
         if (await _db.Contracts.AnyAsync(c => c.ProductId == productId))
             usageAreas.Add("قراردادها");
@@ -67,7 +67,7 @@ public class MasterDataDeleteSafetyService
         var usageAreas = new List<string>();
 
         if (await _db.CommodityLoans.AnyAsync(l => l.CounterpartyType == AccountingPartyType.Company && l.CounterpartyId == companyId))
-            usageAreas.Add("قرض جنسی");
+            usageAreas.Add("قرض تیل");
 
         if (await _db.CustodySupplierIdentityLinks.AnyAsync(x => x.CompanyId == companyId))
             usageAreas.Add("پیوند هویت امانی");
@@ -89,7 +89,7 @@ public class MasterDataDeleteSafetyService
         var usageAreas = new List<string>();
 
         if (await _db.CommodityLoans.AnyAsync(l => l.CounterpartyType == AccountingPartyType.Supplier && l.CounterpartyId == supplierId))
-            usageAreas.Add("قرض جنسی");
+            usageAreas.Add("قرض تیل");
 
         if (await _db.CustodySupplierIdentityLinks.AnyAsync(x => x.SupplierId == supplierId))
             usageAreas.Add("پیوند هویت امانی");
@@ -111,7 +111,7 @@ public class MasterDataDeleteSafetyService
         var usageAreas = new List<string>();
 
         if (await _db.CommodityLoans.AnyAsync(l => l.CounterpartyType == AccountingPartyType.Customer && l.CounterpartyId == customerId))
-            usageAreas.Add("قرض جنسی");
+            usageAreas.Add("قرض تیل");
 
         if (await _db.CustodySupplierIdentityLinks.AnyAsync(x => x.CustomerId == customerId))
             usageAreas.Add("پیوند هویت امانی");
@@ -242,7 +242,7 @@ public class MasterDataDeleteSafetyService
         var usageAreas = new List<string>();
 
         if (await _db.CommodityLoans.AnyAsync(l => l.CounterpartyType == AccountingPartyType.Partner && l.CounterpartyId == partnerId))
-            usageAreas.Add("قرض جنسی");
+            usageAreas.Add("قرض تیل");
 
         if (await _db.CustodySupplierIdentityLinks.AnyAsync(x => x.PartnerId == partnerId))
             usageAreas.Add("پیوند هویت امانی");

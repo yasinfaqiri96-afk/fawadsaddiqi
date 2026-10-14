@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 using PTGOilSystem.Web.Data;
 using PTGOilSystem.Web.Helpers;
 using PTGOilSystem.Web.Models.Entities;
@@ -23,6 +22,8 @@ public partial class InventoryController : Controller
     private readonly IAuditService _audit;
     private readonly ILogger<InventoryController> _logger;
     private readonly IInventoryMovementWriter _movements;
+    private readonly IFormTokenGuard _formTokens;
+    private readonly ManualInventoryService _manualInventory;
     private const int LookupLimit = 200;
     private const int IndexPageSize = 20;
 
@@ -31,13 +32,17 @@ public partial class InventoryController : Controller
         IStockService stock,
         IAuditService audit,
         ILogger<InventoryController> logger,
-        IInventoryMovementWriter? movements = null)
+        IInventoryMovementWriter? movements = null,
+        IFormTokenGuard? formTokens = null,
+        ManualInventoryService? manualInventory = null)
     {
         _db = db;
         _stock = stock;
         _audit = audit;
         _logger = logger;
         _movements = movements ?? new InventoryMovementWriter(db, stock);
+        _formTokens = formTokens ?? new FormTokenGuard(db);
+        _manualInventory = manualInventory ?? new ManualInventoryService(db, stock, _movements, audit, _formTokens);
     }
 
     private async Task PopulateLookupsAsync(
@@ -45,9 +50,15 @@ public partial class InventoryController : Controller
         InventoryStockCardFilterViewModel? cardFilter = null)
     {
         var selectedContractId = createModel?.ContractId ?? cardFilter?.ContractId;
+        ViewBag.Accounts = new SelectList(await _db.Accounts.AsNoTracking()
+            .Where(a => a.IsActive && (a.AccountType == AccountType.Revenue || a.AccountType == AccountType.Expense
+                || a.AccountType == AccountType.Equity)).OrderBy(a => a.Code)
+            .Select(a => new { a.Id, Display = a.Code + " — " + a.Name }).ToListAsync(),
+            "Id", "Display", createModel?.OffsetAccountId);
 
         var contracts = await _db.Contracts
             .AsNoTracking()
+            .Where(c => createModel == null || c.ContractType == ContractType.Purchase)
             .OrderBy(c => selectedContractId.HasValue && c.Id == selectedContractId.Value ? 0 : 1)
             .ThenByDescending(c => c.ContractDate)
             .ThenBy(c => c.ContractNumber)
@@ -110,6 +121,10 @@ public partial class InventoryController : Controller
             "Id",
             "Display",
             createModel?.StorageTankId);
+        ViewBag.DestinationTerminals = new SelectList(((SelectList)ViewBag.Terminals).Items,
+            "Id", "Name", createModel?.DestinationTerminalId);
+        ViewBag.DestinationStorageTanks = new SelectList(((SelectList)ViewBag.StorageTanks).Items,
+            "Id", "Display", createModel?.DestinationStorageTankId);
     }
 
     public async Task<IActionResult> Index(string? q, int page = 1, [FromQuery(Name = "pageSize")] int? perPage = null)
@@ -188,7 +203,8 @@ public partial class InventoryController : Controller
 
     [Authorize(Policy = AuthPolicies.ManageData)]
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> Create(InventoryMovementCreateViewModel model)
+    public async Task<IActionResult> Create(InventoryMovementCreateViewModel model,
+        [FromForm(Name = FormTokenHtmlHelper.FieldName)] string? formToken = null)
     {
         var product = await _db.Products.AsNoTracking().FirstOrDefaultAsync(p => p.Id == model.ProductId && p.IsActive);
         if (product is null)
@@ -243,64 +259,21 @@ public partial class InventoryController : Controller
             return View(model);
         }
 
-        var referenceDocument = string.IsNullOrWhiteSpace(model.ReferenceDocument)
-            ? $"MANUAL-INVENTORY:{Guid.NewGuid():N}"
-            : model.ReferenceDocument.Trim();
-        var request = new InventoryMovementRequest
-        {
-            ProductId = model.ProductId,
-            ContractId = model.ContractId,
-            TerminalId = model.TerminalId,
-            StorageTankId = model.StorageTankId,
-            QuantityMt = model.QuantityMt,
-            MovementDate = model.MovementDate,
-            ReferenceDocument = referenceDocument,
-            Notes = string.IsNullOrWhiteSpace(model.Notes) ? null : model.Notes.Trim()
-        };
-
-        IDbContextTransaction? transaction = null;
         try
         {
-            // Serialize the availability check with the write so two concurrent
-            // Out-movements on the same tank cannot both pass and oversell.
-            if (_db.Database.IsRelational())
-            {
-                transaction = await _db.Database.BeginTransactionAsync();
-            }
-
-            var movement = model.Direction switch
-            {
-                MovementDirection.In => await _movements.PostInboundAsync(request),
-                MovementDirection.Out => await _movements.PostOutboundAsync(request),
-                MovementDirection.Transfer => await _movements.PostTransferAsync(request),
-                MovementDirection.Adjustment => await _movements.PostAdjustmentAsync(request),
-                _ => throw new BusinessRuleException("STOCK_DIRECTION_INVALID", "نوع حرکت موجودی معتبر نیست.")
-            };
-
-            await _audit.LogAndSaveAsync(
-                nameof(InventoryMovement),
-                movement.Id,
-                AuditAction.Insert,
-                diff: AuditDiffFormatter.ForCreate(
-                    ("ProductId", movement.ProductId),
-                    ("ContractId", movement.ContractId),
-                    ("TerminalId", movement.TerminalId),
-                    ("StorageTankId", movement.StorageTankId),
-                    ("Direction", movement.Direction),
-                    ("QuantityMt", movement.QuantityMt),
-                    ("MovementDate", movement.MovementDate),
-                    ("ReferenceDocument", movement.ReferenceDocument)));
-
-            if (transaction is not null)
-            {
-                await transaction.CommitAsync();
-            }
-
-            TempData["ok"] = "حرکت موجودی با موفقیت ثبت شد.";
+            await _manualInventory.PostAsync(model, formToken);
+            TempData["ok"] = "سند موجودی ثبت شد.";
+            return RedirectToAction(nameof(Index));
+        }
+        catch (Exception ex) when (_formTokens.IsDuplicate(ex))
+        {
+            _db.ChangeTracker.Clear();
+            TempData["ok"] = "این سند قبلاً ثبت شده است.";
             return RedirectToAction(nameof(Index));
         }
         catch (BusinessRuleException ex)
         {
+            _db.ChangeTracker.Clear();
             ModelState.AddModelError(string.Empty, ex.Message);
         }
         catch (Exception ex)
@@ -308,14 +281,6 @@ public partial class InventoryController : Controller
             _logger.LogError(ex, "Failed to create inventory movement.");
             ModelState.AddModelError(string.Empty, "ثبت حرکت موجودی انجام نشد. دوباره تلاش کنید.");
         }
-        finally
-        {
-            if (transaction is not null)
-            {
-                await transaction.DisposeAsync();
-            }
-        }
-
         await PopulateLookupsAsync(createModel: model);
         return View(model);
     }
@@ -400,7 +365,7 @@ public partial class InventoryController : Controller
             contractId: filter.ContractId,
             terminalId: filter.TerminalId,
             fromUtc: filter.FromDate,
-            toUtc: filter.ToDate);
+            toUtc: filter.ToDate?.Date.AddDays(1).AddTicks(-1));
         var cardContractIds = stockRows
             .Where(r => r.ContractId.HasValue)
             .Select(r => r.ContractId!.Value)

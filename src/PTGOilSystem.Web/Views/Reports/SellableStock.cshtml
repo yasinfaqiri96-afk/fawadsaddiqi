@@ -10,7 +10,7 @@
                        (string?)null, (string?)null, (string?)null, (string?)null,
                        UiText.T(Context, "گزارش‌ها", "Reports"), "bi-arrow-right", Url.Action("Index")))" />
 
-    <p class="ak-note">@UiText.T(Context, "موجودی فیزیکی منهای رزرو فعال پیش‌فروش. موجودی در مسیر در این رقم شمرده نمی‌شود.", "Physical stock minus active pre-sale reservation. Goods in transit are not counted.")</p>
+    <p class="ak-note">@UiText.T(Context, "موجودی ملکی منهای مقدار بندشده برای پیش‌فروش. تیل امانی و بار در راه شامل نیست.", "Owned stock minus active pre-sale reservation. Custody and transit are excluded.")</p>
 
     <section class="ak-stat-grid" aria-label="@UiText.T(Context, "آمار موجودی قابل فروش", "Sellable stock metrics")">
         @foreach (var metric in Model.Metrics.Take(4))
@@ -51,7 +51,7 @@
                     <tr>
                         <th class="ak-col-grow">@UiText.T(Context, "جنس", "Product")</th>
                         <th>@UiText.T(Context, "جواز", "Company")</th>
-                        <th class="ak-col-num">@UiText.T(Context, "موجودی فیزیکی", "Physical")</th>
+                        <th class="ak-col-num">@UiText.T(Context, "موجودی ملکی", "Owned")</th>
                         <th class="ak-col-num">@UiText.T(Context, "رزرو پیش‌فروش", "Reserved")</th>
                         <th class="ak-col-num">@UiText.T(Context, "قابل فروش", "Sellable")</th>
                         <th class="ak-col-num">@UiText.T(Context, "رزرو بدون منبع", "Unallocated")</th>

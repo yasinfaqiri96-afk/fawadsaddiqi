@@ -1,51 +1,54 @@
 @model Currency
+@{
+    // فرم جدیدِ خالی کدِ پیش‌فرضِ USD انتیتی را نشان ندهد تا کاربر ارز را خودش از فهرست انتخاب کند.
+    var codeValue = Model.Id == 0 && string.IsNullOrWhiteSpace(Model.Name) && Model.Code == "USD" ? "" : Model.Code;
+}
 
 @Html.AntiForgeryToken()
 <div asp-validation-summary="ModelOnly" class="alert alert-danger ak-form-alert"></div>
 
 <section class="ak-form-section">
     <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
-             model="@(("اطلاعات ارز", (string?)"کد، نام و نماد ارز را وارد کنید."))" />
-    <div class="ak-form-grid">
+             model="@(("اطلاعات ارز", (string?)"ارز را از فهرست انتخاب کنید؛ کد و نماد خودکار پر می‌شود."))" />
+    <div class="ak-form-grid" data-currency-form>
+        <div class="ak-field">
+            <label class="ak-label" for="currencyPreset">ارز <span class="ak-req">*</span></label>
+            <select id="currencyPreset" class="ak-input" data-ak-entity-combobox
+                    data-currency-preset
+                    data-ak-placeholder="ارز را جستجو یا انتخاب کنید..."
+                    data-ak-empty="ارزی پیدا نشد">
+                <option value=""></option>
+                <option value="AFN" data-name="افغانی" data-symbol="؋" data-meta="AFN — ؋" data-avatar-text="؋">افغانی</option>
+                <option value="USD" data-name="دالر آمریکا" data-symbol="$" data-meta="USD — $" data-avatar-text="$">دالر آمریکا</option>
+                <option value="EUR" data-name="یورو" data-symbol="€" data-meta="EUR — €" data-avatar-text="€">یورو</option>
+                <option value="RUB" data-name="روبل روسیه" data-symbol="₽" data-meta="RUB — ₽" data-avatar-text="₽">روبل روسیه</option>
+                <option value="GBP" data-name="پوند انگلیس" data-symbol="£" data-meta="GBP — £" data-avatar-text="£">پوند انگلیس</option>
+                <option value="IRR" data-name="ریال ایران" data-symbol="﷼" data-meta="IRR — ﷼" data-avatar-text="﷼">ریال ایران</option>
+                <option value="PKR" data-name="کلدار پاکستان" data-symbol="Rs" data-meta="PKR — Rs" data-avatar-text="Rs">کلدار پاکستان</option>
+                <option value="INR" data-name="روپیه هند" data-symbol="₹" data-meta="INR — ₹" data-avatar-text="₹">روپیه هند</option>
+                <option value="AED" data-name="درهم امارات" data-symbol="د.إ" data-meta="AED — د.إ" data-avatar-text="د.إ">درهم امارات</option>
+                <option value="SAR" data-name="ریال سعودی" data-symbol="ر.س" data-meta="SAR — ر.س" data-avatar-text="ر.س">ریال سعودی</option>
+                <option value="TRY" data-name="لیره ترکیه" data-symbol="₺" data-meta="TRY — ₺" data-avatar-text="₺">لیره ترکیه</option>
+                <option value="CNY" data-name="یوان چین" data-symbol="¥" data-meta="CNY — ¥" data-avatar-text="¥">یوان چین</option>
+                <option value="UZS" data-name="سوم ازبکستان" data-symbol="soʻm" data-meta="UZS — soʻm" data-avatar-text="сў">سوم ازبکستان</option>
+                <option value="TJS" data-name="سامانی تاجیکستان" data-symbol="SM" data-meta="TJS — SM" data-avatar-text="SM">سامانی تاجیکستان</option>
+                <option value="KZT" data-name="تنگه قزاقستان" data-symbol="₸" data-meta="KZT — ₸" data-avatar-text="₸">تنگه قزاقستان</option>
+                <option value="__custom__" data-meta="کد، نام و نماد را دستی بنویسید" data-avatar-text="✎">ارز دیگر (ورود دستی)</option>
+            </select>
+        </div>
         <div class="ak-field">
             <label asp-for="Code" class="ak-label">کد <span class="ak-req">*</span></label>
-            <input asp-for="Code" class="ak-input" autocomplete="off" />
+            <input asp-for="Code" value="@codeValue" class="ak-input" dir="ltr" maxlength="10" autocomplete="off" data-currency-code />
             <span asp-validation-for="Code" class="ak-field-error"></span>
         </div>
         <div class="ak-field">
             <label asp-for="Name" class="ak-label">نام <span class="ak-req">*</span></label>
-            <input asp-for="Name" class="ak-input" autocomplete="off" />
+            <input asp-for="Name" class="ak-input" autocomplete="off" data-currency-name />
             <span asp-validation-for="Name" class="ak-field-error"></span>
         </div>
-        <div class="ak-field" data-currency-symbol-field>
+        <div class="ak-field">
             <label asp-for="Symbol" class="ak-label">نماد</label>
-            <select class="ak-input" data-ak-entity-combobox
-                    data-currency-symbol-picker
-                    data-ak-placeholder="نماد ارز را جستجو یا انتخاب کنید..."
-                    data-ak-empty="نمادی پیدا نشد"
-                    aria-label="نماد ارز">
-                <option value=""></option>
-                <option value="؋" data-meta="افغانی — AFN" data-avatar-text="؋">؋ افغانی</option>
-                <option value="$" data-meta="دالر آمریکا — USD" data-avatar-text="$">$ دالر آمریکا</option>
-                <option value="€" data-meta="یورو — EUR" data-avatar-text="€">€ یورو</option>
-                <option value="₽" data-meta="روبل روسیه — RUB" data-avatar-text="₽">₽ روبل روسیه</option>
-                <option value="£" data-meta="پوند انگلیس — GBP" data-avatar-text="£">£ پوند انگلیس</option>
-                <option value="﷼" data-meta="ریال ایران — IRR" data-avatar-text="﷼">﷼ ریال ایران</option>
-                <option value="Rs" data-meta="کلدار پاکستان — PKR" data-avatar-text="Rs">Rs کلدار پاکستان</option>
-                <option value="₹" data-meta="روپیه هند — INR" data-avatar-text="₹">₹ روپیه هند</option>
-                <option value="د.إ" data-meta="درهم امارات — AED" data-avatar-text="د.إ">د.إ درهم امارات</option>
-                <option value="ر.س" data-meta="ریال سعودی — SAR" data-avatar-text="ر.س">ر.س ریال سعودی</option>
-                <option value="₺" data-meta="لیره ترکیه — TRY" data-avatar-text="₺">₺ لیره ترکیه</option>
-                <option value="¥" data-meta="یوان چین — CNY" data-avatar-text="¥">¥ یوان چین</option>
-                <option value="soʻm" data-meta="سوم ازبکستان — UZS" data-avatar-text="сў">soʻm سوم ازبکستان</option>
-                <option value="SM" data-meta="سامانی تاجیکستان — TJS" data-avatar-text="SM">SM سامانی تاجیکستان</option>
-                <option value="₸" data-meta="تنگه قزاقستان — KZT" data-avatar-text="₸">₸ تنگه قزاقستان</option>
-                <option value="__custom__" data-meta="نماد دلخواه را دستی بنویسید" data-avatar-text="✎">نماد دیگر (ورود دستی)</option>
-            </select>
-            <input asp-for="Symbol" class="ak-input" autocomplete="off"
-                   data-currency-symbol-input
-                   placeholder="نماد دلخواه را بنویسید"
-                   hidden />
+            <input asp-for="Symbol" class="ak-input" autocomplete="off" data-currency-symbol />
             <span asp-validation-for="Symbol" class="ak-field-error"></span>
         </div>
         <div class="ak-toggle-field">
@@ -60,46 +63,57 @@
 
 <script>
     (function () {
-        var field = document.querySelector("[data-currency-symbol-field]");
-        if (!field || field.dataset.symbolReady === "true") return;
-        field.dataset.symbolReady = "true";
+        var form = document.querySelector("[data-currency-form]");
+        if (!form || form.dataset.currencyReady === "true") return;
+        form.dataset.currencyReady = "true";
 
-        var picker = field.querySelector("[data-currency-symbol-picker]");
-        var input = field.querySelector("[data-currency-symbol-input]");
-        if (!picker || !input) return;
+        var preset = form.querySelector("[data-currency-preset]");
+        var code = form.querySelector("[data-currency-code]");
+        var name = form.querySelector("[data-currency-name]");
+        var symbol = form.querySelector("[data-currency-symbol]");
+        if (!preset || !code || !name || !symbol) return;
 
         var CUSTOM = "__custom__";
 
-        function isKnown(value) {
-            return Array.prototype.some.call(picker.options, function (option) {
+        function findOption(value) {
+            return Array.prototype.find.call(preset.options, function (option) {
                 return option.value && option.value !== CUSTOM && option.value === value;
             });
         }
 
-        function showCustom(show) {
-            input.hidden = !show;
+        // ارزِ فهرست: کد و نماد را سیستم می‌گذارد و قفل است؛ فقط «ارز دیگر» دستی است.
+        function lockAuto(locked) {
+            code.readOnly = locked;
+            symbol.readOnly = locked;
         }
 
-        var current = (input.value || "").trim();
-        if (current && isKnown(current)) {
-            picker.value = current;
-            showCustom(false);
-        } else if (current) {
-            picker.value = CUSTOM;
-            showCustom(true);
-        } else {
-            picker.value = "";
-            showCustom(false);
-        }
-
-        picker.addEventListener("change", function () {
-            if (picker.value === CUSTOM) {
-                showCustom(true);
-                input.focus();
+        function apply(fromUser) {
+            var value = preset.value;
+            if (value === CUSTOM) {
+                lockAuto(false);
+                if (fromUser) code.focus();
                 return;
             }
-            input.value = picker.value;
-            showCustom(false);
-        });
+            var option = findOption(value);
+            if (!option) {
+                code.value = "";
+                symbol.value = "";
+                lockAuto(true);
+                return;
+            }
+            code.value = option.value;
+            symbol.value = option.dataset.symbol || "";
+            if (fromUser && (!name.value.trim() || name.value === name.dataset.autoName)) {
+                name.value = option.dataset.name || "";
+                name.dataset.autoName = name.value;
+            }
+            lockAuto(true);
+        }
+
+        var current = (code.value || "").trim().toUpperCase();
+        preset.value = !current ? "" : findOption(current) ? current : CUSTOM;
+        apply(false);
+
+        preset.addEventListener("change", function () { apply(true); });
     })();
 </script>

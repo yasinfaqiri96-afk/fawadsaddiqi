@@ -28,7 +28,7 @@ public partial class InventoryController
             contractId: filter.ContractId,
             terminalId: filter.TerminalId,
             fromUtc: filter.FromDate,
-            toUtc: filter.ToDate,
+            toUtc: filter.ToDate?.Date.AddDays(1).AddTicks(-1),
             ct: cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         var tankIds = stockRows.Where(r => r.StorageTankId.HasValue).Select(r => r.StorageTankId!.Value).Distinct().ToList();

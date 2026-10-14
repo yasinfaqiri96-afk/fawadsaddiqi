@@ -57,10 +57,10 @@ public sealed class CommodityLoanSettlementForm
 
     public static string Title(CommodityLoanSettlementKind kind) => kind switch
     {
-        CommodityLoanSettlementKind.InKindReturn => "برگشت جنس",
-        CommodityLoanSettlementKind.CashSettlement => "تسویه نقدی",
-        CommodityLoanSettlementKind.QuantityDifference => "بستن تفاوت مقدار",
-        _ => "تسویه"
+        CommodityLoanSettlementKind.InKindReturn => "برگشت قرض",
+        CommodityLoanSettlementKind.CashSettlement => "پرداخت پول به‌جای تیل",
+        CommodityLoanSettlementKind.QuantityDifference => "بستن باقی کم قرض",
+        _ => "برگشت قرض"
     };
 }
 
@@ -83,7 +83,7 @@ public sealed class CommodityLoanIndexViewModel
 public static class CommodityLoanLabels
 {
     public static string Direction(CommodityLoanDirection direction)
-        => direction == CommodityLoanDirection.Lend ? "قرض‌داده (طلب جنسی)" : "قرض‌گرفته (بدهی جنسی)";
+        => direction == CommodityLoanDirection.Lend ? "تیل قرض دادیم" : "تیل قرض گرفتیم";
 
     public static string Kind(CommodityLoanSettlementKind kind) => CommodityLoanSettlementForm.Title(kind);
 }

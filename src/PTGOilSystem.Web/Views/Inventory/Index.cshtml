@@ -3,21 +3,27 @@
 @{
     ViewData["Title"] = UiText.T(Context,"موجودی","Inventory");
     var movements = Model.Items.ToList();
+    var canManage = PTGOilSystem.Web.Security.RoleAccessRules.CanManageData(User);
 }
 
 <div class="ak-form-page ak-list-page">
     <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
              model="@((UiText.T(Context, "حرکت‌های موجودی", "Inventory Movements"), true,
-                       UiText.T(Context, "ثبت موجودی", "New Movement"), "bi-plus-lg",
-                       (string?)Url.Action("Create"), (string?)null,
+                       canManage ? UiText.T(Context, "ثبت سند موجودی", "New Movement") : (string?)null, "bi-plus-lg",
+                       canManage ? (string?)Url.Action("Create") : (string?)null, (string?)null,
                        (string?)null, (string?)null, (string?)null))" />
 
     <partial name="~/Views/Shared/_AkSearchFilter.cshtml"
              model="@AkSearchFilterModel.SearchOnly(
                  "q",
                  Model.Query,
-                 UiText.T(Context, "محصول، ترمینال، قرارداد یا مرجع...", "Product, terminal, contract or reference..."))" />
+                 UiText.T(Context, "جنس، ترمینال، قرارداد یا شماره سند...", "Product, terminal, contract or reference..."))" />
 
+    <p class="ak-note">این صفحه گردش تیل ملکی شرکت را نشان می‌دهد. تیل دیگران در تب «امانی» ثبت می‌شود.</p>
+    <div class="ak-detail-toolbar">
+        <a class="btn btn-light ak-secondary-action" asp-action="StockSummary">خلاصه موجودی ملکی</a>
+        <a class="btn btn-light ak-secondary-action" asp-action="StockCard">گردش و باقی موجودی</a>
+    </div>
     <div class="ak-table-wrap">
         <div class="ak-table-wrap">
             <table class="ak-table align-middle mb-0">
@@ -30,7 +36,8 @@
                         <th>@UiText.T(Context,"قرارداد منبع","Source Contract")</th>
                         <th>@UiText.T(Context,"مخزن","Tank")</th>
                         <th class="text-end">@UiText.T(Context,"مقدار (MT)","Qty (MT)")</th>
-                        <th>@UiText.T(Context,"مرجع","Reference")</th>
+                        <th>@UiText.T(Context,"شماره سند","Reference")</th>
+                        <th>دلیل و یادداشت</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -51,7 +58,7 @@
                                         <span class="ak-status is-pending">@UiText.T(Context,"انتقال","Transfer")</span>
                                         break;
                                     case MovementDirection.Adjustment:
-                                        <span class="ak-status is-pending">@UiText.T(Context,"تعدیل","Adjustment")</span>
+                                        <span class="ak-status is-pending">@UiText.T(Context,"اصلاح موجودی","Adjustment")</span>
                                         break;
                                 }
                             </td>
@@ -61,13 +68,14 @@
                             <td>@(item.StorageTankCode ?? "—")</td>
                             <td class="text-end fw-semibold">@NumberDisplay.Quantity(item.QuantityMt)</td>
                             <td>@(item.ReferenceDocument ?? "—")</td>
+                            <td class="ak-col-grow">@(item.Notes ?? "—")</td>
                         </tr>
                     }
                     @if (!movements.Any())
                     {
                         <tr>
-                            <td colspan="8">
-                                @await Html.PartialAsync("_EmptyState", (UiText.T(Context,"هنوز هیچ حرکت موجودی ثبت نشده است","No inventory movements recorded yet"), UiText.T(Context,"پس از ثبت movement اطلاعات این بخش کامل می‌شود.","After recording a movement, this section will be populated."), "bi-boxes"))
+                            <td colspan="9">
+                                @await Html.PartialAsync("_EmptyState", (UiText.T(Context,"هنوز هیچ حرکت موجودی ثبت نشده است","No inventory movements recorded yet"), UiText.T(Context,"پس از ثبت سند موجودی معلومات این بخش کامل می‌شود.","After recording a movement, this section will be populated."), "bi-boxes"))
                             </td>
                         </tr>
                     }

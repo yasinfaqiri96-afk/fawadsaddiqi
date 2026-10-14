@@ -179,32 +179,14 @@ public sealed class PreSaleReservationService : IPreSaleReservationService
         }
 
         var stockRows = await stockQuery
-            .Select(m => new
-            {
-                CompanyId = m.Contract != null
-                    ? (int?)m.Contract.CompanyId
-                    : m.LoadingReceipt != null
-                        && m.LoadingReceipt.LoadingRegister != null
-                        && m.LoadingReceipt.LoadingRegister.Contract != null
-                            ? (int?)m.LoadingReceipt.LoadingRegister.Contract.CompanyId
-                            : null,
-                m.ProductId,
-                ProductName = m.Product != null ? m.Product.Name : "",
-                m.Direction,
-                m.QuantityMt
-            })
+            .Quantities()
             .GroupBy(m => new { m.CompanyId, m.ProductId, m.ProductName })
             .Select(g => new
             {
                 g.Key.CompanyId,
                 g.Key.ProductId,
                 g.Key.ProductName,
-                QuantityMt = g.Sum(m =>
-                    m.Direction == MovementDirection.In || m.Direction == MovementDirection.Adjustment
-                        ? m.QuantityMt
-                        : m.Direction == MovementDirection.Out || m.Direction == MovementDirection.Transfer
-                            ? -m.QuantityMt
-                            : 0m)
+                QuantityMt = g.Sum(m => m.SignedQuantityMt)
             })
             .ToListAsync(ct);
 

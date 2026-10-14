@@ -74,7 +74,7 @@
     {
         ("Inventory",  "Index",        T("حرکت‌های موجودی", "Inventory Movements"), "bi-box-seam-fill",             null),
         ("Custody",    "Index",        T("امانی",           "Custody"),             "bi-boxes",                     null),
-        ("CommodityLoans", "Index",    T("قرض جنسی",        "Commodity loans"),     "bi-arrow-left-right",          null)
+        ("CommodityLoans", "Index",    T("قرض تیل",        "Commodity loans"),     "bi-arrow-left-right",          null)
     };
 
     var operationalAssetTabs = new (string Controller, string Action, string Label, string Icon, string? RouteKey)[]
@@ -225,7 +225,7 @@
     else if (IsCurrentGroup(inventoryProfitTabs))
     {
         tabs = inventoryProfitTabs;
-        navLabel = T("تب‌های موجودی و سود", "Inventory & P&L Tabs");
+        navLabel = T("تب‌های موجودی", "Inventory Tabs");
     }
     else if (IsCurrentGroup(operationalAssetTabs))
     {

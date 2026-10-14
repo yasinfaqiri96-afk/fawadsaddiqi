@@ -79,16 +79,12 @@ public class DashboardService : IDashboardService
         // بدون کوئری اضافه روی موجودی ساخته شود. معناشناسی LowStockTankCount تغییر نکرده.
         var tankStocks = await _db.InventoryMovements.AsNoTracking()
             .Where(m => m.StorageTankId != null)
+            .Quantities()
             .GroupBy(m => m.StorageTankId)
             .Select(g => new
             {
                 StorageTankId = g.Key,
-                StockMt = g.Sum(m =>
-                    m.Direction == MovementDirection.In || m.Direction == MovementDirection.Adjustment
-                        ? m.QuantityMt
-                        : m.Direction == MovementDirection.Out || m.Direction == MovementDirection.Transfer
-                            ? -m.QuantityMt
-                            : 0m)
+                StockMt = g.Sum(m => m.SignedQuantityMt)
             })
             .ToListAsync(ct);
         vm.LowStockTankCount = tankStocks.Count(s => s.StockMt <= LowStockThresholdMt);
@@ -453,18 +449,14 @@ public class DashboardService : IDashboardService
     private async Task PopulateInventoryAsync(DashboardViewModel vm, CancellationToken ct)
     {
         var stockRows = await _db.InventoryMovements.AsNoTracking()
+            .Quantities()
             .GroupBy(m => new { m.ProductId, m.TerminalId, m.ContractId })
             .Select(g => new StockAggregateRow
             {
                 ProductId = g.Key.ProductId,
                 TerminalId = g.Key.TerminalId,
                 ContractId = g.Key.ContractId,
-                FreeQuantityMt = g.Sum(m =>
-                    m.Direction == MovementDirection.In || m.Direction == MovementDirection.Adjustment
-                        ? m.QuantityMt
-                        : m.Direction == MovementDirection.Out || m.Direction == MovementDirection.Transfer
-                            ? -m.QuantityMt
-                            : 0m),
+                FreeQuantityMt = g.Sum(m => m.SignedQuantityMt),
                 LastMovementDate = g.Max(m => m.MovementDate),
                 MovementCount = g.Count()
             })

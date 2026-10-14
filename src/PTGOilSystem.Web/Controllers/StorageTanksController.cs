@@ -126,6 +126,7 @@ public class StorageTanksController : Controller
                 UnitOfMeasure = ResolveProductUnitText(t.UnitNamePersian, t.UnitSymbol, t.UnitCode, t.UnitName, t.ProductUnitOfMeasure),
                 CapacityMt = t.CapacityMt,
                 CurrentQuantityMt = currentQuantityMt,
+                CustodyQuantityMt = custodyByTank.GetValueOrDefault(t.Id),
                 FillPercent = t.CapacityMt > 0m ? Math.Round((currentQuantityMt + custodyByTank.GetValueOrDefault(t.Id)) / t.CapacityMt * 100m, 2) : 0m,
                 IsActive = t.IsActive,
                 ContractCount = stock?.ContractCount ?? 0
@@ -160,6 +161,7 @@ public class StorageTanksController : Controller
             ActiveTanks = items.Count(t => t.IsActive),
             TotalCapacityMt = items.Sum(t => t.CapacityMt),
             TotalCurrentQuantityMt = items.Sum(t => t.CurrentQuantityMt),
+            TotalCustodyQuantityMt = items.Sum(t => t.CustodyQuantityMt),
             AverageFillPercent = items.Count > 0 ? Math.Round(items.Average(t => t.FillPercent), 2) : 0m,
             Items = pagedItems,
             CurrentPage = currentPage,
@@ -341,6 +343,7 @@ public class StorageTanksController : Controller
             Notes = item.Notes,
             CreatedAtUtc = item.CreatedAtUtc,
             CurrentQuantityMt = currentQuantityMt,
+            CustodyQuantityMt = custodyQuantityMt,
             TotalInQuantityMt = totalInQuantityMt,
             TotalOutQuantityMt = totalOutQuantityMt,
             NetMovementQuantityMt = currentQuantityMt,

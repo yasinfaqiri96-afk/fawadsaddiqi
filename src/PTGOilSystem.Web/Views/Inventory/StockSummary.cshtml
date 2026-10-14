@@ -35,7 +35,7 @@
                         <th>@UiText.T(Context,"جنس","Product")</th>
                         <th>@UiText.T(Context,"ترمینال","Terminal")</th>
                         <th>قرارداد خرید منبع موجودی</th>
-                        <th class="text-end">موجودی آزاد (MT)</th>
+                        <th class="text-end">موجودی ملکی (MT)</th>
                         <th class="text-end">تعداد حرکت</th>
                         <th>آخرین تاریخ</th>
                     </tr>
@@ -57,7 +57,7 @@
                     {
                         <tr>
                             <td colspan="7">
-                                @await Html.PartialAsync("_EmptyState", ("برای این بخش هنوز حرکتی ثبت نشده است", "پس از ثبت movementها، خلاصه موجودی در این صفحه نمایش داده می‌شود.", "bi-bar-chart"))
+                                @await Html.PartialAsync("_EmptyState", ("برای این بخش هنوز حرکتی ثبت نشده است", "پس از ثبت اسناد موجودی، خلاصه موجودی در این صفحه نمایش داده می‌شود.", "bi-bar-chart"))
                             </td>
                         </tr>
                     }

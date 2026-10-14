@@ -99,6 +99,20 @@ public class InventoryMovementWriterTests
 
     // دابل‌کلیک/ارسال مجدد فرم لغو نباید سند برگشتیِ دوم بسازد.
     [Fact]
+    public async Task ReversalOfPositiveAdjustment_RemovesItsQuantity_WithoutDuplicatingStock()
+    {
+        await using var db = BuildDb();
+        await SeedAsync(db);
+        var writer = BuildWriter(db);
+        var original = await writer.PostAdjustmentAsync(Request(30m, "ADJUSTMENT-1"));
+        var reversal = await writer.PostReversalAsync(original, new DateTime(2026, 5, 9));
+        Assert.Equal(MovementDirection.Out, reversal!.Direction);
+        Assert.Equal(0m, await new StockService(db).GetFreeQuantityMtAsync(original.ProductId));
+        Assert.Null(await writer.PostReversalAsync(original, new DateTime(2026, 5, 9)));
+    }
+
+    // دابل‌کلیک/ارسال مجدد فرم لغو نباید سند برگشتیِ دوم بسازد.
+    [Fact]
     public async Task Reversing_Twice_Is_A_No_Op()
     {
         await using var db = BuildDb();

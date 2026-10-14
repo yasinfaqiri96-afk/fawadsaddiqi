@@ -232,6 +232,10 @@ public class CurrenciesController : Controller
         {
             model.Code = "RUB";
         }
+        else if (string.Equals(model.Code, "AFG", StringComparison.OrdinalIgnoreCase))
+        {
+            model.Code = "AFN";
+        }
         model.Name = (model.Name ?? string.Empty).Trim();
         model.NamePersian = string.IsNullOrWhiteSpace(model.NamePersian) ? null : model.NamePersian.Trim();
         model.Symbol = string.IsNullOrWhiteSpace(model.Symbol) ? null : model.Symbol.Trim();

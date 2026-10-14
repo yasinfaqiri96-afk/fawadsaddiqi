@@ -85,7 +85,7 @@ public class InventoryControllerTests
             Direction = MovementDirection.Out,
             MovementDate = new DateTime(2026, 4, 23),
             QuantityMt = 10m
-        });
+        }, Guid.NewGuid().ToString("N"));
 
         var view = Assert.IsType<ViewResult>(result);
         Assert.IsType<InventoryMovementCreateViewModel>(view.Model);
@@ -248,7 +248,7 @@ public class InventoryControllerTests
             QuantityMt = 25m,
             ReferenceDocument = "GRN-1",
             Notes = "Initial receipt"
-        });
+        }, Guid.NewGuid().ToString("N"));
 
         var redirect = Assert.IsType<RedirectToActionResult>(result);
         Assert.Equal("Index", redirect.ActionName);
@@ -260,6 +260,25 @@ public class InventoryControllerTests
         Assert.Equal(nameof(InventoryMovement), log.EntityName);
         Assert.Equal("Insert", log.Action);
         Assert.Contains("QuantityMt=25.0000", log.Diff);
+    }
+
+    [Fact]
+    public async Task StockCard_ToDate_IncludesMovementsLaterInTheSelectedDay()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        await using var db = new ApplicationDbContext(options);
+        var day = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        db.Products.Add(new Product { Id = 1, Code = "DATE", Name = "تیل" });
+        db.Terminals.Add(new Terminal { Id = 1, Code = "DATE", Name = "ترمینال" });
+        db.InventoryMovements.Add(new InventoryMovement { ProductId = 1, TerminalId = 1,
+            Direction = MovementDirection.In, QuantityMt = 10m, MovementDate = day.AddHours(15) });
+        await db.SaveChangesAsync();
+        var controller = new InventoryController(db, new StockService(db), new AuditService(db),
+            NullLogger<InventoryController>.Instance) { TempData = BuildTempData() };
+        var view = Assert.IsType<ViewResult>(await controller.StockCard(new InventoryStockCardFilterViewModel
+            { ProductId = 1, FromDate = day, ToDate = day }));
+        Assert.Single(Assert.IsType<InventoryStockCardViewModel>(view.Model).Rows);
     }
 
     private static TempDataDictionary BuildTempData()

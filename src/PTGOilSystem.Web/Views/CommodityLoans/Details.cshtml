@@ -7,51 +7,51 @@
     var canManage = PTGOilSystem.Web.Security.RoleAccessRules.CanManageData(User);
     var active = loan.Status == CommodityLoanStatus.Active;
     var borrow = loan.Direction == CommodityLoanDirection.Borrow;
-    ViewData["Title"] = UiText.T(Context, "قرض جنسی", "Commodity loan") + " — " + loan.LoanNumber;
+    ViewData["Title"] = UiText.T(Context, "قرض تیل", "Commodity loan") + " — " + loan.LoanNumber;
     var latestActive = Model.Settlements.FirstOrDefault(s => s.Status == CommodityLoanStatus.Active);
 }
 
 <div class="ak-form-page ak-detail-page" data-ak-detail-v2="true">
     <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
-             model="@((UiText.T(Context, "قرض جنسی", "Commodity loan") + " — " + loan.LoanNumber, false,
-                       canManage && active && row.OutstandingMt > 0m ? UiText.T(Context, "برگشت جنس", "Return stock") : (string?)null, "bi-arrow-return-left",
+             model="@((UiText.T(Context, "قرض تیل", "Commodity loan") + " — " + loan.LoanNumber, false,
+                       canManage && active && row.OutstandingMt > 0m ? UiText.T(Context, "برگشت قرض", "Return stock") : (string?)null, "bi-arrow-return-left",
                        canManage && active && row.OutstandingMt > 0m ? (string?)Url.Action("Settle", new { id = loan.Id }) : (string?)null, (string?)null,
-                       UiText.T(Context, "قرض جنسی", "Commodity loans"), "bi-arrow-right", (string?)Url.Action("Index")))" />
+                       UiText.T(Context, "قرض تیل", "Commodity loans"), "bi-arrow-right", (string?)Url.Action("Index")))" />
 
     <section class="ak-form-section ak-detail-section">
         <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
                  model="@((CommodityLoanLabels.Direction(loan.Direction),
-                           (string?)(active ? (row.IsSettled ? UiText.T(Context, "تسویه شده", "Settled") : UiText.T(Context, "باز", "Open")) : UiText.T(Context, "لغو شده", "Cancelled"))))" />
+                           (string?)(active ? (row.IsSettled ? UiText.T(Context, "قرض خلاص شده", "Settled") : UiText.T(Context, "باقی قرض", "Open")) : UiText.T(Context, "لغو شده", "Cancelled"))))" />
         <dl class="row mb-0">
             <dt class="col-sm-4">@UiText.T(Context, "طرف", "Counterparty")</dt><dd class="col-sm-8">@row.CounterpartyName</dd>
             <dt class="col-sm-4">@UiText.T(Context, "جنس و کیفیت", "Product & quality")</dt><dd class="col-sm-8">@row.ProductName · @loan.QualitySpec</dd>
-            <dt class="col-sm-4">@UiText.T(Context, "مقدار / باز", "Quantity / open")</dt>
+            <dt class="col-sm-4">@UiText.T(Context, "مقدار قرض / باقی قرض", "Quantity / open")</dt>
             <dd class="col-sm-8">@NumberDisplay.Quantity(loan.QuantityMt, "MT") / @NumberDisplay.Quantity(row.OutstandingMt, "MT")</dd>
-            <dt class="col-sm-4">@UiText.T(Context, "تاریخ / سررسید", "Date / due")</dt>
+            <dt class="col-sm-4">@UiText.T(Context, "تاریخ / وقت برگشت", "Date / due")</dt>
             <dd class="col-sm-8">@loan.LoanDate.ToDisplayDate() / @loan.DueDate.ToDisplayDate()</dd>
             <dt class="col-sm-4">@UiText.T(Context, "محل", "Location")</dt><dd class="col-sm-8">@row.Location</dd>
-            <dt class="col-sm-4">@UiText.T(Context, "تعهد برگشت", "Return obligation")</dt><dd class="col-sm-8">@loan.ReturnObligation</dd>
+            <dt class="col-sm-4">@UiText.T(Context, "شرط برگشت", "Return obligation")</dt><dd class="col-sm-8">@loan.ReturnObligation</dd>
             @if (loan.BorrowBasis is { } basis)
             {
-                <dt class="col-sm-4">@UiText.T(Context, "مبنای قرض", "Basis")</dt>
-                <dd class="col-sm-8">@(basis == CommodityLoanBorrowBasis.RightOfUse ? UiText.T(Context, "حق مصرف", "Right of use") : UiText.T(Context, "مالکیت قراردادی", "Contractual ownership"))</dd>
+                <dt class="col-sm-4">@UiText.T(Context, "شرایط قرض", "Basis")</dt>
+                <dd class="col-sm-8">@(basis == CommodityLoanBorrowBasis.RightOfUse ? UiText.T(Context, "اجازه مصرف تیل", "Right of use") : UiText.T(Context, "مالکیت طبق قرارداد", "Contractual ownership"))</dd>
             }
-            <dt class="col-sm-4">@UiText.T(Context, "ارزش دفتری / باز", "Carrying / open value")</dt>
+            <dt class="col-sm-4">@UiText.T(Context, "ارزش قرض / ارزش باقی", "Carrying / open value")</dt>
             <dd class="col-sm-8">
-                @(loan.CarryingValueUsd is { } carrying ? carrying.ToString("N2") + " USD / " + (row.OutstandingValueUsd ?? 0m).ToString("N2") + " USD" : UiText.T(Context, "ارزش‌گذاری نشده (دفتر کل خاموش)", "Not valued (GL off)"))
+                @(loan.CarryingValueUsd is { } carrying ? carrying.ToString("N2") + " USD / " + (row.OutstandingValueUsd ?? 0m).ToString("N2") + " USD" : UiText.T(Context, "قیمت ثبت نشده (دفتر کل خاموش)", "Not valued (GL off)"))
                 @if (loan.AgreedUnitValueUsd is { } agreed)
                 {
-                    <small class="text-muted d-block">@UiText.T(Context, "ارزش توافقی", "Agreed value") @agreed.ToString("N4") USD/MT · @loan.ValuationReference</small>
+                    <small class="text-muted d-block">@UiText.T(Context, "قیمت توافق‌شده", "Agreed value") @agreed.ToString("N4") USD/MT · @loan.ValuationReference</small>
                 }
             </dd>
             <dt class="col-sm-4">@UiText.T(Context, "حساب قرض / تفاوت", "Loan / difference account")</dt>
             <dd class="col-sm-8">@(Model.LoanAccountName ?? "—") / @(Model.DifferenceAccountName ?? "—")</dd>
-            <dt class="col-sm-4">@UiText.T(Context, "تلورانس / تسویهٔ نقدی", "Tolerance / cash")</dt>
+            <dt class="col-sm-4">@UiText.T(Context, "فرق مجاز مقدار / پرداخت پول به‌جای تیل", "Tolerance / cash")</dt>
             <dd class="col-sm-8">
                 @(loan.QuantityTolerancePercent is { } t ? t.ToString("0.####") + "٪" : "—") /
                 @(loan.CashSettlementAllowed ? loan.CashSettlementUnitPriceUsd?.ToString("N4") + " USD/MT · " + loan.CashSettlementReference : UiText.T(Context, "مجاز نیست", "Not allowed"))
             </dd>
-            <dt class="col-sm-4">@UiText.T(Context, "مرجع قرارداد", "Agreement")</dt><dd class="col-sm-8">@loan.AgreementReference</dd>
+            <dt class="col-sm-4">@UiText.T(Context, "سند قرارداد", "Agreement")</dt><dd class="col-sm-8">@loan.AgreementReference</dd>
             @if (!active && loan.CancellationReason is not null)
             {
                 <dt class="col-sm-4">@UiText.T(Context, "دلیل لغو", "Cancellation")</dt><dd class="col-sm-8">@loan.CancellationReason</dd>
@@ -62,17 +62,17 @@
             <div class="ak-list-toolbar-actions mt-2">
                 @if (row.OutstandingMt > 0m && loan.CashSettlementAllowed)
                 {
-                    <a class="btn btn-sm btn-light ak-secondary-action" asp-action="Settle" asp-route-id="@loan.Id" asp-route-kind="@CommodityLoanSettlementKind.CashSettlement">@UiText.T(Context, "تسویه نقدی", "Cash settlement")</a>
+                    <a class="btn btn-sm btn-light ak-secondary-action" asp-action="Settle" asp-route-id="@loan.Id" asp-route-kind="@CommodityLoanSettlementKind.CashSettlement">@UiText.T(Context, "پرداخت پول به‌جای تیل", "Cash settlement")</a>
                 }
                 @if (row.OutstandingMt > 0m && loan.QuantityTolerancePercent is > 0m)
                 {
-                    <a class="btn btn-sm btn-light ak-secondary-action" asp-action="Settle" asp-route-id="@loan.Id" asp-route-kind="@CommodityLoanSettlementKind.QuantityDifference">@UiText.T(Context, "بستن تفاوت مقدار", "Close difference")</a>
+                    <a class="btn btn-sm btn-light ak-secondary-action" asp-action="Settle" asp-route-id="@loan.Id" asp-route-kind="@CommodityLoanSettlementKind.QuantityDifference">@UiText.T(Context, "بستن باقی کم قرض", "Close difference")</a>
                 }
                 @if (!Model.Settlements.Any(s => s.Status == CommodityLoanStatus.Active))
                 {
                     <form asp-action="Cancel" asp-route-id="@loan.Id" method="post" class="ak-list-toolbar-actions"
                           data-ptg-confirm="true"
-                          data-ptg-confirm-title="@UiText.T(Context, "لغو قرض جنسی", "Cancel loan")"
+                          data-ptg-confirm-title="@UiText.T(Context, "لغو قرض تیل", "Cancel loan")"
                           data-ptg-confirm-message="@UiText.T(Context, "حرکت موجودی و سند دفتر کلِ این قرض برگشت می‌خورد. ادامه می‌دهید؟", "Stock and journal are reversed. Continue?")">
                         @Html.AntiForgeryToken()
                         <input name="reason" class="ak-input" maxlength="300" required placeholder="@UiText.T(Context, "دلیل لغو", "Reason")" aria-label="@UiText.T(Context, "دلیل لغو", "Reason")" />
@@ -85,7 +85,7 @@
 
     <section class="ak-form-section ak-detail-section">
         <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
-                 model="@((UiText.T(Context, "تاریخچه تسویه", "Settlement history"), (string?)Model.Settlements.Count.ToString("N0")))" />
+                 model="@((UiText.T(Context, "سابقه برگشت قرض", "Settlement history"), (string?)Model.Settlements.Count.ToString("N0")))" />
         <div class="ak-table-wrap">
             <table class="ak-table ak-detail-table">
                 <thead><tr>
@@ -102,8 +102,8 @@
                         var parts = new List<string>();
                         if (s.Location is not null) parts.Add(s.Location);
                         if (s.CashAmountUsd is { } cash) parts.Add(cash.ToString("N2") + " USD · " + s.CashAccountName);
-                        if (s.CarryingValueUsd is { } carried) parts.Add(UiText.T(Context, "ارزش دفتری ", "Carrying ") + carried.ToString("N2"));
-                        if (s.DifferenceUsd is { } d && d != 0m) parts.Add((d > 0m ? UiText.T(Context, "سود ", "Gain ") : UiText.T(Context, "زیان ", "Loss ")) + Math.Abs(d).ToString("N2"));
+                        if (s.CarryingValueUsd is { } carried) parts.Add(UiText.T(Context, "ارزش ثبت‌شده ", "Carrying ") + carried.ToString("N2"));
+                        if (s.DifferenceUsd is { } d && d != 0m) parts.Add((d > 0m ? UiText.T(Context, "مفاد ", "Gain ") : UiText.T(Context, "ضرر ", "Loss ")) + Math.Abs(d).ToString("N2"));
                         if (s.DocumentNumber is not null) parts.Add(UiText.T(Context, "سند ", "Doc ") + s.DocumentNumber);
                         if (s.Notes is not null) parts.Add(s.Notes);
                         if (cancelled && s.CancellationReason is not null) parts.Add(UiText.T(Context, "لغو: ", "Cancelled: ") + s.CancellationReason);
@@ -117,8 +117,8 @@
                                 {
                                     <form asp-action="CancelSettlement" asp-route-id="@s.Id" method="post" class="ak-list-toolbar-actions"
                                           data-ptg-confirm="true"
-                                          data-ptg-confirm-title="@UiText.T(Context, "لغو تسویه", "Cancel settlement")"
-                                          data-ptg-confirm-message="@UiText.T(Context, "اثر موجودی، صندوق و دفتر کلِ این تسویه برگشت می‌خورد. ادامه می‌دهید؟", "Reverse this settlement?")">
+                                          data-ptg-confirm-title="@UiText.T(Context, "لغو برگشت قرض", "Cancel settlement")"
+                                          data-ptg-confirm-message="@UiText.T(Context, "اثر موجودی، صندوق و دفتر کلِ این برگشت قرض برگشت می‌خورد. ادامه می‌دهید؟", "Reverse this settlement?")">
                                         @Html.AntiForgeryToken()
                                         <input type="hidden" name="loanId" value="@loan.Id" />
                                         <input name="reason" class="ak-input" maxlength="300" required placeholder="@UiText.T(Context, "دلیل لغو", "Reason")" aria-label="@UiText.T(Context, "دلیل لغو", "Reason")" />
@@ -130,7 +130,7 @@
                     }
                     @if (!Model.Settlements.Any())
                     {
-                        <tr><td colspan="5"><div class="ak-empty">@UiText.T(Context, "هنوز تسویه‌ای ثبت نشده است.", "No settlements yet.")</div></td></tr>
+                        <tr><td colspan="5"><div class="ak-empty">@UiText.T(Context, "هنوز برگشت قرضی ثبت نشده است.", "No settlements yet.")</div></td></tr>
                     }
                 </tbody>
             </table>

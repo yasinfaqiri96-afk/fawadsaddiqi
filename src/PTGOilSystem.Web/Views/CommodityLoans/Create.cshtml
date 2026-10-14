@@ -4,7 +4,7 @@
 @{
     var form = Model.Form;
     var borrow = form.Direction == CommodityLoanDirection.Borrow;
-    var title = borrow ? UiText.T(Context, "ثبت قرض‌گرفتن جنس", "Borrow commodity") : UiText.T(Context, "ثبت قرض‌دادن جنس", "Lend commodity");
+    var title = borrow ? UiText.T(Context, "ثبت تیلی که قرض گرفتیم", "Borrow commodity") : UiText.T(Context, "ثبت تیلی که قرض دادیم", "Lend commodity");
     ViewData["Title"] = title;
     var backUrl = Url.Action("Index");
     var loanAccounts = borrow ? Model.LiabilityAccounts : Model.AssetAccounts;
@@ -14,7 +14,7 @@
     <div class="ak-form-page-content">
         <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
                  model="@((title, true, (string?)null, (string?)null, (string?)null, (string?)null,
-                           UiText.T(Context, "بازگشت", "Back"), "bi-arrow-right", (string?)backUrl))" />
+                           UiText.T(Context, "برگشت", "Back"), "bi-arrow-right", (string?)backUrl))" />
 
         <form asp-action="Create" method="post" class="ak-form">
             @Html.AntiForgeryToken()
@@ -25,8 +25,8 @@
             <div class="alert alert-info ak-form-alert">
                 <i class="bi bi-info-circle" aria-hidden="true"></i>
                 @(borrow
-                    ? UiText.T(Context, "جنسِ قرض‌گرفته به موجودیِ قابل مصرفِ شرکت اضافه می‌شود و به همان جنس و کیفیت باید برگردد. ارزش آن فقط با ارزش توافقیِ قرارداد و مرجع شناسایی می‌شود.", "Borrowed stock enters usable company stock at the agreed contract value.")
-                    : UiText.T(Context, "جنس از موجودیِ ملکیِ همین محل کم می‌شود و به بهای دفتریِ میانگین به «طلب جنسی» می‌رود. فروش یا درآمد ساخته نمی‌شود.", "Stock leaves owned inventory at book cost into an in-kind receivable; no sale or revenue."))
+                    ? UiText.T(Context, "تیل قرض گرفته‌شده به موجودی شرکت اضافه می‌شود. باید همان مقدار تیل با کیفیت توافق‌شده برگردانده شود. قیمت از سند توافق خوانده می‌شود.", "Borrowed stock enters usable company stock at the agreed contract value.")
+                    : UiText.T(Context, "تیل قرض داده‌شده از موجودی همین محل کم می‌شود. مقدار آن در باقی قرض طرف می‌ماند تا برگردانده شود. قیمت از حسابداری موجودی خوانده می‌شود.", "Stock leaves owned inventory at book cost into an in-kind receivable; no sale or revenue."))
             </div>
 
             <section class="ak-form-section">
@@ -77,11 +77,11 @@
                     @if (borrow)
                     {
                         <div class="ak-field">
-                            <label for="BorrowBasis" class="ak-label">@UiText.T(Context, "مبنای قرض‌گرفتن", "Borrow basis") <span class="ak-req">*</span></label>
+                            <label for="BorrowBasis" class="ak-label">@UiText.T(Context, "شرایط گرفتن قرض", "Borrow basis") <span class="ak-req">*</span></label>
                             <select id="BorrowBasis" name="BorrowBasis" class="ak-input">
                                 <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
-                                <option value="@CommodityLoanBorrowBasis.RightOfUse" selected="@(form.BorrowBasis == CommodityLoanBorrowBasis.RightOfUse)">@UiText.T(Context, "حق مصرف", "Right of use")</option>
-                                <option value="@CommodityLoanBorrowBasis.ContractualOwnership" selected="@(form.BorrowBasis == CommodityLoanBorrowBasis.ContractualOwnership)">@UiText.T(Context, "مالکیت قراردادی", "Contractual ownership")</option>
+                                <option value="@CommodityLoanBorrowBasis.RightOfUse" selected="@(form.BorrowBasis == CommodityLoanBorrowBasis.RightOfUse)">@UiText.T(Context, "اجازه مصرف تیل", "Right of use")</option>
+                                <option value="@CommodityLoanBorrowBasis.ContractualOwnership" selected="@(form.BorrowBasis == CommodityLoanBorrowBasis.ContractualOwnership)">@UiText.T(Context, "مالکیت طبق قرارداد", "Contractual ownership")</option>
                             </select>
                         </div>
                     }
@@ -90,15 +90,15 @@
                         <input id="LoanDate" name="LoanDate" type="date" class="ak-input" value="@form.LoanDate.ToString("yyyy-MM-dd")" />
                     </div>
                     <div class="ak-field">
-                        <label for="DueDate" class="ak-label">@UiText.T(Context, "سررسید برگشت", "Due date") <span class="ak-req">*</span></label>
+                        <label for="DueDate" class="ak-label">@UiText.T(Context, "تاریخ وعده برگشت", "Due date") <span class="ak-req">*</span></label>
                         <input id="DueDate" name="DueDate" type="date" class="ak-input" value="@form.DueDate.ToString("yyyy-MM-dd")" />
                     </div>
                     <div class="ak-field ak-col-full">
-                        <label for="ReturnObligation" class="ak-label">@UiText.T(Context, "تعهد برگشت (جنس، کیفیت، محل)", "Return obligation") <span class="ak-req">*</span></label>
+                        <label for="ReturnObligation" class="ak-label">@UiText.T(Context, "شرط برگشت (جنس، کیفیت، محل)", "Return obligation") <span class="ak-req">*</span></label>
                         <input id="ReturnObligation" name="ReturnObligation" class="ak-input" maxlength="500" value="@form.ReturnObligation" />
                     </div>
                     <div class="ak-field ak-col-full">
-                        <label for="AgreementReference" class="ak-label">@UiText.T(Context, "مرجع قرارداد قرض", "Agreement reference") <span class="ak-req">*</span></label>
+                        <label for="AgreementReference" class="ak-label">@UiText.T(Context, "شماره سند قرض", "Agreement reference") <span class="ak-req">*</span></label>
                         <input id="AgreementReference" name="AgreementReference" class="ak-input" maxlength="300" value="@form.AgreementReference" />
                     </div>
                 </div>
@@ -106,38 +106,38 @@
 
             <section class="ak-form-section">
                 <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
-                         model="@((UiText.T(Context, "قواعد مالی قرارداد", "Financial terms"),
+                         model="@((UiText.T(Context, "شرایط پولی قرض", "Financial terms"),
                                    (string?)(Model.GlEnabled
-                                       ? UiText.T(Context, "دفتر کل فعال است: روش ارزش‌گذاری و حساب قرض الزامی است؛ بدون آن‌ها سند ثبت نمی‌شود.", "GL is on: valuation and loan account are required.")
-                                       : UiText.T(Context, "دفتر کل خاموش است؛ فقط موجودی و تعهد جنسی ثبت می‌شود.", "GL is off; only stock and the in-kind obligation are recorded."))))" />
+                                       ? UiText.T(Context, "دفتر کل فعال است: روش تعیین قیمت و حساب قرض الزامی است؛ بدون آن‌ها سند ثبت نمی‌شود.", "GL is on: valuation and loan account are required.")
+                                       : UiText.T(Context, "دفتر کل غیرفعال است؛ مقدار موجودی و باقی قرض ثبت می‌شود.", "GL is off; only stock and the in-kind obligation are recorded."))))" />
                 <div class="ak-form-grid">
                     <div class="ak-field">
-                        <label for="ValuationPolicy" class="ak-label">@UiText.T(Context, "روش ارزش‌گذاری", "Valuation")</label>
+                        <label for="ValuationPolicy" class="ak-label">@UiText.T(Context, "روش تعیین قیمت", "Valuation")</label>
                         <select id="ValuationPolicy" name="ValuationPolicy" class="ak-input">
                             <option value="">@UiText.T(Context, "- تعیین نشده -", "- Not set -")</option>
                             @if (borrow)
                             {
-                                <option value="@CommodityLoanValuation.AgreedValue" selected="@(form.ValuationPolicy == CommodityLoanValuation.AgreedValue)">@UiText.T(Context, "ارزش توافقی قرارداد", "Agreed contract value")</option>
+                                <option value="@CommodityLoanValuation.AgreedValue" selected="@(form.ValuationPolicy == CommodityLoanValuation.AgreedValue)">@UiText.T(Context, "قیمت توافق‌شده قرارداد", "Agreed contract value")</option>
                             }
                             else
                             {
-                                <option value="@CommodityLoanValuation.BookCost" selected="@(form.ValuationPolicy == CommodityLoanValuation.BookCost)">@UiText.T(Context, "بهای دفتری موجودی (میانگین)", "Inventory book cost")</option>
+                                <option value="@CommodityLoanValuation.BookCost" selected="@(form.ValuationPolicy == CommodityLoanValuation.BookCost)">@UiText.T(Context, "قیمت ثبت‌شده موجودی (اوسط)", "Inventory book cost")</option>
                             }
                         </select>
                     </div>
                     @if (borrow)
                     {
                         <div class="ak-field">
-                            <label for="AgreedUnitValueUsd" class="ak-label">@UiText.T(Context, "ارزش توافقی هر تُن (دالر)", "Agreed value per MT (USD)")</label>
+                            <label for="AgreedUnitValueUsd" class="ak-label">@UiText.T(Context, "قیمت توافق‌شده هر تُن (دالر)", "Agreed value per MT (USD)")</label>
                             <input id="AgreedUnitValueUsd" name="AgreedUnitValueUsd" type="number" step="0.0001" min="0" class="ak-input" value="@form.AgreedUnitValueUsd" />
                         </div>
                         <div class="ak-field">
-                            <label for="ValuationReference" class="ak-label">@UiText.T(Context, "مرجع ارزش توافقی", "Value reference")</label>
+                            <label for="ValuationReference" class="ak-label">@UiText.T(Context, "سند قیمت توافق‌شده", "Value reference")</label>
                             <input id="ValuationReference" name="ValuationReference" class="ak-input" maxlength="300" value="@form.ValuationReference" />
                         </div>
                     }
                     <div class="ak-field">
-                        <label for="LoanAccountId" class="ak-label">@(borrow ? UiText.T(Context, "حساب بدهی جنسی", "In-kind payable account") : UiText.T(Context, "حساب طلب جنسی", "In-kind receivable account"))</label>
+                        <label for="LoanAccountId" class="ak-label">@(borrow ? UiText.T(Context, "حساب قرض گرفته‌شده", "In-kind payable account") : UiText.T(Context, "حساب قرض داده‌شده", "In-kind receivable account"))</label>
                         <select id="LoanAccountId" name="LoanAccountId" class="ak-input" data-ak-entity-combobox>
                             <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
                             @foreach (var a in loanAccounts)
@@ -147,7 +147,7 @@
                         </select>
                     </div>
                     <div class="ak-field">
-                        <label for="DifferenceAccountId" class="ak-label">@UiText.T(Context, "حساب تفاوت (سود/زیان تسویه)", "Settlement difference account")</label>
+                        <label for="DifferenceAccountId" class="ak-label">@UiText.T(Context, "حساب تفاوت (مفاد/ضرر برگشت قرض)", "Settlement difference account")</label>
                         <select id="DifferenceAccountId" name="DifferenceAccountId" class="ak-input" data-ak-entity-combobox>
                             <option value="">@UiText.T(Context, "- انتخاب -", "- Select -")</option>
                             @foreach (var a in Model.DifferenceAccounts)
@@ -157,30 +157,30 @@
                         </select>
                     </div>
                     <div class="ak-field">
-                        <label for="QuantityTolerancePercent" class="ak-label">@UiText.T(Context, "تلورانس تفاوت مقدار (٪، حداکثر ۱۰)", "Quantity tolerance %")</label>
+                        <label for="QuantityTolerancePercent" class="ak-label">@UiText.T(Context, "فرق مجاز مقدار (فیصد، تا ۱۰)", "Quantity tolerance %")</label>
                         <input id="QuantityTolerancePercent" name="QuantityTolerancePercent" type="number" step="0.0001" min="0" max="10" class="ak-input" value="@form.QuantityTolerancePercent" />
                     </div>
                     <div class="ak-field ak-col-full">
                         <label><input type="checkbox" name="CashSettlementAllowed" value="true" checked="@form.CashSettlementAllowed" />
-                            @UiText.T(Context, "تسویهٔ نقدی به‌جای برگشت جنس طبق قرارداد مجاز است", "Cash settlement allowed by the contract")</label>
+                            @UiText.T(Context, "طبق قرارداد، می‌توان قرض را به‌جای تیل با پول پرداخت کرد", "Cash settlement allowed by the contract")</label>
                     </div>
                     <div class="ak-field">
-                        <label for="CashSettlementUnitPriceUsd" class="ak-label">@UiText.T(Context, "قیمت تسویهٔ نقدی هر تُن (دالر)", "Cash price per MT (USD)")</label>
+                        <label for="CashSettlementUnitPriceUsd" class="ak-label">@UiText.T(Context, "قیمت هر تُن برای پرداخت با پول (دالر)", "Cash price per MT (USD)")</label>
                         <input id="CashSettlementUnitPriceUsd" name="CashSettlementUnitPriceUsd" type="number" step="0.0001" min="0" class="ak-input" value="@form.CashSettlementUnitPriceUsd" />
                     </div>
                     <div class="ak-field">
-                        <label for="CashSettlementReference" class="ak-label">@UiText.T(Context, "مرجع توافق تسویهٔ نقدی", "Cash settlement reference")</label>
+                        <label for="CashSettlementReference" class="ak-label">@UiText.T(Context, "سند توافق پرداخت پول به‌جای تیل", "Cash settlement reference")</label>
                         <input id="CashSettlementReference" name="CashSettlementReference" class="ak-input" maxlength="300" value="@form.CashSettlementReference" />
                     </div>
                     <div class="ak-field ak-col-full">
-                        <label for="Notes" class="ak-label">@UiText.T(Context, "توضیحات (اختیاری)", "Notes (optional)")</label>
+                        <label for="Notes" class="ak-label">@UiText.T(Context, "یادداشت (اختیاری)", "Notes (optional)")</label>
                         <textarea id="Notes" name="Notes" class="ak-input" rows="2" maxlength="1000">@form.Notes</textarea>
                     </div>
                 </div>
             </section>
 
             <partial name="~/Views/Shared/Components/Ak/_AkFooterActions.cshtml"
-                     model="@((UiText.T(Context, "ثبت قرض", "Save loan"), backUrl ?? "/", UiText.T(Context, "انصراف", "Cancel")))" />
+                     model="@((UiText.T(Context, "ثبت قرض", "Save loan"), backUrl ?? "/", UiText.T(Context, "لغو", "Cancel")))" />
         </form>
     </div>
 </div>

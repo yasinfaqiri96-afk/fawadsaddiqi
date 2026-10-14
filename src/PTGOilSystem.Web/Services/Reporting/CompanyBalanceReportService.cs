@@ -153,9 +153,9 @@ public sealed class CompanyBalanceReportService(
         var borrowed = openLoans.Where(l => l.Direction == CommodityLoanDirection.Borrow && l.QuantityMt > l.SettledMt).ToList();
         if (lent.Count > 0 || borrowed.Count > 0)
         {
-            notes.Add($"قرض جنسی باز: {lent.Sum(l => l.QuantityMt - l.SettledMt):N3} تُن قرض‌داده (طلب جنسی، ارزش دفتری {lent.Sum(l => (l.CarryingValueUsd ?? 0m) - l.SettledUsd):N2} دالر) "
-                + $"و {borrowed.Sum(l => l.QuantityMt - l.SettledMt):N3} تُن قرض‌گرفته (بدهی جنسی {borrowed.Sum(l => (l.CarryingValueUsd ?? 0m) - l.SettledUsd):N2} دالر). "
-                + "حرکت‌های قرض قرارداد خرید ندارند، پس در این صفحه جنسِ قرض‌داده هنوز در ردیف قرارداد خریدش و جنسِ قرض‌گرفته بدون ارزش دیده می‌شود و طلب/بدهی جنسی جدا جمع نشده است؛ ارقام دقیق و تطبیق دفتر کل: «راپور طلب و بدهی جنسی».");
+            notes.Add($"باقی قرض تیل: {lent.Sum(l => l.QuantityMt - l.SettledMt):N3} تُن تیل قرض دادیم (ارزش ثبت‌شده {lent.Sum(l => (l.CarryingValueUsd ?? 0m) - l.SettledUsd):N2} دالر) "
+                + $"و {borrowed.Sum(l => l.QuantityMt - l.SettledMt):N3} تُن تیل قرض گرفتیم (ارزش ثبت‌شده {borrowed.Sum(l => (l.CarryingValueUsd ?? 0m) - l.SettledUsd):N2} دالر). "
+                + "قرض‌ها به قرارداد خرید وصل نیستند؛ این راپور ارزش را به اساس قرارداد می‌خواند و برای قرض کامل نیست. برای مقدار و ارزش دقیق قرض و مقایسه با دفتر کل، «راپور باقی قرض تیل» را ببینید.");
         }
 
         // ── طرف‌حساب‌ها (فقط بر اساس علامت مانده) ────────────────────────────

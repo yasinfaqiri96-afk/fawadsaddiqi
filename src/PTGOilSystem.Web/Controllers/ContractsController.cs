@@ -380,7 +380,7 @@ public partial class ContractsController : Controller
         var confirmSimplePurchase = SimplePurchaseEnabled && model.Status == ContractStatus.Active;
         var contract = new Contract
         {
-            ContractName = model.ContractName,
+            ContractName = model.ContractName ?? string.Empty,
             ContractNumber = model.ContractNumber,
             ContractType = model.ContractType,
             Status = confirmSimplePurchase ? ContractStatus.Draft : model.Status,
@@ -614,7 +614,7 @@ public partial class ContractsController : Controller
         var candidate = new Contract
         {
             Id = existing.Id,
-            ContractName = model.ContractName,
+            ContractName = model.ContractName ?? string.Empty,
             ContractNumber = model.ContractNumber,
             ContractType = model.ContractType,
             Status = model.Status,
@@ -1647,6 +1647,8 @@ public partial class ContractsController : Controller
             return;
         }
 
+        if (string.IsNullOrWhiteSpace(model.ContractName))
+            ModelState.AddModelError(nameof(model.ContractName), "لطفاً نام قرارداد را وارد کنید.");
         if (model.ContractType != ContractType.Purchase)
             ModelState.AddModelError(nameof(model.ContractType), "در Profile خرید ساده فقط قرارداد خرید قابل ثبت است.");
         if (model.PricingMethod != PricingMethod.Fixed)

@@ -8,7 +8,7 @@
     <div class="ak-page-header">
         <div class="ak-page-heading">
 <h1 class="ak-page-title">کارت موجودی</h1>
-            <p class="ak-note">تاریخچه حرکت‌ها همراه با اثر هر movement روی موجودی تجمعی همان scope.</p>
+            <p class="ak-note">تاریخچه حرکت‌ها همراه با اثر هر سند موجودی روی موجودی تجمعی همان محدوده.</p>
         </div>
         <div class="ak-page-actions compact-toolbar no-print">
             <a asp-action="Create" class="btn ak-primary-action"><i class="bi bi-plus-lg me-1"></i> ثبت حرکت جدید</a>
@@ -56,8 +56,9 @@
                         <th>مخزن</th>
                         <th class="text-end">مقدار</th>
                         <th class="text-end">اثر روی موجودی</th>
-                        <th class="text-end">مانده تجمعی</th>
-                        <th>@UiText.T(Context,"مرجع","Reference")</th>
+                        <th class="text-end">باقی موجودی</th>
+                        <th>@UiText.T(Context,"شماره سند","Reference")</th>
+                        <th>دلیل و یادداشت</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -71,7 +72,7 @@
                                     case MovementDirection.In: <span class="ak-status is-active">ورود</span> break;
                                     case MovementDirection.Out: <span class="ak-status is-inactive">خروج</span> break;
                                     case MovementDirection.Transfer: <span class="ak-status is-pending">انتقال</span> break;
-                                    case MovementDirection.Adjustment: <span class="ak-status is-pending">تعدیل</span> break;
+                                    case MovementDirection.Adjustment: <span class="ak-status is-pending">اصلاح موجودی</span> break;
                                 }
                             </td>
                             <td>@row.ProductName</td>
@@ -82,13 +83,14 @@
                             <td class="text-end @(row.SignedQuantityMt < 0 ?"text-danger" : "text-success")">@NumberDisplay.Quantity(row.SignedQuantityMt)</td>
                             <td class="text-end fw-semibold">@NumberDisplay.Quantity(row.RunningBalanceMt)</td>
                             <td>@(row.ReferenceDocument ?? "-")</td>
+                            <td class="ak-col-grow">@(row.Notes ?? "—")</td>
                         </tr>
                     }
                     @if (!Model.Rows.Any())
                     {
                         <tr>
-                            <td colspan="10">
-                                @await Html.PartialAsync("_EmptyState", ("حرکتی برای فیلتر انتخابی یافت نشد", "بازه یا scope فیلتر را تغییر دهید و دوباره تلاش کنید.", "bi-funnel"))
+                            <td colspan="11">
+                                @await Html.PartialAsync("_EmptyState", ("حرکتی برای فیلتر انتخابی یافت نشد", "بازه یا محدوده فیلتر را تغییر دهید و دوباره تلاش کنید.", "bi-funnel"))
                             </td>
                         </tr>
                     }

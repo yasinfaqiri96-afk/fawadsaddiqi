@@ -131,6 +131,9 @@ public interface IStockService
         InventoryMovement movement,
         CancellationToken ct = default);
 
+    Task EnsureMovementTimelineIsNonNegativeAsync(InventoryMovement movement, CancellationToken ct = default)
+        => EnsureMovementDoesNotCauseFutureNegativeStockAsync(movement, ct);
+
     /// <summary>
     /// <b>Do not use.</b>
     /// <see cref="SalesTransaction.ContractId"/> represents the <i>Sales</i> contract,

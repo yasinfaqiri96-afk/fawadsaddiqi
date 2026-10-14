@@ -632,10 +632,27 @@ a.ak-list-row:focus-visible {
     display: flex;
     align-items: center;
     gap: 8px;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 .ak-row-menu .dropdown-item.ak-danger {
     color: var(--ptg-danger-text);
+}
+
+/* Row menus also contain longer actions and the lifecycle cancel form. Give
+   that content a stable RTL-safe width, then keep the reason field inside the
+   menu rather than letting its 100% width touch or cross the menu edges. */
+.ak-row-menu .dropdown-menu {
+    min-inline-size: min(15rem, calc(100vw - 24px));
+    max-inline-size: min(20rem, calc(100vw - 24px));
+}
+
+.ak-row-menu .dropdown-menu form .ak-input {
+    width: calc(100% - 24px);
+    min-width: 0;
+    margin: 4px 12px 8px;
 }
 
 /* Operations lists: per-row action buttons stay hidden until the row is
@@ -3814,6 +3831,13 @@ select.ak-input {
    correctly; end-align keeps it flush with the RTL numeric fields beside it. */
 #premiumDiscountAmount {
     text-align: end;
+}
+
+/* Premium / Discount: باکس علامت باریک و باکس مبلغ کل عرض باقی‌مانده را می‌گیرد. */
+.ak-signed-amount {
+    display: grid;
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+    gap: 8px;
 }
 
 /* انتخاب منبع در «ثبت حمل»: این سه گزینه نقش دکمهٔ اصلی فرم را دارند، پس کمی پایین‌تر

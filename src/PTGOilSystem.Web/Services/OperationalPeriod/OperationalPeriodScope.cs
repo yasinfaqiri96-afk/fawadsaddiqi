@@ -67,8 +67,8 @@ public static partial class OperationalPeriodScope
         CustodyFinanceEntry => "سند مالی امانی",
         CustodyConversion => "تبدیل امانی به خرید",
         CustodySaleReturn => "برگشت فروش امانی",
-        CommodityLoan => "قرض جنسی",
-        CommodityLoanSettlement => "تسویه قرض جنسی",
+        CommodityLoan => "قرض تیل",
+        CommodityLoanSettlement => "برگشت قرض تیل",
         LedgerEntry => "ردیف دفتر کل",
         _ => "سند",
     };

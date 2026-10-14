@@ -1,12 +1,12 @@
 @model PTGOilSystem.Web.Services.CommodityLoans.CommodityLoanReport
 @{
-    ViewData["Title"] = UiText.T(Context, "راپور طلب و بدهی جنسی", "In-kind loan report");
+    ViewData["Title"] = UiText.T(Context, "راپور باقی قرض تیل", "In-kind loan report");
 }
 <div class="ak-form-page ak-detail-page">
     <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
-             model="@((UiText.T(Context, "راپور طلب و بدهی جنسی", "In-kind loan report"), false,
+             model="@((UiText.T(Context, "راپور باقی قرض تیل", "In-kind loan report"), false,
                        (string?)null, (string?)null, (string?)null, (string?)null,
-                       UiText.T(Context, "قرض جنسی", "Commodity loans"), "bi-arrow-right", (string?)Url.Action("Index")))" />
+                       UiText.T(Context, "قرض تیل", "Commodity loans"), "bi-arrow-right", (string?)Url.Action("Index")))" />
     <form method="get" class="ak-list-toolbar">
         <div class="ak-list-toolbar-actions">
             <label for="asOf" class="ak-label mb-0">@UiText.T(Context, "تا تاریخ", "As of")</label>
@@ -16,10 +16,10 @@
     </form>
     <section class="ak-form-section ak-detail-section">
         <dl class="row mb-0">
-            <dt class="col-sm-6">@UiText.T(Context, "طلب جنسی باز (قرض‌داده)", "Lent outstanding")</dt><dd class="col-sm-6 ak-num">@NumberDisplay.Quantity(Model.LentOutstandingMt, "MT")</dd>
-            <dt class="col-sm-6">@UiText.T(Context, "بدهی جنسی باز (قرض‌گرفته)", "Borrowed outstanding")</dt><dd class="col-sm-6 ak-num">@NumberDisplay.Quantity(Model.BorrowedOutstandingMt, "MT")</dd>
-            <dt class="col-sm-6">@UiText.T(Context, "قرض‌های سررسیدگذشته", "Overdue loans")</dt><dd class="col-sm-6 ak-num">@Model.OverdueLoans</dd>
-            <dt class="col-sm-6">@UiText.T(Context, "سود / زیان تسویه‌ها", "Settlement gain / loss")</dt><dd class="col-sm-6 ak-num">@Model.SettlementGainUsd.ToString("N2") / @Model.SettlementLossUsd.ToString("N2") USD</dd>
+            <dt class="col-sm-6">@UiText.T(Context, "باقی تیلی که قرض دادیم", "Lent outstanding")</dt><dd class="col-sm-6 ak-num">@NumberDisplay.Quantity(Model.LentOutstandingMt, "MT")</dd>
+            <dt class="col-sm-6">@UiText.T(Context, "باقی تیلی که قرض گرفتیم", "Borrowed outstanding")</dt><dd class="col-sm-6 ak-num">@NumberDisplay.Quantity(Model.BorrowedOutstandingMt, "MT")</dd>
+            <dt class="col-sm-6">@UiText.T(Context, "قرض‌های وقت برگشت گذشته", "Overdue loans")</dt><dd class="col-sm-6 ak-num">@Model.OverdueLoans</dd>
+            <dt class="col-sm-6">@UiText.T(Context, "مفاد / ضرر برگشت قرض‌ها", "Settlement gain / loss")</dt><dd class="col-sm-6 ak-num">@Model.SettlementGainUsd.ToString("N2") / @Model.SettlementLossUsd.ToString("N2") USD</dd>
         </dl>
     </section>
     <section class="ak-form-section ak-detail-section">
@@ -27,17 +27,17 @@
         <div class="ak-table-wrap"><table class="ak-table ak-detail-table">
             <thead><tr>
                 <th class="ak-col-grow">@UiText.T(Context, "طرف / جنس", "Counterparty / product")</th>
-                <th class="text-end">@UiText.T(Context, "طلب جنسی (MT)", "Lent (MT)")</th>
-                <th class="text-end">@UiText.T(Context, "بدهی جنسی (MT)", "Borrowed (MT)")</th>
-                <th class="text-end">@UiText.T(Context, "ارزش دفتری باز (USD)", "Open value (USD)")</th>
-                <th class="text-end">@UiText.T(Context, "سررسیدگذشته", "Overdue")</th>
+                <th class="text-end">@UiText.T(Context, "تیل طلب داریم (MT)", "Lent (MT)")</th>
+                <th class="text-end">@UiText.T(Context, "تیل قرضداریم (MT)", "Borrowed (MT)")</th>
+                <th class="text-end">@UiText.T(Context, "ارزش باقی قرض (USD)", "Open value (USD)")</th>
+                <th class="text-end">@UiText.T(Context, "وقت برگشت گذشته", "Overdue")</th>
             </tr></thead>
             <tbody>
                 @foreach (var p in Model.Positions)
                 {
                     <tr>
                         <td class="ak-col-grow">@p.CounterpartyName <small class="text-muted">· @p.ProductName</small>
-                            @if (p.UnvaluedLoans > 0) {<small class="text-muted d-block">@UiText.T(Context, "قرض ارزش‌گذاری‌نشده", "unvalued loans"): @p.UnvaluedLoans</small>}</td>
+                            @if (p.UnvaluedLoans > 0) {<small class="text-muted d-block">@UiText.T(Context, "قرض بدون قیمت ثبت‌شده", "unvalued loans"): @p.UnvaluedLoans</small>}</td>
                         <td class="text-end ak-num">@NumberDisplay.Quantity(p.LentOutstandingMt)</td>
                         <td class="text-end ak-num">@NumberDisplay.Quantity(p.BorrowedOutstandingMt)</td>
                         <td class="text-end ak-num">@((p.LentValueUsd - p.BorrowedValueUsd).ToString("N2"))</td>
@@ -46,7 +46,7 @@
                 }
                 @if (!Model.Positions.Any())
                 {
-                    <tr><td colspan="5"><div class="ak-empty">@UiText.T(Context, "قرض باز وجود ندارد.", "No open loans.")</div></td></tr>
+                    <tr><td colspan="5"><div class="ak-empty">@UiText.T(Context, "قرض باقی نمانده است.", "No open loans.")</div></td></tr>
                 }
             </tbody>
         </table></div>
@@ -54,9 +54,9 @@
     <section class="ak-form-section ak-detail-section">
         <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
                  model="@((UiText.T(Context, "تطبیق با دفتر کل", "GL tie-out"),
-                           (string?)UiText.T(Context, "ارزش دفتریِ باز قرض‌ها با ماندهٔ همان حساب در اسناد قرض جنسی مقایسه می‌شود.", "Open carrying value vs. the same account in commodity-loan journals.")))" />
+                           (string?)UiText.T(Context, "ارزش باقی قرض با باقی همان حساب در دفتر کل مقایسه می‌شود.", "Open carrying value vs. the same account in commodity-loan journals.")))" />
         <div class="ak-table-wrap"><table class="ak-table ak-detail-table">
-            <thead><tr><th class="ak-col-grow">@UiText.T(Context, "حساب", "Account")</th><th class="text-end">@UiText.T(Context, "ارزش باز", "Open value")</th><th class="text-end">@UiText.T(Context, "دفتر کل", "GL")</th><th class="text-end">@UiText.T(Context, "تفاوت", "Difference")</th></tr></thead>
+            <thead><tr><th class="ak-col-grow">@UiText.T(Context, "حساب", "Account")</th><th class="text-end">@UiText.T(Context, "ارزش باقی قرض", "Open value")</th><th class="text-end">@UiText.T(Context, "دفتر کل", "GL")</th><th class="text-end">@UiText.T(Context, "تفاوت", "Difference")</th></tr></thead>
             <tbody>
                 @foreach (var c in Model.GlChecks)
                 {
@@ -69,7 +69,7 @@
                 }
                 @if (!Model.GlChecks.Any())
                 {
-                    <tr><td colspan="4"><div class="ak-empty">@UiText.T(Context, "قرضِ ارزش‌گذاری‌شده‌ای وجود ندارد.", "No valued loans.")</div></td></tr>
+                    <tr><td colspan="4"><div class="ak-empty">@UiText.T(Context, "قرضِ با قیمت ثبت‌شده‌ای وجود ندارد.", "No valued loans.")</div></td></tr>
                 }
             </tbody>
         </table></div>

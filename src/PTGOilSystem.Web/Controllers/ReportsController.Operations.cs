@@ -54,7 +54,7 @@ public partial class ReportsController
             [
                 new("جنس", "Product", Width: 20),
                 new("جواز", "Company", Width: 20),
-                new("موجودی فیزیکی MT", "Physical MT", TabularExportValueType.Number, 18),
+                new("موجودی ملکی MT", "Owned MT", TabularExportValueType.Number, 18),
                 new("رزرو پیش‌فروش MT", "Reserved MT", TabularExportValueType.Number, 18),
                 new("قابل فروش MT", "Sellable MT", TabularExportValueType.Number, 18),
                 new("رزرو بدون جواز MT", "Unallocated reserved MT", TabularExportValueType.Number, 20),
@@ -221,7 +221,7 @@ public partial class ReportsController
             Rows = rows,
             Metrics =
             [
-                new() { Label = "موجودی فیزیکی", Value = Quantity(model.TotalPhysicalMt), Detail = "Physical stock", Icon = "bi-box-seam", ToneClass = "" },
+                new() { Label = "موجودی ملکی", Value = Quantity(model.TotalPhysicalMt), Detail = "Owned stock", Icon = "bi-box-seam", ToneClass = "" },
                 new() { Label = "رزرو پیش‌فروش", Value = Quantity(model.TotalReservedMt), Detail = "Active reservation", Icon = "bi-bookmark-check", ToneClass = "" },
                 new() { Label = "قابل فروش", Value = Quantity(model.TotalSellableMt), Detail = "Physical - reservation", Icon = "bi-box-arrow-up-right", ToneClass = model.TotalSellableMt < 0m ? "finance-negative" : "finance-positive" },
                 new() { Label = "رزرو بدون منبع", Value = Quantity(model.TotalUnallocatedReservedMt), Detail = "Unallocated — not netted", Icon = "bi-question-circle", ToneClass = model.TotalUnallocatedReservedMt > 0m ? "finance-negative" : "" }

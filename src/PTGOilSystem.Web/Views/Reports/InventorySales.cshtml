@@ -15,7 +15,7 @@
                        (string?)null, (string?)null, (string?)null, (string?)null,
                        UiText.T(Context, "گزارش‌ها", "Reports"), "bi-arrow-right", Url.Action("Index")))" />
 
-    <p class="ak-note">@UiText.T(Context, "همهٔ مقدارها به تُن متریک (MT) است. قابل فروش = موجودی فیزیکی − رزرو فعال پیش‌فروش؛ مال در مسیر شامل نیست.", "All quantities are metric tonnes (MT). Sellable = physical stock minus active reservations; transit is excluded.")</p>
+    <p class="ak-note">@UiText.T(Context, "همهٔ مقدارها به تُن (MT) است. قابل فروش = موجودی ملکی − مقدار بندشده برای پیش‌فروش. تیل امانی و بار در راه شامل نیست. موجودی فزیکی مخزن، مجموع تیل ملکی و امانی همان مخزن است.", "All quantities are MT. Sellable = owned stock minus active reservations; custody and transit are excluded.")</p>
 
     <section class="ak-stat-grid" aria-label="@UiText.T(Context, "آمار موجودی قابل فروش", "Sellable stock metrics")">
         @foreach (var metric in Model.Stock.Metrics.Take(3))
@@ -70,7 +70,7 @@
                     <tr>
                         <th class="ak-col-grow">@UiText.T(Context, "جنس", "Product")</th>
                         <th>@UiText.T(Context, "جواز", "Company")</th>
-                        <th class="ak-col-num">@UiText.T(Context, "موجودی فیزیکی (MT)", "Physical MT")</th>
+                        <th class="ak-col-num">@UiText.T(Context, "موجودی ملکی (MT)", "Owned MT")</th>
                         <th class="ak-col-num">@UiText.T(Context, "رزرو (MT)", "Reserved MT")</th>
                         <th class="ak-col-num">@UiText.T(Context, "قابل فروش (MT)", "Sellable MT")</th>
                         <th class="ak-col-num">@UiText.T(Context, "رزرو بدون منبع", "Unallocated")</th>

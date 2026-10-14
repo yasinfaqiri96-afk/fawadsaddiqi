@@ -3,40 +3,40 @@
 @using PTGOilSystem.Web.Models.Entities
 @using PTGOilSystem.Web.Models.StatCards
 @{
-    ViewData["Title"] = UiText.T(Context, "قرض جنسی", "Commodity loans");
+    ViewData["Title"] = UiText.T(Context, "قرض تیل", "Commodity loans");
     var canManage = PTGOilSystem.Web.Security.RoleAccessRules.CanManageData(User);
     var open = Model.Loans.Where(l => l.OutstandingMt > 0m).ToList();
     var tabs = new (CommodityLoanDirection? Value, string Label)[]
     {
         (null, UiText.T(Context, "همه", "All")),
-        (CommodityLoanDirection.Lend, UiText.T(Context, "قرض‌داده (طلب جنسی)", "Lent")),
-        (CommodityLoanDirection.Borrow, UiText.T(Context, "قرض‌گرفته (بدهی جنسی)", "Borrowed"))
+        (CommodityLoanDirection.Lend, UiText.T(Context, "تیل قرض دادیم", "Lent")),
+        (CommodityLoanDirection.Borrow, UiText.T(Context, "تیل قرض گرفتیم", "Borrowed"))
     };
 }
 
 <div class="ak-list-page">
     <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
-             model="@((UiText.T(Context, "قرض جنسی", "Commodity loans"), true,
-                       canManage ? UiText.T(Context, "قرض‌دادن", "Lend") : (string?)null, "bi-box-arrow-up",
+             model="@((UiText.T(Context, "قرض تیل", "Commodity loans"), true,
+                       canManage ? UiText.T(Context, "قرض دادن تیل", "Lend") : (string?)null, "bi-box-arrow-up",
                        canManage ? (string?)Url.Action("Create", new { direction = CommodityLoanDirection.Lend }) : (string?)null, (string?)null,
-                       canManage ? UiText.T(Context, "قرض‌گرفتن", "Borrow") : (string?)null, "bi-box-arrow-in-down",
+                       canManage ? UiText.T(Context, "قرض گرفتن تیل", "Borrow") : (string?)null, "bi-box-arrow-in-down",
                        canManage ? (string?)Url.Action("Create", new { direction = CommodityLoanDirection.Borrow }) : (string?)null))" />
 
     <p class="text-muted small">
         @UiText.T(Context,
-            "تیلِ شرکت که به دیگری قرض داده شده (از موجودی ملکی کم می‌شود و طلب جنسی می‌سازد) یا تیلی که شرکت قرض گرفته (به موجودی قابل مصرف اضافه می‌شود و بدهی جنسی می‌سازد). جدا از امانی است.",
+            "تیلی که قرض دادیم از موجودی شرکت کم می‌شود و طرف باید آن را برگرداند. تیلی که قرض گرفتیم به موجودی اضافه می‌شود و باید آن را پس بدهیم. تیل امانی در بخش جدا ثبت می‌شود.",
             "Company stock lent out, or stock borrowed with an in-kind return obligation. Separate from custody.")
-        <a asp-action="Report">@UiText.T(Context, "راپور طلب و بدهی جنسی", "In-kind receivables & payables")</a>
+        <a asp-action="Report">@UiText.T(Context, "راپور باقی قرض تیل", "In-kind receivables & payables")</a>
     </p>
 
-    <section class="ak-stat-grid" aria-label="@UiText.T(Context, "خلاصه قرض جنسی", "Loan summary")">
-        <vc:stat-card title="@UiText.T(Context, "طلب جنسی باز", "Lent outstanding")"
+    <section class="ak-stat-grid" aria-label="@UiText.T(Context, "خلاصه قرض تیل", "Loan summary")">
+        <vc:stat-card title="@UiText.T(Context, "باقی قرض داده‌شده", "Lent outstanding")"
                       value="@StatCardFormatter.Number(open.Where(l => l.Direction == CommodityLoanDirection.Lend).Sum(l => l.OutstandingMt), 2)"
                       unit="MT"></vc:stat-card>
-        <vc:stat-card title="@UiText.T(Context, "بدهی جنسی باز", "Borrowed outstanding")"
+        <vc:stat-card title="@UiText.T(Context, "باقی قرض گرفته‌شده", "Borrowed outstanding")"
                       value="@StatCardFormatter.Number(open.Where(l => l.Direction == CommodityLoanDirection.Borrow).Sum(l => l.OutstandingMt), 2)"
                       unit="MT"></vc:stat-card>
-        <vc:stat-card title="@UiText.T(Context, "سررسیدگذشته", "Overdue")"
+        <vc:stat-card title="@UiText.T(Context, "وقت برگشت گذشته", "Overdue")"
                       value="@StatCardFormatter.Count(open.Count(l => l.IsOverdue(Model.Today)))"
                       unit="@UiText.T(Context, "قرض", "loans")"></vc:stat-card>
     </section>
@@ -52,13 +52,13 @@
 
     <div class="ak-list">
         <div class="ak-table-wrap">
-            <table class="ak-table" aria-label="@UiText.T(Context, "قرض‌های جنسی", "Commodity loans")">
+            <table class="ak-table" aria-label="@UiText.T(Context, "قرض‌های تیل", "Commodity loans")">
                 <thead><tr>
                     <th>@UiText.T(Context, "قرض", "Loan")</th>
                     <th class="ak-col-grow">@UiText.T(Context, "طرف / جنس", "Counterparty / product")</th>
                     <th class="text-end">@UiText.T(Context, "مقدار (MT)", "Qty (MT)")</th>
-                    <th class="text-end">@UiText.T(Context, "باز (MT)", "Open (MT)")</th>
-                    <th>@UiText.T(Context, "سررسید", "Due")</th>
+                    <th class="text-end">@UiText.T(Context, "باقی قرض (MT)", "Open (MT)")</th>
+                    <th>@UiText.T(Context, "وقت برگشت", "Due")</th>
                 </tr></thead>
                 <tbody>
                     @foreach (var l in Model.Loans)
@@ -79,18 +79,18 @@
                                 }
                                 else if (l.IsOverdue(Model.Today))
                                 {
-                                    <span class="ak-status is-danger">@UiText.T(Context, "سررسیدگذشته", "Overdue")</span>
+                                    <span class="ak-status is-danger">@UiText.T(Context, "وقت برگشت گذشته", "Overdue")</span>
                                 }
                                 else if (l.IsSettled)
                                 {
-                                    <span class="ak-status is-active">@UiText.T(Context, "تسویه شده", "Settled")</span>
+                                    <span class="ak-status is-active">@UiText.T(Context, "قرض خلاص شده", "Settled")</span>
                                 }
                             </td>
                         </tr>
                     }
                     @if (!Model.Loans.Any())
                     {
-                        <tr><td colspan="5"><div class="ak-empty">@UiText.T(Context, "قرض جنسی ثبت نشده است.", "No commodity loans.")</div></td></tr>
+                        <tr><td colspan="5"><div class="ak-empty">@UiText.T(Context, "قرض تیل ثبت نشده است.", "No commodity loans.")</div></td></tr>
                     }
                 </tbody>
             </table>

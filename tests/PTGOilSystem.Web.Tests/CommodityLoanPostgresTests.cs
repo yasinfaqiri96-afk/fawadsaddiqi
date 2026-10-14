@@ -389,7 +389,7 @@ public sealed class CommodityLoanPostgresTests(ConcurrencyVersionPostgresFixture
         // بیلانس مدیریتی قرض باز را شفاف می‌گوید و آن را دوباره جمع نمی‌زند.
         var balance = await new CompanyBalanceReportService(db, new ProfitAndLossService(db), new StockService(db), new PricingService(db))
             .BuildAsync(new CompanyBalanceReportRequest(Day.AddDays(-30), Day.AddDays(10), "USD", Day.AddDays(10)), []);
-        Assert.Contains(balance.NotesFa, note => note.Contains("قرض جنسی باز") && note.Contains("راپور طلب و بدهی جنسی"));
+        Assert.Contains(balance.NotesFa, note => note.Contains("باقی قرض تیل") && note.Contains("راپور باقی قرض تیل"));
     }
 
     [Fact]

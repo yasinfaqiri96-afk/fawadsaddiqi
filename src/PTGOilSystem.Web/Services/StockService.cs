@@ -66,13 +66,8 @@ public class StockService : IStockService
     private static Task<decimal?> SumSignedQuantityAsync(
         IQueryable<InventoryMovement> query,
         CancellationToken ct)
-        => query
-            .Select(m => (decimal?)(
-                m.Direction == MovementDirection.In || m.Direction == MovementDirection.Adjustment
-                    ? m.QuantityMt
-                    : m.Direction == MovementDirection.Out || m.Direction == MovementDirection.Transfer
-                        ? -m.QuantityMt
-                        : 0m))
+        => query.Quantities()
+            .Select(m => (decimal?)m.SignedQuantityMt)
             .SumAsync(ct);
 
     private static int? ResolveMovementContractId(InventoryMovement movement)
@@ -193,30 +188,14 @@ public class StockService : IStockService
                 terminalId: terminalId,
                 contractId: contractId,
                 asOfUtc: asOfUtc)
-            .Select(m => new
-            {
-                m.ProductId,
-                m.TerminalId,
-                ContractId = m.ContractId
-                    ?? (m.LoadingReceipt != null && m.LoadingReceipt.LoadingRegister != null
-                        ? (int?)m.LoadingReceipt.LoadingRegister.ContractId
-                        : null),
-                m.Direction,
-                m.QuantityMt,
-                m.MovementDate
-            })
+            .Quantities()
             .GroupBy(m => new { m.ProductId, m.TerminalId, m.ContractId })
             .Select(g => new
             {
                 g.Key.ProductId,
                 g.Key.TerminalId,
                 g.Key.ContractId,
-                FreeQuantityMt = g.Sum(m =>
-                    m.Direction == MovementDirection.In || m.Direction == MovementDirection.Adjustment
-                        ? m.QuantityMt
-                        : m.Direction == MovementDirection.Out || m.Direction == MovementDirection.Transfer
-                            ? -m.QuantityMt
-                            : 0m),
+                FreeQuantityMt = g.Sum(m => m.SignedQuantityMt),
                 LastMovementDate = g.Max(m => m.MovementDate),
                 MovementCount = g.Count()
             })
@@ -516,9 +495,15 @@ public class StockService : IStockService
     /// گرفته می‌شود و فقط سطرهای «از آن تاریخ به بعد» پیموده می‌شوند — که برای ثبتِ
     /// امروز (حالت رایج) تقریباً هیچ سطری نیست.
     /// </summary>
-    public async Task EnsureMovementDoesNotCauseFutureNegativeStockAsync(
+    public Task EnsureMovementDoesNotCauseFutureNegativeStockAsync(
         InventoryMovement movement,
         CancellationToken ct = default)
+        => CheckMovementTimelineAsync(movement, false, ct);
+
+    public Task EnsureMovementTimelineIsNonNegativeAsync(InventoryMovement movement, CancellationToken ct = default)
+        => CheckMovementTimelineAsync(movement, true, ct);
+
+    private async Task CheckMovementTimelineAsync(InventoryMovement movement, bool everyPoint, CancellationToken ct)
     {
         if (movement is null) throw new ArgumentNullException(nameof(movement));
 
@@ -549,17 +534,19 @@ public class StockService : IStockService
             .Where(m => m.Id != movement.Id);
 
         var balanceBefore = await SumSignedQuantityAsync(
-            scopeQuery.Where(m => m.MovementDate < movementDate),
+            scopeQuery.Where(m => everyPoint ? m.MovementDate <= movementDate : m.MovementDate < movementDate),
             ct) ?? 0m;
 
         var laterRows = await scopeQuery
-            .Where(m => m.MovementDate >= movementDate)
+            .Where(m => everyPoint ? m.MovementDate > movementDate : m.MovementDate >= movementDate)
             .OrderBy(m => m.MovementDate)
             .ThenBy(m => m.Id)
             .Select(m => new { m.MovementDate, m.Direction, m.QuantityMt })
             .ToListAsync(ct);
 
-        // سندِ جدید اول از همه در تاریخ خودش اعمال می‌شود (سخت‌گیرانه‌تر، نه شل‌تر).
+        // Manual inserts get a new Id: existing rows at the same instant precede
+        // them, exactly as the stock card orders MovementDate then Id. Legacy
+        // operational documents retain their historical simulation order.
         var running = balanceBefore + ToSignedQuantity(movement.Direction, movement.QuantityMt);
         var lowest = running;
         DateTime? firstNegativeDate = running < 0m ? movementDate : null;
@@ -580,7 +567,7 @@ public class StockService : IStockService
 
         // running اکنون ماندهٔ پایانیِ scope است. گودالِ گذرای میانی که
         // خودش ترمیم می‌شود مجاز است؛ ماندنِ موجودی در منفی نه.
-        if (running >= 0m)
+        if (everyPoint ? lowest >= 0m : running >= 0m)
         {
             return;
         }

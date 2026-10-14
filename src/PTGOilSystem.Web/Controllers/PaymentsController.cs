@@ -3224,7 +3224,7 @@ public class PaymentsController : Controller
     // آن است؛ اصلاح از اینجا موجودی صندوق را از حساب مالک و ژورنال امانی جدا می‌کرد.
     // تسویهٔ نقدیِ قرض جنسی هم همین‌طور: مالکِ پرداخت سند تسویه است و لغوش موجودی، Pool و ژورنال را برمی‌گرداند.
     private const string CustodyOwnedPaymentMessage =
-        "این سند از بخش امانی یا قرض جنسی ساخته شده است؛ اصلاح یا لغو آن فقط از همان بخش («حساب مالک» امانی یا صفحهٔ قرض جنسی) ممکن است.";
+        "این سند از بخش امانی یا قرض تیل ساخته شده است؛ اصلاح یا لغو آن فقط از همان بخش («حساب مالک» امانی یا صفحهٔ قرض تیل) ممکن است.";
 
     private async Task<bool> IsCustodyOwnedPaymentAsync(int paymentId)
         => await _db.CustodyFinanceEntries.AnyAsync(e => e.PaymentTransactionId == paymentId || e.ReversalPaymentTransactionId == paymentId)

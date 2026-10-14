@@ -112,6 +112,7 @@ builder.Services.AddScoped<PTGOilSystem.Web.Services.Custody.ICustodyReadService
 // تنها نقطهٔ اجرای قواعد مشترک ثبت حرکت موجودی (مقدار، قفل، نگهبان موجودی، سند).
 // تراکنش را caller مالک است؛ Writer تراکنش مستقل باز نمی‌کند.
 builder.Services.AddScoped<IInventoryMovementWriter, InventoryMovementWriter>();
+builder.Services.AddScoped<ManualInventoryService>();
 // PTG-P1-03 — تنها مسیرِ ساختنِ LedgerEntry.
 builder.Services.AddScoped<PTGOilSystem.Web.Services.Ledger.ILedgerPostingService, PTGOilSystem.Web.Services.Ledger.LedgerPostingService>();
 // تک‌منبع «باقیماندهٔ حمل» و تفکیک سرنوشت مقدار (نگهداشت مقدار).

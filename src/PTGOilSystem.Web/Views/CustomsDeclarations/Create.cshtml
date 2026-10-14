@@ -27,6 +27,23 @@
     ViewData["Title"] = isEdit ? "ویرایش اعلامیه گمرکی" : "ثبت اعلامیه گمرکی";
     ViewData["HideSectionTabs"] = true;
     ViewData["LoadingCreateAssets"] = true;
+
+    // گروهِ تسویهٔ هر ردیف فقط از نوعِ آن می‌آید (CustomsComponentGroupMap)؛ اینجا فقط نمایش داده می‌شود.
+    static string GroupKey(CustomsComponentType t)
+        => PTGOilSystem.Web.Services.Customs.CustomsComponentGroupMap.IsThirdPartyService(t) ? "service" : "duty";
+    static string GroupLabel(CustomsComponentType t)
+        => GroupKey(t) == "service" ? "کمیشن" : "دولتی";
+    static string GroupPillClass(CustomsComponentType t)
+        => GroupKey(t) == "service" ? "ak-status is-active" : "ak-status is-inactive";
+    static string TypeNames(bool service)
+        => string.Join("، ", Enum.GetValues<CustomsComponentType>()
+            .Where(t => (GroupKey(t) == "service") == service)
+            .Select(t => typeof(CustomsComponentType).GetField(t.ToString())!
+                .GetCustomAttributes(typeof(System.ComponentModel.DataAnnotations.DisplayAttribute), false)
+                .OfType<System.ComponentModel.DataAnnotations.DisplayAttribute>()
+                .FirstOrDefault()?.Name ?? t.ToString()));
+    var dutyTypeNames = TypeNames(service: false);
+    var serviceTypeNames = TypeNames(service: true);
 }
 
 @if (!hasSource)
@@ -189,10 +206,11 @@ else
                             <tbody id="customsItemsBody">
                                 @for (int i = 0; i < Model.Items.Count; i++)
                                 {
-                                    <tr class="customs-item-row">
+                                    <tr class="customs-item-row" data-customs-group="@GroupKey(Model.Items[i].ComponentType)">
                                         <td>
                                             <input asp-for="Items[i].ComponentType" type="hidden" class="row-component-type" />
                                             <input asp-for="Items[i].ComponentLabel" type="text" class="ak-input customs-label-input" placeholder="عنوان مصرف" />
+                                            <span class="@GroupPillClass(Model.Items[i].ComponentType) mt-1">@GroupLabel(Model.Items[i].ComponentType)</span>
                                         </td>
                                         <td>
                                             <select asp-for="Items[i].Currency" class="ak-input currency-input">
@@ -251,6 +269,7 @@ else
                                 <option value="@((int)ExpenseSettlementMode.Payable)">بدهی ماند</option>
                                 <option value="@((int)ExpenseSettlementMode.NonCash)">بدون حرکت پول</option>
                             </select>
+                            <span class="ak-note" title="@dutyTypeNames">جمع: <strong data-customs-group-total="duty">—</strong></span>
                             <span asp-validation-for="DutySettlementMode" class="ak-field-error"></span>
                         </div>
                         <div class="ak-field" data-customs-duty-cash>
@@ -276,6 +295,7 @@ else
                                 <option value="@((int)ExpenseSettlementMode.PaidImmediately)">نقد پرداخت شد</option>
                                 <option value="@((int)ExpenseSettlementMode.NonCash)">بدون حرکت پول</option>
                             </select>
+                            <span class="ak-note" title="@serviceTypeNames">جمع: <strong data-customs-group-total="service">—</strong></span>
                             <span asp-validation-for="ServiceSettlementMode" class="ak-field-error"></span>
                         </div>
                         <div class="ak-field" data-customs-service-cash>
@@ -295,10 +315,11 @@ else
                     </div>
 
                     <template id="customsRowTemplate">
-                        <tr class="customs-item-row">
+                        <tr class="customs-item-row" data-customs-group="@GroupKey(CustomsComponentType.Other)">
                             <td>
                                 <input type="hidden" class="row-component-type" name="Items[0].ComponentType" value="Other" />
                                 <input type="text" class="ak-input customs-label-input" name="Items[0].ComponentLabel" value="" placeholder="عنوان مصرف" />
+                                <span class="@GroupPillClass(CustomsComponentType.Other) mt-1">@GroupLabel(CustomsComponentType.Other)</span>
                             </td>
                             <td>
                                 <select class="ak-input currency-input" name="Items[0].Currency">
@@ -415,10 +436,21 @@ else
     function recalc() {
         // معادل هر ردیف از روی همان مبلغِ اصلی حساب می‌شود؛ AFN و USD مستقیم با هم جمع نمی‌شوند.
         var totalAfn = 0, totalUsd = 0;
+        var groups = { duty: { afn: 0, usd: 0 }, service: { afn: 0, usd: 0 } };
         body.querySelectorAll('tr.customs-item-row').forEach(function (row) {
             var a = rowAmounts(row);
             totalAfn += a.afn;
             totalUsd += a.usd;
+            var g = groups[row.getAttribute('data-customs-group')] || groups.duty;
+            g.afn += a.afn;
+            g.usd += a.usd;
+        });
+        // جمعِ هر گروه کنار همان تسویه، تا کاربر ببیند چه مبلغی با آن پرداخت می‌شود.
+        document.querySelectorAll('[data-customs-group-total]').forEach(function (el) {
+            var g = groups[el.getAttribute('data-customs-group-total')];
+            if (!g || !(g.afn > 0 || g.usd > 0)) { el.textContent = '—'; return; }
+            el.textContent = g.afn.toLocaleString('fa', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' AFN'
+                + (g.usd > 0 ? ' / ' + g.usd.toFixed(2) + ' USD' : '');
         });
         totalAfnEl.textContent = totalAfn.toLocaleString('fa', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' AFN';
         totalUsdEl.textContent = totalUsd > 0 ? totalUsd.toFixed(2) + ' USD' : '—';

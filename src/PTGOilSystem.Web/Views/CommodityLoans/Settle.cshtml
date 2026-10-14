@@ -15,7 +15,7 @@
     <div class="ak-form-page-content">
         <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
                  model="@((title, true, (string?)null, (string?)null, (string?)null, (string?)null,
-                           UiText.T(Context, "بازگشت", "Back"), "bi-arrow-right", (string?)backUrl))" />
+                           UiText.T(Context, "برگشت", "Back"), "bi-arrow-right", (string?)backUrl))" />
 
         <form asp-action="Settle" method="post" class="ak-form">
             @Html.AntiForgeryToken()
@@ -29,17 +29,17 @@
                 @(form.Kind switch
                 {
                     CommodityLoanSettlementKind.InKindReturn => borrow
-                        ? UiText.T(Context, "شرکت جنس را از موجودی همین محل به طرف برمی‌گرداند؛ تفاوتِ بهای موجودی با ارزش دفتری بدهی به حساب تفاوتِ قرارداد می‌رود.", "Company returns stock from this location.")
-                        : UiText.T(Context, "طرف جنس را برمی‌گرداند و با همان ارزش دفتری به موجودی همین محل می‌آید.", "Counterparty returns stock at the carried value."),
-                    CommodityLoanSettlementKind.CashSettlement => UiText.T(Context, "به قیمتِ تسویهٔ نقدیِ قرارداد؛ تفاوت با ارزش دفتری به حساب تفاوت می‌رود.", "At the contract cash price."),
-                    _ => UiText.T(Context, "فقط کلِ ماندهٔ باقی و فقط در حدِ تلورانس قرارداد، با سند تأیید.", "Closes the whole remaining quantity within tolerance.")
+                        ? UiText.T(Context, "شرکت جنس را از موجودی همین محل به طرف برمی‌گرداند؛ تفاوتِ بهای موجودی با ارزش ثبت‌شده بدهی به حساب تفاوتِ قرارداد می‌رود.", "Company returns stock from this location.")
+                        : UiText.T(Context, "طرف جنس را برمی‌گرداند و با همان ارزش ثبت‌شده به موجودی همین محل می‌آید.", "Counterparty returns stock at the carried value."),
+                    CommodityLoanSettlementKind.CashSettlement => UiText.T(Context, "به قیمتِ پرداخت پول به‌جای تیلِ قرارداد؛ تفاوت با ارزش ثبت‌شده به حساب تفاوت می‌رود.", "At the contract cash price."),
+                    _ => UiText.T(Context, "فقط تمام باقی قرض، در حد فرق مجاز قرارداد و با سند تأیید بسته می‌شود.", "Closes the whole remaining quantity within tolerance.")
                 })
             </div>
 
             <section class="ak-form-section">
                 <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
                          model="@((row.CounterpartyName + " · " + row.ProductName,
-                                   (string?)(UiText.T(Context, "باز", "Open") + ": " + NumberDisplay.Quantity(row.OutstandingMt, "MT"))))" />
+                                   (string?)(UiText.T(Context, "باقی قرض", "Open") + ": " + NumberDisplay.Quantity(row.OutstandingMt, "MT"))))" />
                 <div class="ak-form-grid">
                     <div class="ak-field">
                         <label for="QuantityMt" class="ak-label">@UiText.T(Context, "مقدار (MT)", "Quantity (MT)") <span class="ak-req">*</span></label>
@@ -82,14 +82,14 @@
                         <input id="DocumentNumber" name="DocumentNumber" class="ak-input" maxlength="100" value="@form.DocumentNumber" />
                     </div>
                     <div class="ak-field ak-col-full">
-                        <label for="Notes" class="ak-label">@UiText.T(Context, "توضیحات", "Notes")</label>
+                        <label for="Notes" class="ak-label">@UiText.T(Context, "یادداشت", "Notes")</label>
                         <textarea id="Notes" name="Notes" class="ak-input" rows="2" maxlength="1000">@form.Notes</textarea>
                     </div>
                 </div>
             </section>
 
             <partial name="~/Views/Shared/Components/Ak/_AkFooterActions.cshtml"
-                     model="@((UiText.T(Context, "ثبت", "Save"), backUrl ?? "/", UiText.T(Context, "انصراف", "Cancel")))" />
+                     model="@((UiText.T(Context, "ثبت", "Save"), backUrl ?? "/", UiText.T(Context, "لغو", "Cancel")))" />
         </form>
     </div>
 </div>

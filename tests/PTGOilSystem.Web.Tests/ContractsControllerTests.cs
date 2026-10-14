@@ -33,16 +33,14 @@ public class ContractsControllerTests
     }
 
     [Fact]
-    public void ContractFormViewModel_Requires_ContractName()
+    public void ContractFormViewModel_ContractName_Is_Optional()
     {
-        var model = new ContractFormViewModel { ContractName = string.Empty };
+        var model = new ContractFormViewModel { ContractName = null };
         var results = new List<ValidationResult>();
 
-        var isValid = Validator.TryValidateObject(model, new ValidationContext(model), results, validateAllProperties: true);
+        Validator.TryValidateObject(model, new ValidationContext(model), results, validateAllProperties: true);
 
-        Assert.False(isValid);
-        Assert.Contains(results, result => result.MemberNames.Contains(nameof(ContractFormViewModel.ContractName))
-            && result.ErrorMessage == "لطفاً نام قرارداد را وارد کنید.");
+        Assert.DoesNotContain(results, result => result.MemberNames.Contains(nameof(ContractFormViewModel.ContractName)));
     }
 
     [Fact]

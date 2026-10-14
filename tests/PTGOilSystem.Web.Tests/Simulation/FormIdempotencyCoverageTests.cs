@@ -34,6 +34,7 @@ public sealed class FormIdempotencyCoverageTests
             Path.Combine("Contracts", "Create.cshtml"),
             Path.Combine("Payments", "Create.cshtml"),
             Path.Combine("Sales", "Create.cshtml"),
+            Path.Combine("Inventory", "Create.cshtml"),
             Path.Combine("InventoryTransportLegs", "CreateFromInventory.cshtml"),
             // مسیرهایی که با PTG-P0-01 اضافه شدند.
             Path.Combine("Expenses", "Create.cshtml"),

@@ -327,7 +327,7 @@
                         <div class="ak-field">
                             <label asp-for="PremiumDiscountUsd" class="ak-label"></label>
                             <input asp-for="PremiumDiscountUsd" type="hidden" id="PremiumDiscountUsd" />
-                            <div class="ak-form-grid">
+                            <div class="ak-signed-amount">
                                 <select id="premiumDiscountSign" class="ak-input" aria-label="علامت پریمیم یا دیسکانت">
                                     @if (premiumDiscountSign == "+")
                                     {
@@ -387,8 +387,8 @@
                                 <select asp-for="RubRatePolicy" id="RubRatePolicy" class="ak-input">
                                     <option value="@((int)PTGOilSystem.Web.Models.Entities.RubSettlementRatePolicy.NotApplicable)">ندارد، فقط دالر</option>
                                     <option value="@((int)PTGOilSystem.Web.Models.Entities.RubSettlementRatePolicy.FixedContractRate)">نرخ ثابت برای این قرارداد</option>
-                                    <option value="@((int)PTGOilSystem.Web.Models.Entities.RubSettlementRatePolicy.PerLoadingRate)">نرخ جدا برای هر بارگیری — فقط روبل</option>
-                                    <option value="@((int)PTGOilSystem.Web.Models.Entities.RubSettlementRatePolicy.RateLater)">نرخ بعداً مشخص می‌شود — فقط روبل</option>
+                                    <option value="@((int)PTGOilSystem.Web.Models.Entities.RubSettlementRatePolicy.PerLoadingRate)">نرخ جدا برای هر بارگیری</option>
+                                    <option value="@((int)PTGOilSystem.Web.Models.Entities.RubSettlementRatePolicy.RateLater)">نرخ بعداً مشخص می‌شود</option>
                                 </select>
                                 <small class="ak-note d-none" data-rub-policy-hint>برای ارزهای غیرروبل فعلاً فقط نرخ ثابت پشتیبانی می‌شود. نرخ هر بارگیری و نرخ بعداً مشخص فقط برای روبل فعال است.</small>
                             </div>
@@ -410,14 +410,14 @@
                     <div id="contractRubFixedRateGroup" class="ak-field ak-col-full @(Model.RubRatePolicy == PTGOilSystem.Web.Models.Entities.RubSettlementRatePolicy.FixedContractRate ?"" : "d-none")">
                         <div class="ak-form-grid">
                             <div class="ak-field" data-rub-equivalent-field>
-                                <label asp-for="ContractRubPerUsdRate" class="ak-label">هر 1 دالر چند <span data-settlement-unit>روبل</span> است؟</label>
+                                <label asp-for="ContractRubPerUsdRate" class="ak-label">هر 1 دالر چند <span data-settlement-unit>ارز</span> است؟</label>
                                 <input asp-for="ContractRubPerUsdRate" class="ak-input" type="number" min="0.000001" step="0.000001" />
-                                <span class="ak-note">مثلاً 92 یعنی 1 دالر = 92 <span data-settlement-unit>روبل</span></span>
+                                <span class="ak-note">مثلاً 92 یعنی 1 دالر = 92 <span data-settlement-unit>ارز</span></span>
                                 <span asp-validation-for="ContractRubPerUsdRate" class="ak-field-error"></span>
                             </div>
                             <div class="ak-field">
                                 <div class="ak-note">
-                                    <span>معادل به <span data-settlement-unit>روبل</span></span>
+                                    <span>معادل به <span data-settlement-unit>ارز</span></span>
                                     <strong data-rub-equivalent>در انتظار قیمت دالری</strong>
                                 </div>
                             </div>
@@ -702,7 +702,7 @@
 
             function settlementUnitLabel() {
                 const code = (settlementCurrency && settlementCurrency.value) ? settlementCurrency.value.toUpperCase() : '';
-                return (!code || code === 'RUB') ? 'روبل' : code;
+                return !code ? 'ارز' : code === 'RUB' ? 'روبل' : code;
             }
 
             function refreshRubSettlement() {
@@ -778,9 +778,9 @@
 
                 if (rubMessage) {
                     rubMessage.textContent = selectedPolicy === perLoadingRate
-                        ? 'نرخ روبل هنگام ثبت هر بارگیری وارد می‌شود.'
+                        ? 'نرخ ارز هنگام ثبت هر بارگیری وارد می‌شود.'
                         : selectedPolicy === rateLater
-                            ? 'قرارداد فعلاً ثبت می‌شود؛ نرخ روبل بعداً در بارگیری یا جزئیات بارگیری وارد می‌شود.'
+                            ? 'قرارداد فعلاً ثبت می‌شود؛ نرخ ارز بعداً در بارگیری یا جزئیات بارگیری وارد می‌شود.'
                             : selectedPolicy === fixedContractRate
                                 ? `قیمت دالری قرارداد با همین نرخ به ${unitLabel} هم نمایش داده می‌شود.`
                                 : 'قیمت اصلی قرارداد به دالر ثبت می‌شود.';

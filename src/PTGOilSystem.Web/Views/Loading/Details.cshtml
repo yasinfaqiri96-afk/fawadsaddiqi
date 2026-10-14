@@ -112,7 +112,7 @@
     {
         pricingItems.Add(new AkInfoItem
         {
-            Label = T("نرخ روبل", "RUB rate"),
+            Label = T("نرخ ارز تسویه", "Settlement rate"),
             Value = Model.RubPerUsdRate.Value.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture),
             Unit = "RUB/USD",
             IsNumeric = true
@@ -123,7 +123,7 @@
     {
         pricingItems.Add(new AkInfoItem
         {
-            Label = T("ارزش روبلی", "RUB value"),
+            Label = T("معادل ارز تسویه", "Settlement value"),
             Value = rubValue.AmountRub!.Value.ToString("N2"),
             Unit = "RUB",
             IsNumeric = true
@@ -134,7 +134,7 @@
         // بارگیری روبلی بدون نرخ: به‌جای سطر خالی، دلیلِ نبودِ رقم گفته می‌شود.
         pricingItems.Add(new AkInfoItem
         {
-            Label = T("ارزش روبلی", "RUB value"),
+            Label = T("معادل ارز تسویه", "Settlement value"),
             Value = T("در انتظار نرخ", "Awaiting rate"),
             Tone = "warning"
         });
@@ -211,7 +211,7 @@
     }
     if (showRubRateForm)
     {
-        headerMenu.Add(new AkHeaderMenuItem { Label = T("تعیین نرخ روبل", "Set RUB rate"), ModalTarget = "loadingRubleRateModal", Icon = "bi-currency-exchange" });
+        headerMenu.Add(new AkHeaderMenuItem { Label = T("تعیین نرخ ارز تسویه", "Set settlement rate"), ModalTarget = "loadingRubleRateModal", Icon = "bi-currency-exchange" });
     }
     ViewData["AkHeaderKebab"] = headerMenu;
 
@@ -335,13 +335,13 @@
                         <input name="Id" value="@Model.RubleRateEditor.Id" type="hidden" />
                         <input name="ReturnUrl" value="@currentPageReturnUrl" type="hidden" />
                         <div class="modal-header">
-                            <h2 class="modal-title" id="loadingRubleRateModalLabel">@T("تعیین نرخ روبل", "Set RUB rate")</h2>
+                            <h2 class="modal-title" id="loadingRubleRateModalLabel">@T("تعیین نرخ ارز تسویه", "Set settlement rate")</h2>
                             <button type="button" class="btn-close ms-0" data-bs-dismiss="modal" aria-label="@T("بستن", "Close")"></button>
                         </div>
                         <div class="modal-body">
                             <div class="ak-form-grid">
                                 <div class="ak-field">
-                                    <label class="ak-label" for="RubPerUsdRate">@T("هر ۱ دالر چند روبل؟", "RUB per USD")</label>
+                                    <label class="ak-label" for="RubPerUsdRate">@T($"هر ۱ دالر چند {Model.SettlementCurrencyCode}؟", $"{Model.SettlementCurrencyCode} per USD")</label>
                                     <input class="ak-input" id="RubPerUsdRate" name="RubPerUsdRate" value="@(Model.RubleRateEditor.RubPerUsdRate?.ToString("0.######"))" type="number" min="0.000001" step="0.000001" required />
                                 </div>
                                 <div class="ak-field">

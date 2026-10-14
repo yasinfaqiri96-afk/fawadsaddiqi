@@ -554,7 +554,25 @@ public class ShellViewStructureTests
         Assert.Contains("NavNode(\"Inventory\", \"Index\", T(\"موجودی\", \"Inventory\"), \"nav-assets\", active: inventoryControllers)", layout);
         Assert.Contains("(\"Inventory\",  \"Index\",        T(\"حرکت‌های موجودی\", \"Inventory Movements\")", tabs);
         Assert.Contains("(\"Custody\",    \"Index\",        T(\"امانی\",           \"Custody\")", tabs);
-        Assert.Contains("(\"CommodityLoans\", \"Index\",    T(\"قرض جنسی\",        \"Commodity loans\")", tabs);
+        Assert.Contains("(\"CommodityLoans\", \"Index\",    T(\"قرض تیل\",        \"Commodity loans\")", tabs);
+    }
+
+    [Fact]
+    public void Inventory_Forms_Preserve_Safety_Fields_And_Loan_Labels_Use_Plain_Dari()
+    {
+        var form = ReadRepoFile("src/PTGOilSystem.Web/Views/Inventory/Create.cshtml");
+        Assert.Contains("Html.AntiForgeryToken()", form);
+        Assert.Contains("Html.FormToken()", form);
+        Assert.Contains("asp-for=\"DestinationTerminalId\"", form);
+        Assert.Contains("asp-for=\"DestinationStorageTankId\"", form);
+        Assert.Contains("asp-for=\"NegativeAdjustment\"", form);
+        Assert.Contains("asp-for=\"Reason\"", form);
+        var index = ReadRepoFile("src/PTGOilSystem.Web/Views/CommodityLoans/Index.cshtml");
+        Assert.Contains("تیل قرض دادیم", index);
+        Assert.Contains("تیل قرض گرفتیم", index);
+        Assert.DoesNotContain("قرض جنسی", index);
+        var registry = ReadRepoFile("src/PTGOilSystem.Web/Services/OfflineSync/OfflineFormRegistry.cs");
+        Assert.Contains("Token(\"Inventory\", \"Create\",", registry);
     }
 
     [Theory]

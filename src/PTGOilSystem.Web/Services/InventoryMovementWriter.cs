@@ -23,6 +23,8 @@ public enum StockGuard
     Available = 2,
     /// <summary>هیچ نقطه‌ای از خط زمانی نباید منفی شود (PTG-P0-02 — فعال).</summary>
     FutureTimeline = 4,
+    /// <summary>For manual documents, reject even a temporary negative balance.</summary>
+    StrictTimeline = 8,
     Standard = Lock | Available,
     Full = Lock | Available | FutureTimeline
 }
@@ -275,7 +277,8 @@ public sealed class InventoryMovementWriter : IInventoryMovementWriter
         MovementDirection.In => MovementDirection.Out,
         MovementDirection.Out => MovementDirection.In,
         MovementDirection.Transfer => MovementDirection.In,
-        _ => MovementDirection.Adjustment
+        MovementDirection.Adjustment => MovementDirection.Out,
+        _ => throw new BusinessRuleException("STOCK_DIRECTION_INVALID", "نوع حرکت موجودی معتبر نیست.")
     };
 
     private async Task<InventoryMovement> PostAsync(
@@ -330,7 +333,10 @@ public sealed class InventoryMovementWriter : IInventoryMovementWriter
 
         if (guards.HasFlag(StockGuard.FutureTimeline))
         {
-            await _stock.EnsureMovementDoesNotCauseFutureNegativeStockAsync(movement, ct);
+            if (guards.HasFlag(StockGuard.StrictTimeline))
+                await _stock.EnsureMovementTimelineIsNonNegativeAsync(movement, ct);
+            else
+                await _stock.EnsureMovementDoesNotCauseFutureNegativeStockAsync(movement, ct);
         }
 
         if (direction is MovementDirection.In or MovementDirection.Adjustment)

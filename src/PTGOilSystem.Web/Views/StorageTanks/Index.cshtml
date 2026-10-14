@@ -26,7 +26,7 @@
         <vc:stat-card title="@UiText.T(Context, "کل مخازن", "Total tanks")" value="@Model.TotalTanks.ToString("N0")" unit="@UiText.T(Context, "مخزن", "tanks")" avatar="storage-tanks"></vc:stat-card>
         <vc:stat-card title="@UiText.T(Context, "مخازن فعال", "Active tanks")" value="@Model.ActiveTanks.ToString("N0")" unit="@UiText.T(Context, "مخزن", "tanks")" avatar="rules-checklist"></vc:stat-card>
         <vc:stat-card title="@UiText.T(Context, "ظرفیت کل", "Total capacity")" value="@FormatQuantity(Model.TotalCapacityMt)" unit="MT" avatar="tank-farm"></vc:stat-card>
-        <vc:stat-card title="@UiText.T(Context, "موجودی دفتری", "Book stock")" value="@FormatQuantity(Model.TotalCurrentQuantityMt)" unit="MT" avatar="total-inventory"></vc:stat-card>
+        <vc:stat-card title="@UiText.T(Context, "موجودی ملکی", "Owned stock")" value="@FormatQuantity(Model.TotalCurrentQuantityMt)" unit="MT" avatar="total-inventory"></vc:stat-card>
     </section>
 
     @{
@@ -96,6 +96,7 @@
                                 <span class="storage-tank-fact">
                                     <span class="storage-tank-fact-label">@UiText.T(Context, "موجودی فعلی", "Current stock")</span>
                                     <span class="storage-tank-fact-value ak-num"><bdi>@FormatQuantity(item.CurrentQuantityMt) @unitText</bdi></span>
+                                    <small class="text-muted">امانی: @FormatQuantity(item.CustodyQuantityMt) · مجموع فزیکی: @FormatQuantity(item.PhysicalQuantityMt) @unitText</small>
                                 </span>
                                 <span class="storage-tank-fact">
                                     <span class="storage-tank-fact-label">@UiText.T(Context, "فیصدی پرشدن", "Fill percentage")</span>

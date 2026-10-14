@@ -20,6 +20,8 @@ public sealed class StorageTankDetailsViewModel
     public DateTime CreatedAtUtc { get; init; }
 
     public decimal CurrentQuantityMt { get; init; }
+    public decimal CustodyQuantityMt { get; init; }
+    public decimal PhysicalQuantityMt => CurrentQuantityMt + CustodyQuantityMt;
     public decimal TotalInQuantityMt { get; init; }
     public decimal TotalOutQuantityMt { get; init; }
     public decimal NetMovementQuantityMt { get; init; }
@@ -91,6 +93,8 @@ public sealed class StorageTankIndexViewModel
     public int ActiveTanks { get; init; }
     public decimal TotalCapacityMt { get; init; }
     public decimal TotalCurrentQuantityMt { get; init; }
+    public decimal TotalCustodyQuantityMt { get; init; }
+    public decimal TotalPhysicalQuantityMt => TotalCurrentQuantityMt + TotalCustodyQuantityMt;
     public decimal AverageFillPercent { get; init; }
     public IReadOnlyList<StorageTankListItemViewModel> Items { get; init; } = [];
     public int CurrentPage { get; init; } = 1;
@@ -108,6 +112,8 @@ public sealed class StorageTankListItemViewModel
     public string UnitOfMeasure { get; init; } = "MT";
     public decimal CapacityMt { get; init; }
     public decimal CurrentQuantityMt { get; init; }
+    public decimal CustodyQuantityMt { get; init; }
+    public decimal PhysicalQuantityMt => CurrentQuantityMt + CustodyQuantityMt;
     public decimal FillPercent { get; init; }
     public bool IsActive { get; init; }
     public int ContractCount { get; init; }

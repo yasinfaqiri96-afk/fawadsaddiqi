@@ -6,10 +6,11 @@
 
 <div class="ak-form-page">
     <partial name="Components/Ak/_AkPageHeader"
-             model='(("ثبت حرکت موجودی", false, (string?)null, (string?)null, (string?)null, (string?)null, "بازگشت", "bi-arrow-right", Url.Action("Index")))' />
+             model='(("ثبت حرکت موجودی", false, (string?)null, (string?)null, (string?)null, (string?)null, "برگشت", "bi-arrow-right", Url.Action("Index")))' />
 
     <form asp-action="Create" method="post" class="ak-form">
         @Html.AntiForgeryToken()
+        @Html.FormToken()
         <div asp-validation-summary="ModelOnly" class="ak-form-alert text-danger"></div>
 
         <section class="ak-form-section">
@@ -56,8 +57,8 @@
                     <select asp-for="Direction" class="ak-input">
                         <option value="@((int)MovementDirection.In)">ورود (+)</option>
                         <option value="@((int)MovementDirection.Out)">خروج (-)</option>
-                        <option value="@((int)MovementDirection.Adjustment)">تعدیل</option>
-                        <option value="@((int)MovementDirection.Transfer)">انتقال</option>
+                        <option value="@((int)MovementDirection.Adjustment)">اصلاح موجودی</option>
+                        <option value="@((int)MovementDirection.Transfer)">انتقال به محل دیگر</option>
                     </select>
                 </div>
                 <div class="ak-field">
@@ -81,8 +82,61 @@
             </div>
         </section>
 
+        <section class="ak-form-section">
+            <partial name="Components/Ak/_AkSectionHead"
+                     model='(("انتقال یا اصلاح موجودی", "برای انتقال، مقصد را انتخاب کنید. برای اصلاح، اضافه‌شدن یا کم‌شدن را مشخص کنید. دلیل هر دو الزامی است."))' />
+            <div class="ak-form-grid">
+                <div class="ak-field">
+                    <label asp-for="DestinationTerminalId" class="ak-label"></label>
+                    <select asp-for="DestinationTerminalId" asp-items="ViewBag.DestinationTerminals" class="ak-input">
+                        <option value="">انتخاب مقصد انتقال</option>
+                    </select>
+                    <span asp-validation-for="DestinationTerminalId" class="ak-field-error"></span>
+                </div>
+                <div class="ak-field">
+                    <label asp-for="DestinationStorageTankId" class="ak-label"></label>
+                    <select asp-for="DestinationStorageTankId" asp-items="ViewBag.DestinationStorageTanks" class="ak-input">
+                        <option value="">بدون مخزن</option>
+                    </select>
+                    <span asp-validation-for="DestinationStorageTankId" class="ak-field-error"></span>
+                </div>
+                <div class="ak-field">
+                    <label asp-for="NegativeAdjustment" class="ak-label"></label>
+                    <select asp-for="NegativeAdjustment" class="ak-input">
+                        <option value="false">اضافه‌شدن موجودی</option>
+                        <option value="true">کم‌شدن موجودی</option>
+                    </select>
+                </div>
+                <div class="ak-field">
+                    <label asp-for="Reason" class="ak-label"></label>
+                    <textarea asp-for="Reason" class="ak-input" rows="2" maxlength="700"></textarea>
+                    <span asp-validation-for="Reason" class="ak-field-error"></span>
+                </div>
+            </div>
+            <p class="ak-note">انتقال برای تیلی است که به مقصد رسیده است؛ برای بار در راه از بخش «حمل‌ها» استفاده کنید.</p>
+        </section>
+
+        <details class="ak-form-section">
+            <summary>معلومات حسابداری</summary>
+            <p class="ak-note">اگر دفتر کل فعال باشد، ارزش ورودی و حساب مقابل لازم است. ارزش خروج و انتقال از حسابداری موجودی خوانده می‌شود.</p>
+            <div class="ak-form-grid">
+                <div class="ak-field">
+                    <label asp-for="ValueUsd" class="ak-label"></label>
+                    <input asp-for="ValueUsd" class="ak-input" type="number" min="0.0001" step="0.0001" />
+                    <span asp-validation-for="ValueUsd" class="ak-field-error"></span>
+                </div>
+                <div class="ak-field">
+                    <label asp-for="OffsetAccountId" class="ak-label"></label>
+                    <select asp-for="OffsetAccountId" asp-items="ViewBag.Accounts" class="ak-input">
+                        <option value="">انتخاب حساب</option>
+                    </select>
+                    <span asp-validation-for="OffsetAccountId" class="ak-field-error"></span>
+                </div>
+            </div>
+        </details>
+
         <partial name="Components/Ak/_AkFooterActions"
-                 model='(("ثبت حرکت موجودی", Url.Action("Index")!, "انصراف"))' />
+                 model='(("ثبت حرکت موجودی", Url.Action("Index")!, "لغو"))' />
     </form>
 </div>
 
