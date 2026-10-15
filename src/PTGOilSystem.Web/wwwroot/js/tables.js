@@ -36,6 +36,8 @@
 
         var iconClass = resolveListRowIcon();
         document.querySelectorAll(".ak-table").forEach(function (table) {
+            // صفحهٔ خانوادهٔ Details (مثل صورت‌حساب شراکت) فهرست نیست؛ جدولِ آن نشانگرِ ردیف نمی‌گیرد.
+            if (table.closest("[data-ak-detail-v2='true']")) return;
             Array.prototype.forEach.call(table.tBodies, function (body) {
                 Array.prototype.forEach.call(body.rows, function (row) {
                     if (row.dataset.akEntityAvatarReady === "true") return;

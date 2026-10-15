@@ -1,4 +1,5 @@
 ﻿@using PTGOilSystem.Web.Models.Partners
+@using PTGOilSystem.Web.Models.Shared
 @using PTGOilSystem.Web.Services.PartyStatements
 @using PTGOilSystem.Web.Security
 @using Microsoft.AspNetCore.Authorization
@@ -17,6 +18,19 @@
         contractIds = selectedContractIds
     });
     string Money(decimal value) => value.ToString("N2");
+
+    // اثرِ هر قلم روی حساب شریک با علامتِ صریح: «+» طلب شریک را بیشتر می‌کند و «−» کمتر.
+    // جهت از همان فرمولِ NetPositionUsd می‌آید؛ اینجا هیچ عددی ساخته نمی‌شود.
+    string Effect(decimal value, bool reducesBalance)
+    {
+        var signed = reducesBalance ? -value : value;
+        return signed < 0m ? $"− {Money(-signed)}" : $"+ {Money(signed)}";
+    }
+
+    // مثبت = طلبکار، منفی = بدهکار (همان قراردادِ PartnershipPartnerTotals.NetPositionUsd).
+    string PositionLabel(decimal net) => net > 0m ? "طلبکار" : net < 0m ? "بدهکار" : "تسویه";
+    string PositionClass(decimal net) => net > 0m ? "ak-flow-credit" : net < 0m ? "ak-flow-debit" : "is-inactive";
+
     var settlementModel = statement is null
         ? new PartnerSettlementFormViewModel()
         : new PartnerSettlementFormViewModel
@@ -41,10 +55,10 @@
     }
 }
 
-<div class="ak-list-page">
+<div class="ak-form-page ak-party-page ak-detail-page" dir="rtl" data-ak-detail-v2="true">
     <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
              model="@(("صورت‌حساب شراکت", false,
-                       canManage && statement is not null ? "ثبت تسویه حساب شراکت" : (string?)null,
+                       canManage && statement is not null ? "ثبت پرداخت بین شرکا" : (string?)null,
                        "bi-arrow-left-right",
                        (string?)null,
                        canManage && statement is not null ? "partnerSettlementCreateModal" : (string?)null,
@@ -59,60 +73,114 @@
     }
     else
     {
-        <p class="ak-note">
-            این صفحه فقط دادهٔ ثبت‌شده را می‌خواند: پرداخت شرکا از روزنامچه، فروش از سند فروش و مصارف از
-            مصارف قرارداد. هیچ فروش یا مصرف تازه‌ای نمی‌سازد و مفاد قرارداد را تغییر نمی‌دهد.
-        </p>
-
-        <div class="ak-list-toolbar">
-            <div class="ak-party-switch" role="group" aria-label="انتخاب شرکا">
-                @foreach (var pair in Model.Pairs)
-                {
-                    var isActive = pair.PartnerAId == statement.PartnerAId && pair.PartnerBId == statement.PartnerBId;
-                    <a class="ak-party-switch-option @(isActive ? "is-active" : null)"
-                       aria-current="@(isActive ? "true" : null)"
-                       href="@Url.Action("Index", new { partnerAId = pair.PartnerAId, partnerBId = pair.PartnerBId })">
-                        @pair.PartnerAName ↔ @pair.PartnerBName
-                    </a>
-                }
-            </div>
-        </div>
-
-        @if (statement.ContractOptions.Count > 1)
-        {
-            <form method="get" asp-action="Index" class="ak-list-toolbar">
-                <input type="hidden" name="partnerAId" value="@statement.PartnerAId" />
-                <input type="hidden" name="partnerBId" value="@statement.PartnerBId" />
-                @foreach (var option in statement.ContractOptions)
-                {
-                    <label class="ak-label" for="contract-@option.ContractId">
-                        <input class="ak-check" type="checkbox" id="contract-@option.ContractId"
-                               name="contractIds" value="@option.ContractId" checked="@option.IsSelected" />
-                        @option.ContractLabel
-                    </label>
-                }
-                <div class="ak-list-toolbar-actions">
-                    <button type="submit" class="btn btn-light">
-                        <i class="bi bi-funnel" aria-hidden="true"></i>
-                        <span>اعمال</span>
-                    </button>
-                </div>
-            </form>
-        }
-
         var totalA = statement.Totals.First(t => t.PartnerId == statement.PartnerAId);
         var totalB = statement.Totals.First(t => t.PartnerId == statement.PartnerBId);
+        var partnerTotals = new[] { totalA, totalB };
 
-        <section class="ak-form-section">
-            <div class="ak-section-head">
-                <div>
-                    <h2 class="ak-section-title">خلاصهٔ حساب شراکت</h2>
-                    <p class="ak-section-desc">@statement.PartnerAName ↔ @statement.PartnerBName</p>
-                </div>
-            </div>
+        // ماندهٔ هر شریک در یک قرارداد با تسویه‌هایی که روی همان قرارداد ثبت شده — همان قاعدهٔ
+        // پروفایل شریک (PartnershipStatementService.BuildPartnerAccountsAsync). تسویهٔ بدون قرارداد
+        // جدا در ردیف «پرداخت کلی بین شرکا» می‌آید، پس جمع ردیف‌ها همان ماندهٔ نهایی است.
+        var allSettlements = statement.Settlements;
+        PartnershipPartnerTotals? ContractPosition(PartnershipContractStatement contract, int partnerId)
+        {
+            var own = contract.Partners.FirstOrDefault(p => p.PartnerId == partnerId);
+            if (own is null)
+            {
+                return null;
+            }
 
+            var tagged = allSettlements
+                .Where(s => !s.IsReversed && s.ContractId == contract.ContractId)
+                .ToList();
+            return own with
+            {
+                SettlementsPaidUsd = tagged.Where(s => s.FromPartnerId == partnerId).Sum(s => s.AmountUsd),
+                SettlementsReceivedUsd = tagged.Where(s => s.ToPartnerId == partnerId).Sum(s => s.AmountUsd)
+            };
+        }
+
+        var generalSettlements = statement.Settlements
+            .Where(s => !s.IsReversed && !s.ContractId.HasValue)
+            .ToList();
+        decimal GeneralEffect(int partnerId)
+            => generalSettlements.Where(s => s.FromPartnerId == partnerId).Sum(s => s.AmountUsd)
+               - generalSettlements.Where(s => s.ToPartnerId == partnerId).Sum(s => s.AmountUsd);
+
+        // جابه‌جایی بین جفت‌شریک‌ها در سرِ کارت نتیجه — همان سوئیچِ کارتِ حسابِ طرف‌حساب‌ها.
+        var pairOptions = Model.Pairs.Count > 1
+            ? Model.Pairs.Select(pair => new AkPartyToggleOption
+                {
+                    Label = $"{pair.PartnerAName} ↔ {pair.PartnerBName}",
+                    Href = Url.Action("Index", new { partnerAId = pair.PartnerAId, partnerBId = pair.PartnerBId }) ?? "#",
+                    IsActive = pair.PartnerAId == statement.PartnerAId && pair.PartnerBId == statement.PartnerBId
+                }).ToList()
+            : new List<AkPartyToggleOption>();
+
+
+        @* ===== ۱. نتیجه: یک جمله و یک عدد ===== *@
+        if (statement.DebtorPartnerId.HasValue)
+        {
+            var amountDueText = Money(statement.AmountDueUsd);
+            var resultCard = new AkPartyAccountCard
+            {
+                Title = "نتیجهٔ حساب",
+                Meaning = $"{statement.DebtorPartnerName} باید {amountDueText} دالر به {statement.CreditorPartnerName} بپردازد.",
+                MeaningTone = "danger",
+                ToggleOptions = pairOptions,
+                ToggleLabel = "انتخاب شرکا",
+                Facts = new List<AkInfoItem>
+                {
+                    new() { Label = "مبلغ قابل تسویه", Value = amountDueText, Unit = "USD", IsNumeric = true },
+                    new() { Label = "بدهکار", Value = statement.DebtorPartnerName },
+                    new() { Label = "طلبکار", Value = statement.CreditorPartnerName }
+                }
+            };
+            <partial name="~/Views/Shared/Components/Ak/_AkPartyAccountCard.cshtml" model="@resultCard" />
+        }
+        else
+        {
+            var settledCard = new AkPartyAccountCard
+            {
+                Title = "نتیجهٔ حساب",
+                Meaning = $"حساب {statement.PartnerAName} و {statement.PartnerBName} در قراردادهای انتخاب‌شده تسویه است.",
+                ToggleOptions = pairOptions,
+                ToggleLabel = "انتخاب شرکا"
+            };
+            <partial name="~/Views/Shared/Components/Ak/_AkPartyAccountCard.cshtml" model="@settledCard" />
+        }
+
+        if (statement.ContractOptions.Count > 1)
+        {
+            <details class="ak-advanced">
+                <summary class="ak-advanced-summary">
+                    قراردادهای این حساب:
+                    @statement.ContractOptions.Count(o => o.IsSelected).ToString("N0") از @statement.ContractOptions.Count.ToString("N0")
+                </summary>
+                <form method="get" asp-action="Index" class="ak-advanced-body ak-detail-toolbar">
+                    <input type="hidden" name="partnerAId" value="@statement.PartnerAId" />
+                    <input type="hidden" name="partnerBId" value="@statement.PartnerBId" />
+                    @foreach (var option in statement.ContractOptions)
+                    {
+                        <label class="ak-label" for="contract-@option.ContractId">
+                            <input class="ak-check" type="checkbox" id="contract-@option.ContractId"
+                                   name="contractIds" value="@option.ContractId" checked="@option.IsSelected" />
+                            @option.ContractLabel
+                        </label>
+                    }
+                    <button type="submit" class="btn btn-light">
+                        <i class="bi bi-funnel" aria-hidden="true"></i>
+                        <span>نمایش</span>
+                    </button>
+                </form>
+            </details>
+        }
+
+        @* ===== ۲. حساب هر شریک — چطور به این نتیجه رسیدیم ===== *@
+        <section class="ak-form-section ak-detail-section">
+            <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                     model="@(("حساب هر شریک", "«+» طلب شریک را بیشتر می‌کند و «−» آن را کم می‌کند."))" />
             <div class="ak-table-wrap">
-                <table class="ak-table">
+                <table class="ak-table ak-detail-table">
                     <thead>
                         <tr>
                             <th class="ak-col-grow">شرح</th>
@@ -122,321 +190,367 @@
                     </thead>
                     <tbody>
                         <tr>
-                            <td class="ak-col-grow">پرداخت / سرمایهٔ گذاشته‌شده</td>
-                            <td class="ak-col-num ak-num">@Money(totalA.FundingUsd)</td>
-                            <td class="ak-col-num ak-num">@Money(totalB.FundingUsd)</td>
+                            <td class="ak-col-grow">پولی که در قراردادها گذاشته</td>
+                            @foreach (var total in partnerTotals)
+                            {
+                                <td class="ak-col-num ak-num"><bdi dir="ltr">@Effect(total.FundingUsd, false)</bdi></td>
+                            }
                         </tr>
                         <tr>
-                            <td class="ak-col-grow">عواید فروش نزد شریک</td>
-                            <td class="ak-col-num ak-num">@Money(totalA.ProceedsHeldUsd)</td>
-                            <td class="ak-col-num ak-num">@Money(totalB.ProceedsHeldUsd)</td>
+                            <td class="ak-col-grow">سهم سود (یا ضرر) از فروش‌ها</td>
+                            @foreach (var total in partnerTotals)
+                            {
+                                <td class="ak-col-num ak-num"><bdi dir="ltr">@Effect(total.ProfitShareUsd, false)</bdi></td>
+                            }
                         </tr>
-                        <tr>
-                            <td class="ak-col-grow">سهم مفاد محقق</td>
-                            <td class="ak-col-num ak-num">@Money(totalA.ProfitShareUsd)</td>
-                            <td class="ak-col-num ak-num">@Money(totalB.ProfitShareUsd)</td>
-                        </tr>
-                        <tr>
-                            <td class="ak-col-grow">سهم هزینهٔ کالای فروخته‌نشده</td>
-                            <td class="ak-col-num ak-num">@Money(totalA.UnsoldCostShareUsd)</td>
-                            <td class="ak-col-num ak-num">@Money(totalB.UnsoldCostShareUsd)</td>
-                        </tr>
-                        <tr>
-                            <td class="ak-col-grow">تسویهٔ پرداخت‌شده به شریک دیگر</td>
-                            <td class="ak-col-num ak-num">@Money(totalA.SettlementsPaidUsd)</td>
-                            <td class="ak-col-num ak-num">@Money(totalB.SettlementsPaidUsd)</td>
-                        </tr>
-                        <tr>
-                            <td class="ak-col-grow">تسویهٔ دریافت‌شده از شریک دیگر</td>
-                            <td class="ak-col-num ak-num">@Money(totalA.SettlementsReceivedUsd)</td>
-                            <td class="ak-col-num ak-num">@Money(totalB.SettlementsReceivedUsd)</td>
-                        </tr>
+                        @if (partnerTotals.Any(t => t.ProceedsHeldUsd != 0m))
+                        {
+                            <tr>
+                                <td class="ak-col-grow">پول فروش که نزد خودش مانده</td>
+                                @foreach (var total in partnerTotals)
+                                {
+                                    <td class="ak-col-num ak-num"><bdi dir="ltr">@Effect(total.ProceedsHeldUsd, true)</bdi></td>
+                                }
+                            </tr>
+                        }
+                        @if (partnerTotals.Any(t => t.UnsoldCostShareUsd != 0m))
+                        {
+                            <tr>
+                                <td class="ak-col-grow">سهم هزینهٔ جنسی که هنوز فروخته نشده</td>
+                                @foreach (var total in partnerTotals)
+                                {
+                                    <td class="ak-col-num ak-num"><bdi dir="ltr">@Effect(total.UnsoldCostShareUsd, true)</bdi></td>
+                                }
+                            </tr>
+                        }
+                        @if (partnerTotals.Any(t => t.SettlementsPaidUsd != 0m || t.SettlementsReceivedUsd != 0m))
+                        {
+                            <tr>
+                                <td class="ak-col-grow">پولی که به شریک داده</td>
+                                @foreach (var total in partnerTotals)
+                                {
+                                    <td class="ak-col-num ak-num"><bdi dir="ltr">@Effect(total.SettlementsPaidUsd, false)</bdi></td>
+                                }
+                            </tr>
+                            <tr>
+                                <td class="ak-col-grow">پولی که از شریک گرفته</td>
+                                @foreach (var total in partnerTotals)
+                                {
+                                    <td class="ak-col-num ak-num"><bdi dir="ltr">@Effect(total.SettlementsReceivedUsd, true)</bdi></td>
+                                }
+                            </tr>
+                        }
                         <tr class="ak-table-total">
-                            <td class="ak-col-grow">مانده — مثبت یعنی طلبکار، منفی یعنی بدهکار</td>
-                            <td class="ak-col-num ak-num">@Money(totalA.NetPositionUsd)</td>
-                            <td class="ak-col-num ak-num">@Money(totalB.NetPositionUsd)</td>
+                            <td class="ak-col-grow">نتیجه</td>
+                            @foreach (var total in partnerTotals)
+                            {
+                                <td class="ak-col-num">
+                                    <span class="ak-status @PositionClass(total.NetPositionUsd)">@PositionLabel(total.NetPositionUsd)</span>
+                                    @if (total.NetPositionUsd != 0m)
+                                    {
+                                        <span class="ak-num">@Money(Math.Abs(total.NetPositionUsd))</span>
+                                    }
+                                </td>
+                            }
                         </tr>
                     </tbody>
                 </table>
             </div>
-
-            @{
-                var bookProfitTotal = statement.Contracts.Sum(c => c.BookProfitUsd);
-                var paymentToBookTotal = statement.Contracts.Sum(c => c.PaymentToBookDifferenceUsd);
-            }
-            <div class="ak-table-wrap">
-                <table class="ak-table">
-                    <thead>
-                        <tr>
-                            <th class="ak-col-grow">مبنای مفاد و تطبیق</th>
-                            <th>منبع</th>
-                            <th class="ak-col-num">مبلغ (USD)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td class="ak-col-grow">مفاد قرارداد — فروش منهای خرید و مصارف</td>
-                            <td>@PartnershipStatementSources.Book</td>
-                            <td class="ak-col-num ak-num">@Money(bookProfitTotal)</td>
-                        </tr>
-                        <tr>
-                            <td class="ak-col-grow">تفاوت تطبیق پرداخت با دفتر</td>
-                            <td>@PartnershipStatementSources.Reconciliation</td>
-                            <td class="ak-col-num ak-num">@Money(paymentToBookTotal)</td>
-                        </tr>
-                        <tr>
-                            <td class="ak-col-grow">باقیماندهٔ تطبیق‌نشده — جمع مانده دو شریک</td>
-                            <td>@PartnershipStatementSources.Reconciliation</td>
-                            <td class="ak-col-num ak-num">@Money(statement.UnreconciledResidualUsd)</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <p class="ak-note">
-                سهم مفاد هر شریک از «مفاد قرارداد» گرفته می‌شود، نه از پرداخت شرکا. چون جمع پرداخت
-                شرکا با خرید و مصارف ثبت‌شده دقیقاً برابر نیست، جمع مانده دو شریک صفر نمی‌شود و آن
-                اختلاف در ردیف «باقیماندهٔ تطبیق‌نشده» بالا صریح آمده است.
-            </p>
-
-            @if (statement.DebtorPartnerId.HasValue)
+            @if (statement.UnreconciledResidualUsd != 0m)
             {
-                @* یک عدد، نه دو. طلبِ شریکِ طلبکار به اندازهٔ باقیماندهٔ تطبیق‌نشده با بدهیِ شریکِ
-                   بدهکار فرق دارد؛ آن عدد «مانده نهایی» نیست و اینجا فقط به‌عنوان تفاوت تطبیق
-                   با متن کوچک می‌آید. هیچ سیاست حسابداری برای تقسیم این باقیمانده وجود ندارد،
-                   پس هیچ میانگینی از دو مانده ساخته نمی‌شود. *@
-                <dl class="ak-summary-list">
-                    <div>
-                        <dt>@statement.DebtorPartnerName</dt>
-                        <dd>
-                            <i class="bi bi-arrow-left" aria-hidden="true"></i>
-                            <bdi>@statement.CreditorPartnerName</bdi>
-                        </dd>
-                    </div>
-                    <div>
-                        <dt>مبلغ قابل تسویه</dt>
-                        <dd class="ak-num" dir="ltr">@Money(statement.AmountDueUsd) USD</dd>
-                    </div>
-                </dl>
-                @if (statement.UnreconciledResidualUsd != 0m)
-                {
-                    <p class="ak-note">
-                        تفاوت تطبیق با دفتر:
-                        <bdi dir="ltr">@Money(statement.UnreconciledResidualUsd) USD</bdi>
-                        — به مفاد، پرداخت، فروش یا تسویه اضافه نشده است.
-                    </p>
-                }
-            }
-            else
-            {
-                <p class="ak-note">حساب دو شریک در قراردادهای انتخاب‌شده تسویه است.</p>
+                <p class="ak-note">
+                    جمع ماندهٔ دو شریک صفر نیست. تفاوت تطبیق با دفتر:
+                    <bdi dir="ltr">@Money(statement.UnreconciledResidualUsd) USD</bdi>
+                    — به هیچ شریکی اضافه یا کم نشده است؛ شرح آن در «تطبیق با دفتر» پایین صفحه آمده است.
+                </p>
             }
         </section>
 
-        @foreach (var contract in statement.Contracts)
-        {
-            <section class="ak-form-section">
-                <div class="ak-section-head">
-                    <div>
-                        <h2 class="ak-section-title">@contract.ContractLabel</h2>
-                        <p class="ak-section-desc">ارز قرارداد: @contract.Currency</p>
-                    </div>
-                </div>
-
-                <div class="ak-table-wrap">
-                    <table class="ak-table">
-                        <thead>
-                            <tr>
-                                <th class="ak-col-grow">شرح</th>
-                                <th>منبع</th>
-                                <th class="ak-col-num">مبلغ (USD)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var partner in contract.Partners)
-                            {
-                                <tr>
-                                    <td class="ak-col-grow">پرداخت @partner.PartnerName</td>
-                                    <td>@PartnershipStatementSources.Payment</td>
-                                    <td class="ak-col-num ak-num">@Money(partner.FundingUsd)</td>
-                                </tr>
-                            }
-                            <tr class="ak-table-total">
-                                <td class="ak-col-grow">جمع پرداخت شرکا</td>
-                                <td>@PartnershipStatementSources.Payment</td>
-                                <td class="ak-col-num ak-num">@Money(contract.TotalPartnerFundingUsd)</td>
-                            </tr>
+        @* ===== ۳. هر قرارداد — کدام شریک چقدر طلبکار یا بدهکار است ===== *@
+        <section class="ak-form-section ak-detail-section">
+            <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                     model="@(("قراردادها", "وضعیت هر شریک در هر قرارداد، با پرداخت‌های بین شرکا که روی همان قرارداد ثبت شده."))" />
+            <div class="ak-table-wrap">
+                <table class="ak-table ak-detail-table">
+                    <thead>
+                        <tr>
+                            <th class="ak-col-grow">قرارداد</th>
+                            <th class="ak-col-num">سود قرارداد (USD)</th>
+                            <th>پول فروش نزد</th>
+                            <th class="ak-col-num">@totalA.PartnerName</th>
+                            <th class="ak-col-num">@totalB.PartnerName</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var contract in statement.Contracts)
+                        {
                             <tr>
                                 <td class="ak-col-grow">
-                                    فروش —
-                                    @if (!string.IsNullOrWhiteSpace(contract.ProceedsHolderPartnerName))
-                                    {
-                                        <span>عاید نزد @contract.ProceedsHolderPartnerName</span>
-                                    }
-                                    else
-                                    {
-                                        <span>نگهدارندهٔ عاید هنوز ثبت نشده</span>
-                                    }
+                                    <a class="ak-name" asp-controller="ContractJourney" asp-action="Details"
+                                       asp-route-contractId="@contract.ContractId">@contract.ContractLabel</a>
                                 </td>
-                                <td>@PartnershipStatementSources.Sale</td>
-                                <td class="ak-col-num ak-num">@Money(contract.SalesUsd)</td>
-                            </tr>
-                            <tr>
-                                <td class="ak-col-grow">خرید ثبت‌شده — بارگیری قرارداد</td>
-                                <td>@PartnershipStatementSources.Loading</td>
-                                <td class="ak-col-num ak-num">@Money(contract.PurchaseCostUsd)</td>
-                            </tr>
-                            <tr>
-                                <td class="ak-col-grow">مصارف ثبت‌شدهٔ قرارداد</td>
-                                <td>@PartnershipStatementSources.Expense</td>
-                                <td class="ak-col-num ak-num">@Money(contract.OperationalExpenseUsd)</td>
-                            </tr>
-                            <tr class="ak-table-total">
-                                <td class="ak-col-grow">مفاد محقق قرارداد — فروش منهای بهای کالای فروخته‌شده و سهم مصارف، ± اثر ارزی</td>
-                                <td>@PartnershipStatementSources.Book</td>
                                 <td class="ak-col-num ak-num">@Money(contract.BookProfitUsd)</td>
-                            </tr>
-                            @if (contract.UnrealizedCostCarriedUsd != 0m)
-                            {
-                                <tr>
-                                    <td class="ak-col-grow">هزینهٔ کالای هنوز فروخته‌نشده — به نسبت سهم بین شرکا</td>
-                                    <td>@PartnershipStatementSources.Book</td>
-                                    <td class="ak-col-num ak-num">@Money(contract.UnrealizedCostCarriedUsd)</td>
-                                </tr>
-                            }
-                            @foreach (var partner in contract.Partners)
-                            {
-                                <tr>
-                                    <td class="ak-col-grow">
-                                        @* PTG ۱۲-C — درصدِ امروز یک برچسب است، نه ضریبِ این عدد. اگر قرارداد
-                                           چند بازهٔ سهم داشته، مفاد ترکیبی است و نوشتنِ تنها درصدِ جاری گمراه‌کننده است. *@
-                                        سهم مفاد @partner.PartnerName —
-                                        @if (partner.SpansMultipleSharePeriods)
+                                <td>@(contract.ProceedsHolderPartnerName ?? "ثبت نشده")</td>
+                                @foreach (var partnerId in new[] { statement.PartnerAId, statement.PartnerBId })
+                                {
+                                    var position = ContractPosition(contract, partnerId);
+                                    <td class="ak-col-num">
+                                        @if (position is null)
                                         {
-                                            <text>سهم فعلی: @partner.SharePercent.ToString("0.##")٪</text>
-                                            <span class="ak-cell-note">محاسبهٔ تاریخی شامل @partner.SharePeriodCount.ToString("N0") بازهٔ سهم است</span>
+                                            <span>—</span>
                                         }
                                         else
                                         {
-                                            <text>@partner.SharePercent.ToString("0.##")٪</text>
+                                            <span class="ak-status @PositionClass(position.NetPositionUsd)">@PositionLabel(position.NetPositionUsd)</span>
+                                            @if (position.NetPositionUsd != 0m)
+                                            {
+                                                <span class="ak-num">@Money(Math.Abs(position.NetPositionUsd))</span>
+                                            }
                                         }
                                     </td>
-                                    <td>@PartnershipStatementSources.Book</td>
-                                    <td class="ak-col-num ak-num">@Money(partner.ProfitShareUsd)</td>
-                                </tr>
-                            }
-                            <tr>
-                                <td class="ak-col-grow">تفاوت تطبیق پرداخت با دفتر — جمع پرداخت شرکا منهای خرید و مصارف</td>
-                                <td>@PartnershipStatementSources.Reconciliation</td>
-                                <td class="ak-col-num ak-num">@Money(contract.PaymentToBookDifferenceUsd)</td>
+                                }
                             </tr>
-                            @foreach (var partner in contract.Partners)
+                        }
+                        @if (generalSettlements.Count > 0)
+                        {
+                            <tr>
+                                <td class="ak-col-grow">پرداخت کلی بین شرکا — بدون قرارداد</td>
+                                <td class="ak-col-num">—</td>
+                                <td>—</td>
+                                @foreach (var partnerId in new[] { statement.PartnerAId, statement.PartnerBId })
+                                {
+                                    <td class="ak-col-num ak-num"><bdi dir="ltr">@Effect(GeneralEffect(partnerId), false)</bdi></td>
+                                }
+                            </tr>
+                        }
+                        <tr class="ak-table-total">
+                            <td class="ak-col-grow">جمع</td>
+                            <td class="ak-col-num ak-num">@Money(statement.Contracts.Sum(c => c.BookProfitUsd))</td>
+                            <td></td>
+                            @foreach (var total in partnerTotals)
                             {
-                                <tr class="ak-table-total">
-                                    <td class="ak-col-grow">مانده @partner.PartnerName در این قرارداد</td>
-                                    <td>—</td>
-                                    <td class="ak-col-num ak-num">@Money(partner.NetPositionUsd)</td>
-                                </tr>
+                                <td class="ak-col-num">
+                                    <span class="ak-status @PositionClass(total.NetPositionUsd)">@PositionLabel(total.NetPositionUsd)</span>
+                                    @if (total.NetPositionUsd != 0m)
+                                    {
+                                        <span class="ak-num">@Money(Math.Abs(total.NetPositionUsd))</span>
+                                    }
+                                </td>
                             }
-                            @if (contract.UnreconciledResidualUsd != 0m)
-                            {
-                                <tr>
-                                    <td class="ak-col-grow">باقیماندهٔ تطبیق‌نشده — جمع مانده دو شریک</td>
-                                    <td>@PartnershipStatementSources.Reconciliation</td>
-                                    <td class="ak-col-num ak-num">@Money(contract.UnreconciledResidualUsd)</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-
-                <details class="ak-advanced">
-                    <summary class="ak-advanced-summary">جزئیات ردیف‌ها</summary>
-
-                    <div class="ak-table-wrap">
-                        <table class="ak-table">
-                            <thead>
-                                <tr>
-                                    <th>تاریخ</th>
-                                    <th class="ak-col-grow">شرح</th>
-                                    <th>منبع</th>
-                                    <th>شریک</th>
-                                    <th class="ak-col-num">مبلغ (USD)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var line in contract.Lines)
-                                {
-                                    var lineOwner = line.PartnerId.HasValue
-                                        ? statement.Totals.FirstOrDefault(t => t.PartnerId == line.PartnerId.Value)?.PartnerName
-                                        : null;
-                                    <tr>
-                                        <td>@line.Date.ToDisplayDate()</td>
-                                        <td class="ak-col-grow">@line.Title</td>
-                                        <td>@line.Source</td>
-                                        <td>@(lineOwner ?? "—")</td>
-                                        <td class="ak-col-num ak-num">@Money(line.AmountUsd)</td>
-                                    </tr>
-                                }
-                                @if (contract.Lines.Count == 0)
-                                {
-                                    <tr>
-                                        <td colspan="5"><div class="ak-empty">ردیفی برای این قرارداد ثبت نشده است.</div></td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                </details>
-
-                @if (canManage)
-                {
-                    <form method="post" asp-action="SetProceedsHolder" class="ak-list-toolbar" data-no-spa="true">
-                        @Html.AntiForgeryToken()
-                        <input type="hidden" name="contractId" value="@contract.ContractId" />
-                        <input type="hidden" name="returnUrl" value="@returnUrl" />
-                        <div class="ak-field">
-                            <label class="ak-label" for="holder-@contract.ContractId">عاید فروش نزد کدام شریک است؟</label>
-                            <select class="ak-input" data-ak-entity-combobox id="holder-@contract.ContractId" name="partnerId">
-                                <option value="">— ثبت نشده —</option>
-                                @foreach (var partner in contract.Partners)
-                                {
-                                    <option value="@partner.PartnerId"
-                                            selected="@(contract.ProceedsHolderPartnerId == partner.PartnerId)">@partner.PartnerName</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="ak-list-toolbar-actions">
-                            <button type="submit" class="btn btn-light">
-                                <i class="bi bi-check2" aria-hidden="true"></i>
-                                <span>ثبت</span>
-                            </button>
-                        </div>
-                    </form>
-                }
-            </section>
-        }
-
-        <section class="ak-form-section">
-            <div class="ak-section-head">
-                <div>
-                    <h2 class="ak-section-title">تسویه حساب شراکت</h2>
-                    <p class="ak-section-desc">
-                        یادداشت حساب شراکت — انتقال پول از جیب یک شریک به شریک دیگر، بدون حرکت صندوق یا بانک شرکت.
-                        اگر پول از حساب نقد/بانک/صراف شرکت رفته، همان را در روزنامچه ثبت کنید نه اینجا.
-                    </p>
-                </div>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
+
+            <details class="ak-advanced">
+                <summary class="ak-advanced-summary">جزئیات هر قرارداد — فروش، خرید، مصارف، سهم‌ها و ثبت «پول فروش نزد»</summary>
+                <div class="ak-advanced-body">
+                    @foreach (var contract in statement.Contracts)
+                    {
+                        <details class="ak-advanced">
+                            <summary class="ak-advanced-summary">@contract.ContractLabel</summary>
+                            <div class="ak-advanced-body">
+                                <dl class="ak-summary-list">
+                                    <div>
+                                        <dt>فروش</dt>
+                                        <dd class="ak-num" dir="ltr">@Money(contract.SalesUsd) USD</dd>
+                                    </div>
+                                    <div>
+                                        <dt>خرید</dt>
+                                        <dd class="ak-num" dir="ltr">@Money(contract.PurchaseCostUsd) USD</dd>
+                                    </div>
+                                    <div>
+                                        <dt>مصارف</dt>
+                                        <dd class="ak-num" dir="ltr">@Money(contract.OperationalExpenseUsd) USD</dd>
+                                    </div>
+                                    <div>
+                                        <dt>سود قرارداد (فروش‌های انجام‌شده)</dt>
+                                        <dd class="ak-num" dir="ltr">@Money(contract.BookProfitUsd) USD</dd>
+                                    </div>
+                                    @if (contract.UnrealizedCostCarriedUsd != 0m)
+                                    {
+                                        <div>
+                                            <dt>هزینهٔ جنس هنوز فروخته‌نشده</dt>
+                                            <dd class="ak-num" dir="ltr">@Money(contract.UnrealizedCostCarriedUsd) USD</dd>
+                                        </div>
+                                    }
+                                    <div>
+                                        <dt>ارز قرارداد</dt>
+                                        <dd>@contract.Currency</dd>
+                                    </div>
+                                </dl>
+
+                                <div class="ak-table-wrap">
+                                    <table class="ak-table ak-detail-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="ak-col-grow">شرح</th>
+                                                @foreach (var partner in contract.Partners)
+                                                {
+                                                    <th class="ak-col-num">@partner.PartnerName</th>
+                                                }
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td class="ak-col-grow">سهم</td>
+                                                @foreach (var partner in contract.Partners)
+                                                {
+                                                    @* PTG ۱۲-C — درصدِ امروز یک برچسب است، نه ضریبِ مفاد؛ چند بازهٔ سهم صریح گفته می‌شود. *@
+                                                    <td class="ak-col-num">
+                                                        <span class="ak-num">@partner.SharePercent.ToString("0.##")٪</span>
+                                                        @if (partner.SpansMultipleSharePeriods)
+                                                        {
+                                                            <span class="ak-cell-note">سهم فعلی؛ مفاد از @partner.SharePeriodCount.ToString("N0") بازهٔ سهم حساب شده</span>
+                                                        }
+                                                    </td>
+                                                }
+                                            </tr>
+                                            <tr>
+                                                <td class="ak-col-grow">پولی که گذاشته</td>
+                                                @foreach (var partner in contract.Partners)
+                                                {
+                                                    <td class="ak-col-num ak-num"><bdi dir="ltr">@Effect(partner.FundingUsd, false)</bdi></td>
+                                                }
+                                            </tr>
+                                            <tr>
+                                                <td class="ak-col-grow">سهم سود (یا ضرر)</td>
+                                                @foreach (var partner in contract.Partners)
+                                                {
+                                                    <td class="ak-col-num ak-num"><bdi dir="ltr">@Effect(partner.ProfitShareUsd, false)</bdi></td>
+                                                }
+                                            </tr>
+                                            <tr>
+                                                <td class="ak-col-grow">پول فروش که نزد خودش مانده</td>
+                                                @foreach (var partner in contract.Partners)
+                                                {
+                                                    <td class="ak-col-num ak-num"><bdi dir="ltr">@Effect(partner.ProceedsHeldUsd, true)</bdi></td>
+                                                }
+                                            </tr>
+                                            @if (contract.Partners.Any(p => p.UnsoldCostShareUsd != 0m))
+                                            {
+                                                <tr>
+                                                    <td class="ak-col-grow">سهم هزینهٔ جنس هنوز فروخته‌نشده</td>
+                                                    @foreach (var partner in contract.Partners)
+                                                    {
+                                                        <td class="ak-col-num ak-num"><bdi dir="ltr">@Effect(partner.UnsoldCostShareUsd, true)</bdi></td>
+                                                    }
+                                                </tr>
+                                            }
+                                            @{
+                                                var positions = contract.Partners
+                                                    .Select(p => ContractPosition(contract, p.PartnerId)!)
+                                                    .ToList();
+                                            }
+                                            @if (positions.Any(p => p.SettlementsPaidUsd != 0m || p.SettlementsReceivedUsd != 0m))
+                                            {
+                                                <tr>
+                                                    <td class="ak-col-grow">پرداخت بین شرکا در همین قرارداد</td>
+                                                    @foreach (var position in positions)
+                                                    {
+                                                        <td class="ak-col-num ak-num"><bdi dir="ltr">@Effect(position.SettlementsPaidUsd - position.SettlementsReceivedUsd, false)</bdi></td>
+                                                    }
+                                                </tr>
+                                            }
+                                            <tr class="ak-table-total">
+                                                <td class="ak-col-grow">نتیجه در این قرارداد</td>
+                                                @foreach (var position in positions)
+                                                {
+                                                    <td class="ak-col-num">
+                                                        <span class="ak-status @PositionClass(position.NetPositionUsd)">@PositionLabel(position.NetPositionUsd)</span>
+                                                        @if (position.NetPositionUsd != 0m)
+                                                        {
+                                                            <span class="ak-num">@Money(Math.Abs(position.NetPositionUsd))</span>
+                                                        }
+                                                    </td>
+                                                }
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                @if (canManage)
+                                {
+                                    <form method="post" asp-action="SetProceedsHolder" class="ak-detail-toolbar" data-no-spa="true">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="contractId" value="@contract.ContractId" />
+                                        <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                        <div class="ak-field">
+                                            <label class="ak-label" for="holder-@contract.ContractId">پول فروش این قرارداد نزد کدام شریک است؟</label>
+                                            <select class="ak-input" data-ak-entity-combobox id="holder-@contract.ContractId" name="partnerId">
+                                                <option value="">— ثبت نشده —</option>
+                                                @foreach (var partner in contract.Partners)
+                                                {
+                                                    <option value="@partner.PartnerId"
+                                                            selected="@(contract.ProceedsHolderPartnerId == partner.PartnerId)">@partner.PartnerName</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <button type="submit" class="btn btn-light">
+                                            <i class="bi bi-check2" aria-hidden="true"></i>
+                                            <span>ثبت</span>
+                                        </button>
+                                    </form>
+                                }
+
+                                <details class="ak-advanced">
+                                    <summary class="ak-advanced-summary">ردیف‌های ثبت‌شده (@contract.Lines.Count.ToString("N0"))</summary>
+                                    <div class="ak-advanced-body ak-table-wrap">
+                                        <table class="ak-table ak-detail-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>تاریخ</th>
+                                                    <th class="ak-col-grow">شرح</th>
+                                                    <th>منبع</th>
+                                                    <th>شریک</th>
+                                                    <th class="ak-col-num">مبلغ (USD)</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var line in contract.Lines)
+                                                {
+                                                    var lineOwner = line.PartnerId.HasValue
+                                                        ? statement.Totals.FirstOrDefault(t => t.PartnerId == line.PartnerId.Value)?.PartnerName
+                                                        : null;
+                                                    <tr>
+                                                        <td>@line.Date.ToDisplayDate()</td>
+                                                        <td class="ak-col-grow">@line.Title</td>
+                                                        <td>@line.Source</td>
+                                                        <td>@(lineOwner ?? "—")</td>
+                                                        <td class="ak-col-num ak-num">@Money(line.AmountUsd)</td>
+                                                    </tr>
+                                                }
+                                                @if (contract.Lines.Count == 0)
+                                                {
+                                                    <tr>
+                                                        <td colspan="5"><div class="ak-empty">ردیفی برای این قرارداد ثبت نشده است.</div></td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </details>
+                            </div>
+                        </details>
+                    }
+                </div>
+            </details>
+        </section>
+
+        @* ===== ۴. پرداخت‌های بین شرکا ===== *@
+        <section class="ak-form-section ak-detail-section">
+            <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
+                     model="@(("پرداخت‌های بین شرکا", "پولی که یک شریک مستقیم به شریک دیگر داده؛ صندوق، بانک یا صراف شرکت در آن حرکت نکرده است."))" />
             <div class="ak-table-wrap">
-                <table class="ak-table">
+                <table class="ak-table ak-detail-table">
                     <thead>
                         <tr>
                             <th>تاریخ</th>
-                            <th>از شریک</th>
-                            <th>به شریک</th>
+                            <th>پرداخت‌کننده</th>
+                            <th>گیرنده</th>
                             <th class="ak-col-num">مبلغ</th>
-                            <th>قرارداد / مرجع</th>
+                            <th>بابت</th>
                             <th class="ak-col-grow">توضیح</th>
-                            <th class="ak-col-num">مانده پس از تسویه</th>
                             <th>وضعیت</th>
                             @if (canManage)
                             {
@@ -451,10 +565,15 @@
                                 <td>@row.SettlementDate.ToDisplayDate()</td>
                                 <td>@row.FromPartnerName</td>
                                 <td>@row.ToPartnerName</td>
-                                <td class="ak-col-num ak-num">@Money(row.Amount) @row.Currency</td>
-                                <td>@(row.ContractLabel ?? row.Reference ?? "—")</td>
-                                <td class="ak-col-grow">@(row.Description ?? "—")</td>
-                                <td class="ak-col-num ak-num">@Money(row.RunningBalanceAfterUsd)</td>
+                                <td class="ak-col-num ak-num" dir="ltr">@Money(row.Amount) @row.Currency</td>
+                                <td>@(row.ContractLabel ?? "حساب کلی")</td>
+                                <td class="ak-col-grow">
+                                    @(row.Description ?? "—")
+                                    @if (!string.IsNullOrWhiteSpace(row.Reference))
+                                    {
+                                        <span class="ak-cell-note">مرجع: @row.Reference</span>
+                                    }
+                                </td>
                                 <td>
                                     <span class="ak-status @(row.IsReversed ? "is-inactive" : "is-active")">
                                         @(row.IsReversed ? "برگشت‌خورده" : "فعال")
@@ -467,13 +586,13 @@
                                         {
                                             <form method="post" asp-action="ReverseSettlement" data-no-spa="true"
                                                   data-ptg-confirm="true"
-                                                  data-ptg-confirm-title="برگشت تسویه"
-                                                  data-ptg-confirm-message="این تسویه برگشت می‌خورد و از مانده کنار می‌رود. تاریخچه پاک نمی‌شود.">
+                                                  data-ptg-confirm-title="برگشت پرداخت بین شرکا"
+                                                  data-ptg-confirm-message="این پرداخت برگشت می‌خورد و از حساب کنار می‌رود. تاریخچه پاک نمی‌شود.">
                                                 @Html.AntiForgeryToken()
                                                 <input type="hidden" name="id" value="@row.Id" />
                                                 <input type="hidden" name="returnUrl" value="@returnUrl" />
                                                 <button type="submit" class="btn btn-link text-danger p-0"
-                                                        title="برگشت تسویه" aria-label="برگشت تسویه">
+                                                        title="برگشت پرداخت" aria-label="برگشت پرداخت">
                                                     <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
                                                 </button>
                                             </form>
@@ -485,10 +604,10 @@
                         @if (statement.Settlements.Count == 0)
                         {
                             <tr>
-                                <td colspan="@(canManage ? 9 : 8)">
+                                <td colspan="@(canManage ? 8 : 7)">
                                     <div class="ak-empty">
                                         <i class="bi bi-cash-coin" aria-hidden="true"></i>
-                                        هنوز هیچ تسویهٔ واقعی بین این دو شریک ثبت نشده است.
+                                        هنوز هیچ پرداختی بین این دو شریک ثبت نشده است.
                                     </div>
                                 </td>
                             </tr>
@@ -497,6 +616,52 @@
                 </table>
             </div>
         </section>
+
+        @* ===== ۵. تطبیق با دفتر — برای حسابدار، بسته ===== *@
+        var bookProfitTotal = statement.Contracts.Sum(c => c.BookProfitUsd);
+        var paymentToBookTotal = statement.Contracts.Sum(c => c.PaymentToBookDifferenceUsd);
+        <details class="ak-advanced">
+            <summary class="ak-advanced-summary">تطبیق با دفتر (برای حسابدار)</summary>
+            <div class="ak-advanced-body">
+                <div class="ak-table-wrap">
+                    <table class="ak-table ak-detail-table">
+                        <thead>
+                            <tr>
+                                <th class="ak-col-grow">شرح</th>
+                                <th>منبع</th>
+                                <th class="ak-col-num">مبلغ (USD)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="ak-col-grow">سود قراردادها — فروش منهای بهای کالای فروخته‌شده و سهم مصارف، ± اثر ارزی</td>
+                                <td>@PartnershipStatementSources.Book</td>
+                                <td class="ak-col-num ak-num">@Money(bookProfitTotal)</td>
+                            </tr>
+                            <tr>
+                                <td class="ak-col-grow">تفاوت پرداخت شرکا با خرید و مصارف ثبت‌شده</td>
+                                <td>@PartnershipStatementSources.Reconciliation</td>
+                                <td class="ak-col-num ak-num">@Money(paymentToBookTotal)</td>
+                            </tr>
+                            <tr class="ak-table-total">
+                                <td class="ak-col-grow">باقیماندهٔ تطبیق‌نشده — جمع مانده دو شریک</td>
+                                <td>@PartnershipStatementSources.Reconciliation</td>
+                                <td class="ak-col-num ak-num">@Money(statement.UnreconciledResidualUsd)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="ak-note">
+                    سهم سود هر شریک از «سود قرارداد» گرفته می‌شود، نه از پرداخت شرکا. چون جمع پرداخت شرکا
+                    با خرید و مصارف ثبت‌شده دقیقاً برابر نیست، جمع مانده دو شریک صفر نمی‌شود و آن اختلاف
+                    در «باقیماندهٔ تطبیق‌نشده» صریح آمده است.
+                </p>
+                <p class="ak-note">
+                    این صفحه فقط دادهٔ ثبت‌شده را می‌خواند: پرداخت شرکا از روزنامچه، فروش از سند فروش و مصارف از
+                    مصارف قرارداد. هیچ فروش یا مصرف تازه‌ای نمی‌سازد و سود قرارداد را تغییر نمی‌دهد.
+                </p>
+            </div>
+        </details>
     }
 </div>
 
@@ -504,9 +669,9 @@
 {
     ViewData["CreateModalId"] = "partnerSettlementCreateModal";
     ViewData["CreateFormId"] = "partnerSettlementCreateForm";
-    ViewData["CreateModalTitle"] = "ثبت تسویه حساب شراکت";
-    ViewData["CreateModalSubtitle"] = "یادداشت حساب شراکت است، نه سند صندوق. مصرف، فروش یا پرداخت تأمین‌کننده ایجاد نمی‌کند و مفاد قرارداد را تغییر نمی‌دهد.";
-    ViewData["CreateModalSubmitText"] = "ثبت تسویه";
+    ViewData["CreateModalTitle"] = "ثبت پرداخت بین شرکا";
+    ViewData["CreateModalSubtitle"] = "یادداشت حساب شراکت است، نه سند صندوق. مصرف، فروش یا پرداخت تأمین‌کننده ایجاد نمی‌کند و سود قرارداد را تغییر نمی‌دهد.";
+    ViewData["CreateModalSubmitText"] = "ثبت پرداخت";
     ViewData["CreateFormAction"] = "CreateSettlement";
     ViewData["CreateFormIdempotent"] = true;
     ViewData["CreateFormController"] = "PartnershipStatement";
