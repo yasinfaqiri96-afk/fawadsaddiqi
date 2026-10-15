@@ -2442,7 +2442,7 @@ public partial class ContractJourneyController : Controller
         ApplicationDbContext db,
         int contractId)
     {
-        // // PTG-P0-03 — سهم تاریخ‌دار شد؛ برای نمایش فقط آخرین بازهٔ هر شریک دیده می‌شود.
+        // PTG-P0-03 — سهم تاریخ‌دار شد؛ کارت‌ها ترکیبِ فعلی (آخرین بازه) را نشان می‌دهند.
         var rows = await db.ContractPartners
             .AsNoTracking()
             .Where(cp => cp.ContractId == contractId)
@@ -2457,8 +2457,7 @@ public partial class ContractJourneyController : Controller
             .ToListAsync();
 
         return rows
-            .GroupBy(x => x.PartnerId)
-            .Select(g => g.OrderByDescending(x => x.EffectiveFrom).First())
+            .CurrentSlice(x => x.EffectiveFrom)
             .OrderByDescending(x => x.SharePercent)
             .ThenBy(x => x.PartnerName)
             .Select(x => new ContractJourneyPartnerShareItemViewModel

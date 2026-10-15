@@ -256,6 +256,35 @@ public sealed class PartnerShareEffectiveFromTests
         Assert.Equal(70m, fromJuly.Single(s => s.PartnerId == 1).SharePercent);
     }
 
+    /// <summary>
+    /// شریکی که در بازهٔ تازه حذف شده، فقط سطرِ بازهٔ بسته‌اش را دارد. فرم ویرایش و کارت‌های
+    /// قرارداد باید ترکیبِ فعلی را نشان دهند؛ وگرنه شریکِ حذف‌شده دوباره دیده می‌شد و ذخیرهٔ
+    /// بعدیِ فرم او را برمی‌گرداند.
+    /// </summary>
+    [Fact]
+    public async Task A_Partner_Removed_In_A_New_Period_Does_Not_Reappear_In_The_Form_Or_The_Contract_Cards()
+    {
+        var options = NewDbOptions();
+        await using var db = new ApplicationDbContext(options);
+        await SeedFiftyFiftyAsync(db);
+
+        var onlyFirst = EightyTwenty(effectiveFrom: null);
+        onlyFirst.PartnerShares = [new ContractPartnerShareInput { PartnerId = 1, SharePercent = 100m }];
+        Assert.IsType<RedirectToActionResult>(await BuildController(db).Edit(1, onlyFirst));
+
+        // بازهٔ جنوری (با شریک دوم) به‌عنوان تاریخچه می‌ماند.
+        Assert.True(await db.ContractPartners.AnyAsync(cp => cp.ContractId == 1 && cp.PartnerId == 2));
+
+        var form = Assert.IsType<ContractFormViewModel>(
+            Assert.IsType<ViewResult>(await BuildController(db).Edit(1)).Model);
+        var formPartner = Assert.Single(form.PartnerShares);
+        Assert.Equal(1, formPartner.PartnerId);
+        Assert.Equal(100m, formPartner.SharePercent);
+
+        var cards = await ContractJourneyController.LoadContractPartnerSharesAsync(db, 1);
+        Assert.Equal(1, Assert.Single(cards).PartnerId);
+    }
+
     private sealed class NullTempDataProvider : ITempDataProvider
     {
         public IDictionary<string, object?> LoadTempData(HttpContext context) => new Dictionary<string, object?>();

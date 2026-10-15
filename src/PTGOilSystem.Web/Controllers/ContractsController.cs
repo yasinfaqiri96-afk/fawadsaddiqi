@@ -2327,8 +2327,7 @@ public partial class ContractsController : Controller
             // PTG-P0-03 — فرم ویرایش فقط بازهٔ جاری را نشان می‌دهد؛ بازه‌های گذشته
             // تاریخچه‌اند و از اینجا قابل تغییر نیستند.
             PartnerShares = contract.ContractPartners
-                .GroupBy(cp => cp.PartnerId)
-                .Select(g => g.OrderByDescending(cp => cp.EffectiveFrom).First())
+                .CurrentSlice(cp => cp.EffectiveFrom)
                 .OrderBy(cp => cp.Partner?.Code)
                 .Select(cp => new ContractPartnerShareInput
                 {
@@ -2365,8 +2364,7 @@ public partial class ContractsController : Controller
     private static string BuildPartnerSummary(IEnumerable<ContractPartner> partners)
         // PTG-P0-03 — خلاصهٔ Audit فقط بازهٔ جاری را می‌نویسد؛ بازه‌های گذشته خودشان سطر دارند.
         => string.Join(" | ", partners
-            .GroupBy(p => p.PartnerId)
-            .Select(g => g.OrderByDescending(p => p.EffectiveFrom).First())
+            .CurrentSlice(p => p.EffectiveFrom)
             .OrderBy(p => p.Partner?.Code ?? p.PartnerId.ToString())
             .Select(p => $"{p.Partner?.Code ?? p.PartnerId.ToString()}: {p.SharePercent:N2}%"));
 

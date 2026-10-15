@@ -2144,7 +2144,7 @@ public class PaymentsController : Controller
     [HttpGet]
     public async Task<IActionResult> ContractPartnerOptions(int contractId)
     {
-        // // PTG-P0-03 — سهم تاریخ‌دار شد؛ برای نمایش فقط آخرین بازهٔ هر شریک دیده می‌شود.
+        // PTG-P0-03 — سهم تاریخ‌دار شد؛ فقط شرکای ترکیبِ فعلی (آخرین بازه) قابل انتخاب‌اند.
         var rows = await _db.ContractPartners
             .AsNoTracking()
             .Where(cp => cp.ContractId == contractId)
@@ -2158,8 +2158,7 @@ public class PaymentsController : Controller
             .ToListAsync();
 
         var partners = rows
-            .GroupBy(x => x.id)
-            .Select(g => g.OrderByDescending(x => x.EffectiveFrom).First())
+            .CurrentSlice(x => x.EffectiveFrom)
             .OrderByDescending(x => x.sharePercent)
             .ThenBy(x => x.name)
             .Select(x => new { x.id, x.name, x.sharePercent })
@@ -2169,20 +2168,30 @@ public class PaymentsController : Controller
     }
 
     private async Task<List<SelectListItem>> LoadContractPartnerOptionsAsync(int contractId, int? selectedPartnerId)
-        // PTG-P0-03 — سهم تاریخ‌دار شد؛ برای فرم فقط آخرین بازهٔ هر شریک دیده می‌شود.
-        => (await _db.ContractPartners
-                .AsNoTracking()
-                .Where(cp => cp.ContractId == contractId)
-                .Select(cp => new
-                {
-                    cp.PartnerId,
-                    Name = cp.Partner != null ? cp.Partner.Name : ("#" + cp.PartnerId),
-                    cp.SharePercent,
-                    cp.EffectiveFrom
-                })
-                .ToListAsync())
-            .GroupBy(cp => cp.PartnerId)
-            .Select(g => g.OrderByDescending(cp => cp.EffectiveFrom).First())
+    {
+        // PTG-P0-03 — سهم تاریخ‌دار شد؛ فرم شرکای ترکیبِ فعلی را نشان می‌دهد. شریکی که روی همین
+        // پرداخت انتخاب شده ولی بعداً از قرارداد حذف شده، با آخرین سهمش در فهرست می‌ماند تا
+        // ویرایشِ پرداختِ قدیمی انتخابش را از دست ندهد.
+        var rows = await _db.ContractPartners
+            .AsNoTracking()
+            .Where(cp => cp.ContractId == contractId)
+            .Select(cp => new
+            {
+                cp.PartnerId,
+                Name = cp.Partner != null ? cp.Partner.Name : ("#" + cp.PartnerId),
+                cp.SharePercent,
+                cp.EffectiveFrom
+            })
+            .ToListAsync();
+
+        var current = rows.CurrentSlice(cp => cp.EffectiveFrom);
+        var formerSelected = rows
+            .Where(cp => cp.PartnerId == selectedPartnerId && current.All(c => c.PartnerId != cp.PartnerId))
+            .OrderByDescending(cp => cp.EffectiveFrom)
+            .Take(1);
+
+        return current
+            .Concat(formerSelected)
             .OrderByDescending(cp => cp.SharePercent)
             .ThenBy(cp => cp.Name)
             .Select(cp => new SelectListItem
@@ -2192,6 +2201,7 @@ public class PaymentsController : Controller
                 Selected = selectedPartnerId == cp.PartnerId
             })
             .ToList();
+    }
 
     /// <summary>
     /// چند نوع طرف‌حساب با OR ترکیب می‌شوند؛ شرطِ هر نوع دقیقاً همان شرطِ تک‌انتخابی است.
