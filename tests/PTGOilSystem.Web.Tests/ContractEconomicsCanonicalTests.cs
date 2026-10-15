@@ -305,6 +305,112 @@ public class ContractEconomicsCanonicalTests
         Assert.Equal(decimal.Round(e.OperationalCostBaseUsd * 0.4m, 2), e.RealizedOperationalCostUsd);
     }
 
+    [Fact]
+    public async Task Sale_From_A_Leg_Loaded_Out_Of_The_Tank_Carries_The_Costs_Of_The_Leg_That_Filled_The_Tank()
+    {
+        await using var db = NewDb();
+        Seed(db);
+        SeedTankRelayScenario(db, soldMt: 50m);
+        // ضایعهٔ لغوشدهٔ مخزن: خروج و برگشتش ورود یا فروشِ واقعی نیستند.
+        db.InventoryMovements.AddRange(
+            TankMovement(12, MovementDirection.Out, 2m),
+            TankMovement(13, MovementDirection.In, 2m, reversalOf: 12));
+        await db.SaveChangesAsync();
+
+        var e = await EconomicsAsync(db, PurchaseId);
+
+        Assert.Equal(50m, e.TankSoldViaTransportMt);
+        // حملِ پرکنندهٔ مخزن (۱٬۰۰۰) و حملِ خروج از مخزن (۵۰۰) هر دو کامل.
+        Assert.Equal(1_500m, e.RealizedOperationalCostUsd);
+        Assert.Equal(60_000m - 45_000m - 1_500m, e.RealizedNetProfitUsd);
+    }
+
+    [Fact]
+    public async Task Partial_Sale_From_A_Leg_Loaded_Out_Of_The_Tank_Keeps_The_Sold_Share_Of_Tank_Costs()
+    {
+        await using var db = NewDb();
+        Seed(db);
+        SeedTankRelayScenario(db, soldMt: 25m);
+        await db.SaveChangesAsync();
+
+        var e = await EconomicsAsync(db, PurchaseId);
+
+        Assert.Equal(25m, e.TankSoldViaTransportMt);
+        Assert.Equal(500m + 250m, e.RealizedOperationalCostUsd);
+    }
+
+    /// <summary>
+    /// سناریوی P-002: حملِ ۱ (۵۰ تن، کرایه ۱٬۰۰۰) کاملاً به مخزن رسید؛ حملِ ۲ (کرایه ۵۰۰) همان ۵۰ تن را از
+    /// مخزن بار کرد و از حملِ ۲ مستقیم فروخته شد. هیچ حرکتِ خروجِ فروش از مخزن نیست.
+    /// </summary>
+    private static void SeedTankRelayScenario(ApplicationDbContext db, decimal soldMt)
+    {
+        db.LoadingRegisters.Add(Loading(1, PurchaseId, 50m, 900m));
+        db.InventoryTransportLegs.AddRange(RelayLeg(1), RelayLeg(2));
+        db.ExpenseTransactions.AddRange(LegExpense(1, 1_000m, legId: 1), LegExpense(2, 500m, legId: 2));
+        db.InventoryTransportReceipts.Add(new InventoryTransportReceipt
+        {
+            Id = 1,
+            InventoryTransportLegId = 1,
+            ReceiptDate = new DateTime(2026, 4, 8),
+            ReceivedQuantityMt = 50m,
+            ReceiptDestination = InventoryTransportReceiptDestination.ToInventory
+        });
+        db.InventoryMovements.AddRange(
+            TankMovement(10, MovementDirection.In, 50m),
+            TankMovement(11, MovementDirection.Out, 50m));
+        db.InventoryTransportLegAllocations.Add(new InventoryTransportLegAllocation
+        {
+            Id = 1,
+            InventoryTransportLegId = 2,
+            SourcePurchaseContractId = PurchaseId,
+            SourceInventoryMovementId = 10,
+            OutboundInventoryMovementId = 11,
+            QuantityMt = 50m
+        });
+        db.SalesTransactions.Add(Sale(100, soldMt, soldMt * 1_200m));
+        db.SalesTransactionSourceAllocations.Add(new SalesTransactionSourceAllocation
+        {
+            Id = 1,
+            SalesTransactionId = 100,
+            TransportLegId = 2,
+            SourcePurchaseContractId = PurchaseId,
+            QuantityMt = soldMt,
+            AmountUsd = soldMt * 1_200m
+        });
+
+        static InventoryTransportLeg RelayLeg(int id) => new()
+        {
+            Id = id,
+            SourcePurchaseContractId = PurchaseId,
+            ProductId = 1,
+            LoadedDate = new DateTime(2026, 4, 5),
+            QuantityMt = 50m,
+            Status = InventoryTransportLegStatus.Received
+        };
+
+        static ExpenseTransaction LegExpense(int id, decimal amountUsd, int legId)
+        {
+            var expense = Expense(id, amountUsd, contractId: PurchaseId);
+            expense.TransportLegId = legId;
+            return expense;
+        }
+    }
+
+    private static InventoryMovement TankMovement(int id, MovementDirection direction, decimal quantityMt, int? reversalOf = null)
+        => new()
+        {
+            Id = id,
+            ProductId = 1,
+            ContractId = PurchaseId,
+            TerminalId = 1,
+            StorageTankId = 1,
+            Direction = direction,
+            MovementDate = new DateTime(2026, 4, 9),
+            QuantityMt = quantityMt,
+            ReversalOfInventoryMovementId = reversalOf
+        };
+
     /// <summary>
     /// سناریوی P-001: دو بارگیریِ ۵۰ تنی × ۹۰۰؛ حملِ ۵۰ تنی (۱ تن ضایعه، ۰٫۸ قابل‌جبران، کرایهٔ خالص
     /// ۱٬۷۰۰، گمرک ۱٬۵۰۰، مصرف ۱۰۰) و حملِ ۴۰ تنی (گمرک ۱٬۰۰۰، مصرف ۸۰).

@@ -72,6 +72,12 @@ public sealed record ContractEconomicsSnapshot
     /// <summary>مقدارِ فروخته‌شده از موجودیِ مخزنِ همین قرارداد (حرکتِ خروجِ فروش‌های همین قرارداد).</summary>
     public decimal TankSoldMt { get; init; }
 
+    /// <summary>
+    /// موجودیِ مخزنِ همین قرارداد که با یک حمل از مخزن بیرون رفته و از همان حمل (یا حملِ بعدیِ آن) مستقیم
+    /// فروخته شده. فروشِ مستقیمِ حمل‌ها هم آن را شمرده‌اند؛ اینجا فقط سهمِ مخزن از آن جدا می‌شود.
+    /// </summary>
+    public decimal TankSoldViaTransportMt { get; init; }
+
     /// <summary>بهای تمام‌شدهٔ استخرِ موجودی برای فروش‌های قرارداد فروش (قرارداد فروش مبنای خرید ندارد).</summary>
     public decimal PoolCostOfGoodsSoldUsd { get; init; }
     public int UncostedSaleCount { get; init; }
@@ -153,9 +159,11 @@ public sealed record ContractEconomicsSnapshot
             // بی‌حرکتِ ورود به مخزن (دادهٔ قدیمی) سهمِ مخزن جدا نمی‌شود و همان قاعدهٔ «بقیهٔ فروش‌ها» است.
             var hasTankFlow = TankReceivedMt > 0m;
             var directlySoldMt = TransportLegCosts.Sum(l => l.DirectlySoldMt);
-            var tankSoldRatio = hasTankFlow ? Math.Clamp(TankSoldMt / TankReceivedMt, 0m, 1m) : 0m;
+            // فروشِ حملی که از مخزن پر شده هم فروش از مخزن است؛ چون در فروشِ مستقیم شمرده شده،
+            // از «بقیهٔ فروش‌ها» دوباره کم نمی‌شود و از مبنای مخزن هم دوباره کم نمی‌شود.
+            var tankSoldRatio = hasTankFlow ? Math.Clamp((TankSoldMt + TankSoldViaTransportMt) / TankReceivedMt, 0m, 1m) : 0m;
             var otherSoldMt = Math.Max(SoldQuantityMt - directlySoldMt - (hasTankFlow ? TankSoldMt : 0m), 0m);
-            var otherPoolMt = PricedLoadedMt - directlySoldMt - (hasTankFlow ? TankReceivedMt : 0m);
+            var otherPoolMt = PricedLoadedMt - directlySoldMt - (hasTankFlow ? TankReceivedMt - TankSoldViaTransportMt : 0m);
             var otherSoldRatio = otherPoolMt > 0m
                 ? Math.Clamp(otherSoldMt / otherPoolMt, 0m, 1m)
                 : otherSoldMt > 0m ? 1m : 0m;
@@ -459,9 +467,13 @@ public sealed partial class ProfitAndLossService
                     .ToListAsync(ct))
                 .GroupBy(r => r.InventoryTransportLegId)
                 .ToDictionary(g => g.Key, g => g.Sum(r => r.ReceivedQuantityMt));
+        // سندِ برگشت و سندی که برگشت خورده هیچ‌کدام ورود یا فروشِ واقعی نیستند.
         var tankMovements = await _db.InventoryMovements.AsNoTracking()
             .Where(m => m.ContractId.HasValue && purchaseIds.Contains(m.ContractId.Value)
                 && (!_reportBefore.HasValue || m.MovementDate < _reportBefore.Value)
+                && m.ReversalOfInventoryMovementId == null
+                && !_db.InventoryMovements.Any(r => r.ReversalOfInventoryMovementId == m.Id
+                    && (!_reportBefore.HasValue || r.MovementDate < _reportBefore.Value))
                 && ((m.Direction == MovementDirection.In && m.SalesTransactionId == null)
                     || (m.Direction == MovementDirection.Out && m.SalesTransactionId != null)))
             .Select(m => new { ContractId = m.ContractId!.Value, m.Direction, m.SalesTransactionId, m.QuantityMt })
@@ -478,6 +490,17 @@ public sealed partial class ProfitAndLossService
                     .ToListAsync(ct))
                 .Select(a => (a.ChildLegId, a.SourceLegId, a.QuantityMt))
                 .ToList();
+        // حملی که از مخزن بار گرفته: سهمِ خروجِ ثبت‌شده از مخزنِ همان قرارداد روی هر حمل.
+        var tankOutMtByLeg = legIds.Count == 0
+            ? new Dictionary<int, decimal>()
+            : (await _db.InventoryTransportLegAllocations.AsNoTracking()
+                    .Where(a => a.OutboundInventoryMovementId.HasValue
+                        && legIds.Contains(a.InventoryTransportLegId))
+                    .Select(a => new { a.InventoryTransportLegId, a.SourcePurchaseContractId, a.QuantityMt })
+                    .ToListAsync(ct))
+                .Where(a => legById[a.InventoryTransportLegId].ContractId == a.SourcePurchaseContractId)
+                .GroupBy(a => a.InventoryTransportLegId)
+                .ToDictionary(g => g.Key, g => g.Sum(a => a.QuantityMt));
 
         return purchaseContracts.Select(c =>
         {
@@ -539,6 +562,14 @@ public sealed partial class ProfitAndLossService
                 })
                 .Where(l => l.CostUsd != 0m || l.DirectlySoldMt > 0m)
                 .ToList();
+            var tankSoldViaTransportMt = legRows
+                .Where(l => l.ContractId == c.Id && l.QuantityMt > 0m && tankOutMtByLeg.ContainsKey(l.Id))
+                .Sum(l =>
+                {
+                    var netMt = l.QuantityMt - legLossMtById.GetValueOrDefault(l.Id);
+                    var soldMt = netMt > 0m ? Math.Clamp(EffectiveOutcomeMt(l.Id, []).DirectMt, 0m, netMt) : 0m;
+                    return soldMt * Math.Min(tankOutMtByLeg[l.Id] / l.QuantityMt, 1m);
+                });
             return new ContractEconomicsSnapshot
             {
                 ContractId = c.Id,
@@ -577,6 +608,7 @@ public sealed partial class ProfitAndLossService
                     .Where(m => m.ContractId == c.Id && m.Direction == MovementDirection.Out
                         && contractSaleIds.Contains(m.SalesTransactionId!.Value))
                     .Sum(m => m.QuantityMt),
+                TankSoldViaTransportMt = tankSoldViaTransportMt,
                 Fx = fx.GetValueOrDefault(c.Id, ContractRealizedFxSnapshot.Zero)
             };
         }).ToList();
