@@ -291,7 +291,7 @@ function closeDrop() {
 function onSyncEnd(summary) {
   const problems = (summary.conflicts || 0) + (summary.rejected || 0);
   const note = summary.authRequired
-    ? ['warning', 'نشست سرور منقضی شده است؛ معلومات در دستگاه محفوظ است. برای ارسال، دوباره وارد مشعل شوید.']
+    ? ['warning', 'نشست سرور منقضی شده است؛ معلومات در دستگاه محفوظ است. برای ارسال، دوباره وارد سیستم صدیقی شوید.']
     : summary.userMismatch
       ? ['warning', 'کاربر دیگری در این مرورگر وارد سیستم است؛ عملیات این دستگاه ارسال نشد.']
       : problems > 0
@@ -422,7 +422,7 @@ async function renderNotice(profile) {
   } else if (!monitor.reachable && monitor.lastCheckAt && !formPanels) {
     parts.push(profile
       ? 'سرور در دسترس نیست. داشبورد، منو، فهرست‌ها و فورم‌های آماده‌شدهٔ این دستگاه بدون سرور باز می‌شوند؛ ثبت‌های مجاز در دستگاه می‌ماند و پس از اتصال خودکار فرستاده می‌شود.'
-      : 'سرور در دسترس نیست و کار بدون سرور در این دستگاه فعال نشده است (فعال‌سازی: یک‌بار با اینترنت، در داشبورد مشعل).');
+      : 'سرور در دسترس نیست و کار بدون سرور در این دستگاه فعال نشده است (فعال‌سازی: یک‌بار با اینترنت، در داشبورد سیستم صدیقی).');
     if (!state.pageMessage) tone = 'warning';
   }
   const needsPin = profile && !state.session
@@ -436,11 +436,11 @@ async function renderNotice(profile) {
     parts.push(pinHtml(profile, state.pendingAction ? 'ذخیره در دستگاه' : state.pendingNav ? 'بازکردن' : 'تأیید رمز'));
   } else if (!state.session && !hasSession() && monitor.reachable && !formPanels && offerSetup()) {
     if (!profile) {
-      parts.push('<strong>کار بدون سرور در این دستگاه فعال نیست.</strong> با یک رمز محلی، همین مشعل (داشبورد، منو، صفحات و '
+      parts.push('<strong>کار بدون سرور در این دستگاه فعال نیست.</strong> با یک رمز محلی، همین سیستم صدیقی (داشبورد، منو، صفحات و '
         + 'فورم‌های مجاز شما) هنگام قطع سرور هم باز می‌شود و ثبت‌های مجاز پس از اتصال خودکار فرستاده می‌شوند.');
       parts.push(activationHtml());
     } else if (!profile.pageKeys) {
-      parts.push('برای آماده‌کردن صفحات مشعل در این دستگاه برای زمان قطع سرور، یک‌بار رمز محلی را وارد کنید.');
+      parts.push('برای آماده‌کردن صفحات سیستم صدیقی در این دستگاه برای زمان قطع سرور، یک‌بار رمز محلی را وارد کنید.');
       parts.push(pinHtml(profile, 'تأیید رمز', laterHtml()));
     }
   }
@@ -699,7 +699,7 @@ function refreshPanel(ctx, profile) {
     parts.push(profile
       ? 'سرور در دسترس نیست. «ذخیره» همین فورم را در این دستگاه نگه می‌دارد و پس از اتصال، خودکار در سیستم ثبت می‌کند.'
       : 'سرور در دسترس نیست و این دستگاه برای ثبت آفلاین فعال نشده است؛ معلومات فورم فقط تا وقتی این صفحه باز است می‌ماند. '
-        + 'فعال‌سازی: یک‌بار با اینترنت، در داشبورد مشعل.');
+        + 'فعال‌سازی: یک‌بار با اینترنت، در داشبورد سیستم صدیقی.');
   }
   const counts = state.counts;
   if (counts?.pending) {
@@ -710,7 +710,7 @@ function refreshPanel(ctx, profile) {
   if (counts?.drafts) parts.push(`${formatNumber(counts.drafts)} پیش‌نویس دستگاه (پاسخ نامعلوم سرور)؛ پس از بررسی، از ${OPS_LINK} بفرستید.`);
   const needsPin = profile && !state.session && (intent || (counts?.pending && monitor.reachable));
   if (needsPin) {
-    parts.push(`${intent ? 'برای ذخیره در دستگاه' : 'برای ارسال خودکار'}، رمز محلی مشعل آفلاین را وارد کنید (در این نشست فقط یک‌بار).`);
+    parts.push(`${intent ? 'برای ذخیره در دستگاه' : 'برای ارسال خودکار'}، رمز محلی سیستم آفلاین صدیقی را وارد کنید (در این نشست فقط یک‌بار).`);
     parts.push(pinHtml(profile, intent ? 'ذخیره در دستگاه' : 'تأیید رمز'));
   }
   const tone = message?.tone || (intent || !monitor.reachable ? 'warning' : counts?.conflicts ? 'danger' : 'info');
@@ -814,7 +814,7 @@ async function keepLocally(ctx, intent, submitter) {
   }
   if (!(await profileForUser())) {
     await setMessage(ctx, 'warning', `${h(intent.note)} این دستگاه برای ثبت آفلاین فعال نشده است؛ معلومات فورم روی صفحه باقی است. `
-      + 'پس از اتصال دوباره «ذخیره» کنید، یا یک‌بار با اینترنت «مشعل آفلاین» را فعال کنید.');
+      + 'پس از اتصال دوباره «ذخیره» کنید، یا یک‌بار با اینترنت «سیستم آفلاین صدیقی» را فعال کنید.');
     return;
   }
   if (!(await ensureSession())) {

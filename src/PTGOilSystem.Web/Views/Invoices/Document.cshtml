@@ -60,11 +60,11 @@
                 </div>
 
                 <div class="boltz-invoice-payment-box">
-                    @* نام شرکت همین بالا در بلوک طرف حساب («از/به») آمده و عنوان سند
-                       در سربرگ کارت است؛ تکرارشان کنار لوگو فقط ارتفاع سربرگ را
-                       زیاد می‌کرد. لوگو تنها می‌ماند و نام شرکت روی alt آن است. *@
+                    @* نام تجارتی طرف حساب در بلوک «از/به» باقی می‌ماند؛ این ناحیه
+                       فقط هویت ثابت صادرکنندهٔ سیستم را روی چاپ/PDF نشان می‌دهد. *@
                     <div class="boltz-invoice-brand-row">
-                        <img src="~/images/mashal-logo-blue.webp" asp-append-version="true" alt="@Model.BrandName" width="1252" height="739" decoding="async" />
+                        <img src="~/invoice-templates/fawad/logo.png" asp-append-version="true" alt="@Model.BrandName" width="489" height="235" decoding="async" />
+                        <strong>@T("گروپ کمپنی‌های فواد صدیقی", "Fawad Saddiqi Group of Companies")</strong>
                     </div>
                     <span>@T(Model.PaymentBox.HeadingFa, Model.PaymentBox.HeadingEn):</span>
                     <strong class="boltz-invoice-pay-amount">@Model.PaymentBox.AmountText</strong>

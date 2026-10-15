@@ -22,7 +22,7 @@ internal sealed class ShipmentSummaryPdfDocument(
     public DocumentMetadata GetMetadata() => new()
     {
         Title = Label("خلاصه محموله", "Shipment summary"),
-        Author = string.IsNullOrWhiteSpace(model.CompanyName) ? brandHeader.CompanyName : model.CompanyName,
+        Author = brandHeader.CompanyName,
         Subject = model.ShipmentCode
     };
 
@@ -44,7 +44,7 @@ internal sealed class ShipmentSummaryPdfDocument(
             page.Content().Element(Direct).Column(ComposePage);
             page.Footer().PaddingTop(8).Element(footer => PdfDesignSystem.ComposeFooter(
                 footer,
-                string.IsNullOrWhiteSpace(model.CompanyName) ? brandHeader.CompanyName : model.CompanyName,
+                brandHeader.CompanyName,
                 isEnglish));
         });
     }

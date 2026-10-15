@@ -66,10 +66,10 @@ export async function openBackup(fileText, password) {
     throw new Error('فایل بکاپ معتبر نیست.');
   }
   if (!envelope || envelope.format !== BACKUP_FORMAT || typeof envelope.ciphertext !== 'string') {
-    throw new Error('این فایل بکاپ مشعل نیست.');
+    throw new Error('این فایل بکاپ سیستم صدیقی نیست.');
   }
   if (envelope.version > BACKUP_VERSION) {
-    throw new Error('این بکاپ با نسخهٔ جدیدتر مشعل ساخته شده است؛ ابتدا برنامه را به‌روز کنید.');
+    throw new Error('این بکاپ با نسخهٔ جدیدتر سیستم صدیقی ساخته شده است؛ ابتدا برنامه را به‌روز کنید.');
   }
   let plaintext;
   try {

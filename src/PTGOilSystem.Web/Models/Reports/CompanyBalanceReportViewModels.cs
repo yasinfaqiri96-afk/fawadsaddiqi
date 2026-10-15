@@ -170,8 +170,8 @@ public static class CompanyBalanceReportText
     public const string NetProfit = "مفاد خالص دوره";
     public const string NetLoss = "ضرر خالص دوره";
     public const string GrossLoss = "ضرر ناخالص";
-    public const string BrandLatin = "MASHAL";
-    public const string BrandName = "مشعل";
+    public const string BrandLatin = "FAWAD SADDIQI GROUP OF COMPANIES";
+    public const string BrandName = "گروپ کمپنی‌های فواد صدیقی";
     public const string BrandTagline = "سیستم مدیریت تجارت نفت و گاز";
 
     public static string AmountHeader(string currency) => $"مبلغ ({currency})";

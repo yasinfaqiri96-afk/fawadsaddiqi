@@ -6,6 +6,7 @@ using PTGOilSystem.Web.Helpers;
 using PTGOilSystem.Web.Models.Documents;
 using PTGOilSystem.Web.Models.Entities;
 using PTGOilSystem.Web.Models.Sales;
+using PTGOilSystem.Web.Services.Exports;
 
 namespace PTGOilSystem.Web.Controllers;
 
@@ -133,7 +134,9 @@ public class InvoicesController : Controller
             StatusFa = ContractStatusFa(contract.Status),
             StatusEn = contract.Status.ToString(),
             Tone = isPurchase ? "purchase" : "sale",
-            BrandName = contract.Company is null ? "MASHAL" : DisplayName(contract.Company.NamePersian, contract.Company.Name, "MASHAL"),
+            BrandName = contract.Company is null
+                ? ExcelDesignSystem.OrganizationNameEn
+                : DisplayName(contract.Company.NamePersian, contract.Company.Name, ExcelDesignSystem.OrganizationNameEn),
             BrandSubtitleFa = isPurchase ? "قرارداد خرید" : "قرارداد فروش",
             BrandSubtitleEn = isPurchase ? "Purchase Contract" : "Sale Contract",
             FromParty = isPurchase ? counterparty : companyParty,
@@ -194,7 +197,9 @@ public class InvoicesController : Controller
             StatusFa = sale.IsCancelled ? "لغوشده" : SaleStageLabels.ToPersian(sale.SaleStage),
             StatusEn = sale.IsCancelled ? "Cancelled" : sale.SaleStage.ToString(),
             Tone = "sale",
-            BrandName = sale.Company is null ? "MASHAL" : DisplayName(sale.Company.NamePersian, sale.Company.Name, "MASHAL"),
+            BrandName = sale.Company is null
+                ? ExcelDesignSystem.OrganizationNameEn
+                : DisplayName(sale.Company.NamePersian, sale.Company.Name, ExcelDesignSystem.OrganizationNameEn),
             BrandSubtitleFa = "فاکتور فروش",
             BrandSubtitleEn = "Sales Invoice",
             FromParty = PartyFromCompany(sale.Company, "از", "From"),
@@ -250,7 +255,9 @@ public class InvoicesController : Controller
             StatusFa = "ثبت‌شده",
             StatusEn = "Recorded",
             Tone = isReceipt ? "receipt" : "payment",
-            BrandName = company is null ? "MASHAL" : DisplayName(company.NamePersian, company.Name, "MASHAL"),
+            BrandName = company is null
+                ? ExcelDesignSystem.OrganizationNameEn
+                : DisplayName(company.NamePersian, company.Name, ExcelDesignSystem.OrganizationNameEn),
             BrandSubtitleFa = isReceipt ? "رسید دریافت" : "سند پرداخت",
             BrandSubtitleEn = isReceipt ? "Receipt Voucher" : "Payment Voucher",
             FromParty = isReceipt ? counterparty : companyParty,

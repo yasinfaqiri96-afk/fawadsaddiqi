@@ -309,7 +309,8 @@ body.ptg-modal-document .ak-list-card .ak-page-actions {
 }
 
 body.boltz-shell.app-shell-authenticated .boltz-content .ak-list-card .ak-table-wrap,
-body.ptg-modal-document .ak-list-card .ak-table-wrap {
+body.ptg-modal-document .ak-list-card .ak-table-wrap,
+body.boltz-shell.app-shell-authenticated .boltz-content .ak-list-page .ak-journal-scroll {
     width: 100%;
     max-width: 100%;
     margin: 0;
@@ -317,10 +318,25 @@ body.ptg-modal-document .ak-list-card .ak-table-wrap {
     border-radius: 0;
     background: var(--ptg-field-bg);
     box-shadow: none;
-    overflow-x: auto;
+    max-block-size: clamp(18rem, 56dvh, 44rem);
+    overflow: auto;
+    overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
     scrollbar-color: var(--ptg-field-border) transparent;
+}
+
+/* Shared list viewport: only the rows scroll; column titles remain visible.
+   This is intentionally scoped to list cards so form/detail tables keep their
+   existing page-flow behavior. */
+body.boltz-shell.app-shell-authenticated .boltz-content .ak-list-card .ak-table > thead > tr > th,
+body.ptg-modal-document .ak-list-card .ak-table > thead > tr > th,
+body.boltz-shell.app-shell-authenticated .boltz-content .ak-list-page .ak-journal-table > thead > tr > th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 4;
+    background: var(--ptg-table-head-bg);
+    background-clip: padding-box;
 }
 
 body.boltz-shell.app-shell-authenticated .boltz-content .ak-list-card .ak-table,

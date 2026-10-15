@@ -73,7 +73,7 @@ public sealed class OfflineOperationApplier(ApplicationDbContext db)
 
             case OfflineOperationTypes.MoneyTransferRequest:
                 return new OfflinePlanResult(null, false,
-                    "مشعل فرم «انتقال پول میان حساب‌ها» ندارد؛ این عملیات را در روزنامچه به‌شکل پرداخت و دریافت جدا ثبت کنید.",
+                    "سیستم صدیقی فرم «انتقال پول میان حساب‌ها» ندارد؛ این عملیات را در روزنامچه به‌شکل پرداخت و دریافت جدا ثبت کنید.",
                     Unsupported: true);
 
             case OfflineOperationTypes.SaleRequest:

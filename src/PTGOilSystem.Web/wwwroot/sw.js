@@ -13,7 +13,7 @@
  */
 'use strict';
 
-const VERSION = 'mashal-offline-v9';
+const VERSION = 'mashal-offline-v10';
 const SHELL_CACHE = VERSION + '-shell';
 const OFFLINE_URL = '/offline/index.html';
 const PAGE_LOADER_URL = '/offline/page.html';
@@ -48,10 +48,13 @@ const SHELL_ASSETS = [
   '/offline/js/page-apply.js',
   '/offline/js/form-bridge.js',
   '/manifest.webmanifest',
-  '/mashal-logo-192.png',
-  '/mashal-logo-512.png',
-  '/mashal-logo-180.png',
-  '/mashal-logo.ico',
+  '/images/saddiqi-loader-symbol.png',
+  '/images/app-icon.ico',
+  '/images/app-icon-180.png',
+  '/images/app-icon-192.png',
+  '/images/app-icon-512.png',
+  '/images/saddiqi-logo-transparent.webp',
+  '/images/saddiqi-sidebar-wordmark.webp',
   '/vendor/fonts/vazirmatn/files/vazirmatn-400.woff2',
   '/vendor/fonts/vazirmatn/files/vazirmatn-700.woff2'
 ];
@@ -235,7 +238,7 @@ async function offlineLoader() {
   const cache = await caches.open(SHELL_CACHE);
   const loader = (await cache.match(PAGE_LOADER_URL)) || (await cache.match(OFFLINE_URL));
   return loader || new Response(
-    '<!doctype html><meta charset="utf-8"><title>مشعل</title><p dir="rtl">سرور در دسترس نیست.</p>',
+    '<!doctype html><meta charset="utf-8"><title>گروپ کمپنی‌های فواد صدیقی</title><p dir="rtl">سرور در دسترس نیست.</p>',
     { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 

@@ -50,6 +50,7 @@ public sealed class TabularExportServiceTests
         using var workbook = SpreadsheetDocument.Open(stream, false);
         var workbookPart = workbook.WorkbookPart!;
         var worksheet = workbookPart.WorksheetParts.Single().Worksheet;
+        var worksheetPart = workbookPart.WorksheetParts.Single();
         var rows = worksheet.GetFirstChild<SheetData>()!.Elements<Row>().ToList();
 
         Assert.Equal(new[] { 40D, 40D, 25D }, rows.Take(3).Select(row => row.Height!.Value));
@@ -67,6 +68,8 @@ public sealed class TabularExportServiceTests
             .Select(merge => merge.Reference!.Value)
             .ToArray();
         Assert.Equal(new[] { "A1:D1", "A2:C2" }, mergeReferences);
+        Assert.Single(worksheetPart.DrawingsPart!.ImageParts);
+        Assert.NotNull(worksheet.GetFirstChild<Drawing>());
 
         Assert.Equal(ExcelDesignSystem.Navy, FillColor(workbookPart, rows[1].Elements<Cell>().First()));
         Assert.Equal(ExcelDesignSystem.Blue, FillColor(workbookPart, rows[2].Elements<Cell>().First()));
@@ -404,7 +407,7 @@ public sealed class TabularExportServiceTests
             Assert.Contains(token, official);
         }
 
-        // صورت‌حساب رسمی فوتر ویژهٔ خود را دارد (MASHAL | مشعل و «X / Y»)؛ خروجی‌های عمومی فوتر مشترک.
+        // صورت‌حساب رسمی فوتر ویژهٔ برند و «X / Y» را دارد؛ خروجی‌های عمومی فوتر مشترک.
         Assert.Contains("PdfDesignSystem.ComposeFooter", generic);
     }
 
@@ -505,7 +508,7 @@ public sealed class TabularExportServiceTests
         {
             ExcelMaxRows = excelMaxRows,
             PdfMaxRows = pdfMaxRows,
-            CompanyLogoPath = "/images/mashal-logo-blue.webp",
+            CompanyLogoPath = "/invoice-templates/fawad/logo.png",
             CompanyPhone = "+92 21 711 722 399",
             CompanyEmail = "",
             CompanyWebsite = "",

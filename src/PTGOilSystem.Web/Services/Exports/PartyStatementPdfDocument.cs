@@ -41,7 +41,7 @@ internal sealed class PartyStatementPdfDocument(
     public DocumentMetadata GetMetadata() => new()
     {
         Title = statement.Policy.StatementTitleFa,
-        Author = statement.CompanyInfo.Name,
+        Author = brandHeader.CompanyName,
         Subject = statement.DocumentInfo.StatementNumber
     };
 
@@ -56,8 +56,8 @@ internal sealed class PartyStatementPdfDocument(
     private const string Line = "#D9E0EA";
     private const string SoftFill = "#E9EFF8";
 
-    // لوگوی فارسی مشعل (آبی). اگر فایل نباشد، لوگوی پیکربندی‌شدهٔ شرکت و بعد نام شرکت.
-    private const string MashalLogoRelativePath = ExcelDesignSystem.LogoRelativePath;
+    // لوگوی رسمی برند خروجی؛ اگر فایل نباشد، نام برند نمایش داده می‌شود.
+    private const string BrandLogoRelativePath = ExcelDesignSystem.LogoRelativePath;
 
     public void Compose(IDocumentContainer container)
     {
@@ -155,15 +155,15 @@ internal sealed class PartyStatementPdfDocument(
 
     private void ComposeLogo(IContainer container)
     {
-        var mashalLogo = ResolveWebAsset(MashalLogoRelativePath);
-        var logo = mashalLogo is not null && File.Exists(mashalLogo) ? mashalLogo : brandHeader.LogoPath;
+        var configuredLogo = ResolveWebAsset(BrandLogoRelativePath);
+        var logo = configuredLogo is not null && File.Exists(configuredLogo) ? configuredLogo : brandHeader.LogoPath;
         if (!string.IsNullOrWhiteSpace(logo) && File.Exists(logo))
         {
             container.AlignLeft().Image(logo).FitArea();
             return;
         }
 
-        container.AlignLeft().AlignMiddle().Text(statement.CompanyInfo.Name).Bold().FontSize(14).FontColor(Navy);
+        container.AlignLeft().AlignMiddle().Text(brandHeader.CompanyName).Bold().FontSize(14).FontColor(Navy);
     }
 
     // صفحه‌های بعد: فقط نام طرف‌حساب و تاریخ چاپ با یک خط؛ سربرگ کامل تکرار نمی‌شود.
@@ -665,19 +665,14 @@ internal sealed class PartyStatementPdfDocument(
         });
     }
 
-    // فوتر: نام سیستم «MASHAL | مشعل» با زیرعنوان در یک سو و «X / Y» در سوی دیگر، با خط نازک.
+    // فوتر: نام برند مشترک خروجی‌ها و «X / Y» با یک خط نازک.
     private void ComposeFooter(IContainer container)
     {
         container.PaddingTop(6).BorderTop(0.8f).BorderColor(Line).PaddingTop(5).ContentFromLeftToRight().Row(row =>
         {
             row.RelativeItem().Column(brand =>
             {
-                brand.Item().Text(text =>
-                {
-                    text.Span("MASHAL").Bold().FontSize(10).FontColor(Accent);
-                    text.Span("  |  ").FontSize(9).FontColor(LabelInk);
-                    text.Span("مشعل").Bold().FontSize(10).FontColor(Navy);
-                });
+                brand.Item().Text(brandHeader.CompanyName).Bold().FontSize(10).FontColor(Navy);
                 brand.Item().Text("سیستم مدیریت تجارت نفت و گاز").FontSize(7.5f).FontColor(LabelInk);
             });
             row.RelativeItem().AlignRight().AlignMiddle().Text(text =>

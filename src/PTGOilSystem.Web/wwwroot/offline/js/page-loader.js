@@ -42,7 +42,7 @@ function showLogin(profiles, html) {
   }
   document.body.className = 'app-body boltz-shell app-shell-public boltz-rtl';
   root.innerHTML = `<div class="ptg-login-page"><div class="ptg-login-card">
-      <section class="ptg-login-art"><img class="ptg-login-brand" src="/mashal-logo-512.png" alt="مشعل" width="160" height="160" /></section>
+      <section class="ptg-login-art"><img class="ptg-login-brand" src="/images/saddiqi-logo-transparent.webp" alt="گروپ کمپنی‌های فواد صدیقی" width="160" height="73" /></section>
       <section class="ptg-login-panel">${html}</section></div></div>`;
 }
 
@@ -56,7 +56,7 @@ async function boot() {
   }
   if (!profiles.length) {
     show(`<h2>سرور در دسترس نیست</h2>
-      <p>کار بدون سرور در این دستگاه هنوز فعال نشده است. یک‌بار با اینترنت وارد مشعل شوید و در داشبورد «فعال‌سازی کار بدون سرور» را بزنید.</p>
+      <p>کار بدون سرور در این دستگاه هنوز فعال نشده است. یک‌بار با اینترنت وارد سیستم صدیقی شوید و در داشبورد «فعال‌سازی کار بدون سرور» را بزنید.</p>
       <div class="ox-actions"><a class="ox-btn" href="${h(location.href)}">تلاش دوباره</a></div>`);
     return;
   }
@@ -85,8 +85,8 @@ async function boot() {
 function renderLock(profiles, message = '') {
   showLogin(profiles, `<form class="ptg-login-form ox-form" data-loader-unlock>
       <header class="ptg-login-heading">
-        <h1 class="ptg-login-title">مشعل</h1>
-        <p class="ptg-login-subtitle">سرور در دسترس نیست — برای بازکردن همان مشعل (داشبورد، منو، صفحات و فورم‌ها) رمز محلی را وارد کنید (در این نشست فقط یک‌بار).</p>
+        <h1 class="ptg-login-title">گروپ کمپنی‌های فواد صدیقی</h1>
+        <p class="ptg-login-subtitle">سرور در دسترس نیست — برای بازکردن سیستم صدیقی (داشبورد، منو، صفحات و فورم‌ها) رمز محلی را وارد کنید (در این نشست فقط یک‌بار).</p>
       </header>
       ${message ? `<div class="ptg-login-alert ox-error" role="alert">${message}</div>` : ''}
       <div class="ptg-login-fields">
@@ -96,7 +96,7 @@ function renderLock(profiles, message = '') {
           <label class="ptg-login-label" for="ox-pin">رمز محلی${profiles.length === 1 ? ` — ${h(profiles[0].fullName || profiles[0].username)}` : ''}</label>
         </div>
       </div>
-      <button class="ptg-login-submit ox-btn" type="submit">بازکردن مشعل</button>
+      <button class="ptg-login-submit ox-btn" type="submit">بازکردن سیستم صدیقی</button>
       <a class="ptg-login-help ox-btn ox-btn--ghost" href="${h(location.href)}">تلاش دوباره با سرور</a>
     </form>`);
   const form = root.querySelector('[data-loader-unlock]');

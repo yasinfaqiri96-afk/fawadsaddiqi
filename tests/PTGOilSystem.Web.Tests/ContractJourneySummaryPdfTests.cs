@@ -148,7 +148,7 @@ public sealed class ContractJourneySummaryPdfTests
         {
             ExcelMaxRows = 100,
             PdfMaxRows = 100,
-            CompanyLogoPath = "/images/mashal-logo-blue.webp",
+            CompanyLogoPath = "/invoice-templates/fawad/logo.png",
             CompanyPhone = "+92 21 711 722 399",
             CompanyEmail = "",
             CompanyWebsite = "",

@@ -32,7 +32,7 @@ internal sealed class ContractJourneySummaryPdfDocument(
     public DocumentMetadata GetMetadata() => new()
     {
         Title = model.DocumentTitle,
-        Author = model.CompanyName,
+        Author = brandHeader.CompanyName,
         Subject = model.JourneyName
     };
 
@@ -55,7 +55,7 @@ internal sealed class ContractJourneySummaryPdfDocument(
             });
             page.Content().PaddingTop(10).Element(Direct).Column(ComposeContent);
             page.Footer().PaddingTop(8).Element(footer =>
-                PdfDesignSystem.ComposeFooter(footer, model.CompanyName, isEnglish));
+                PdfDesignSystem.ComposeFooter(footer, brandHeader.CompanyName, isEnglish));
         });
     }
 
@@ -367,7 +367,7 @@ internal sealed class ContractJourneySummaryPdfDocument(
                     signature.Item().Text(Label("تأیید مدیریت", "Management approval"))
                         .SemiBold().FontSize(PdfDesignSystem.TableSize).FontColor(Red);
                     signature.Item().PaddingTop(22).LineHorizontal(0.7f).LineColor("#B7BEC8");
-                    signature.Item().PaddingTop(3).Text(model.CompanyName)
+                    signature.Item().PaddingTop(3).Text(brandHeader.CompanyName)
                         .SemiBold().FontSize(LabelSize).FontColor(Ink);
                 });
         });

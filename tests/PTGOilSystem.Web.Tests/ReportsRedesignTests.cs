@@ -271,14 +271,14 @@ public sealed class ReportsRedesignTests
     // ── ۱۱) برند خروجی‌ها ─────────────────────────────────────────────
 
     [Fact]
-    public void Export_Branding_Defaults_To_Mashal_Only()
+    public void Export_Branding_Defaults_To_Fawad_Saddiqi_Group()
     {
         var options = new TabularExportOptions();
-        Assert.Equal("مشعل | نرم‌افزار تخصصی نفت و گاز", options.OrganizationName);
-        Assert.Equal("MASHAL | Oil & Gas Management Software", options.OrganizationNameEn);
-        Assert.Equal("/images/mashal-logo-blue.webp", options.CompanyLogoPath);
+        Assert.Equal("گروپ کمپنی‌های فواد صدیقی", options.OrganizationName);
+        Assert.Equal("Fawad Saddiqi Group of Companies", options.OrganizationNameEn);
+        Assert.Equal("/invoice-templates/fawad/logo.png", options.CompanyLogoPath);
         Assert.True(string.IsNullOrEmpty(options.CompanyEmail));
-        Assert.DoesNotContain("صدیقی", options.CompanyNameFa);
-        Assert.DoesNotContain("Saddiqi", new PTGOilSystem.Web.Models.PartyStatements.PartyStatementOptions().CompanyName);
+        Assert.Contains("صدیقی", options.CompanyNameFa);
+        Assert.Contains("Saddiqi", new PTGOilSystem.Web.Models.PartyStatements.PartyStatementOptions().CompanyName);
     }
 }

@@ -115,13 +115,13 @@ public class ShellViewStructureTests
     }
 
     [Fact]
-    public void Sidebar_Uses_Mashal_Brand_And_Settings_Starts_Collapsed()
+    public void Sidebar_Uses_Saddiqi_Brand_And_Settings_Starts_Collapsed()
     {
         var layout = ReadRepoFile("src/PTGOilSystem.Web/Views/Shared/_Layout.cshtml");
 
-        Assert.Contains("~/images/mashal-sidebar-white.webp", layout);
-        Assert.Contains("alt=\"مشعل — سیستم مدیریت تجارت نفت و گاز\"", layout);
-        Assert.DoesNotContain("~/images/saddiqi-sidebar-wordmark.webp", layout);
+        Assert.Contains("~/images/saddiqi-sidebar-wordmark.webp", layout);
+        Assert.Contains("alt=\"گروپ کمپنی‌های فواد صدیقی\"", layout);
+        Assert.DoesNotContain("~/images/mashal-sidebar-white.webp", layout);
         Assert.Contains("!string.Equals(node.Controller, \"SystemSettings\", StringComparison.OrdinalIgnoreCase)", layout);
     }
 
@@ -615,6 +615,10 @@ public class ShellViewStructureTests
         Assert.Contains("window.PTG.setListCardLoading", listScript);
         Assert.Contains("--ptg-list-radius: 12px", listStyles);
         Assert.Contains(".ak-list-card", listStyles);
+        Assert.Contains("max-block-size: clamp(18rem, 56dvh, 44rem)", listStyles);
+        Assert.Contains(".ak-list-page .ak-journal-scroll", listStyles);
+        Assert.Contains("position: sticky", listStyles);
+        Assert.Contains("inset-block-start: 0", listStyles);
         // چگالی ردیف دیگر در لایه لیست تکرار نمی‌شود؛ تنها منبع آن 50-ak-components.css
         // است (چرتکه: 12 + 21 + 12 = ارتفاع ردیف 45px) تا دو لایه با هم نجنگند.
         Assert.DoesNotContain("height: 54px", listStyles);

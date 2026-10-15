@@ -7,7 +7,7 @@
     // ابزار توسعه UI Pick — فقط Development + PTG_UI_PICK=1
     var uiPickEnabled = HostEnvironment.IsDevelopment()
         && string.Equals(AppConfiguration["PTG_UI_PICK"], "1", StringComparison.Ordinal);
-    var title = ViewData["Title"] as string ?? "PTG Oil System";
+    var title = ViewData["Title"] as string ?? "گروپ کمپنی‌های فواد صدیقی";
     // SPA partial render: spa-nav.js sends X-PTG-SPA and only reads <main>, body
     // attributes, the shell-frame marker, page assets and #ptg-page-scripts.
     // For those requests we skip the base CSS/JS bundle, sidebar, topbar, footer
@@ -339,7 +339,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#FCFCFC" />
-    <title>@title - PTG Oil System</title>
+    <title>@title - @T("گروپ کمپنی‌های فواد صدیقی", "Fawad Saddiqi Group of Companies")</title>
     @if (!isLoginPage && renderShellChrome)
     {
         <link rel="preload" href="~/vendor/fonts/iransans/files/iransans-400.woff2" asp-append-version="true" as="font" type="font/woff2" crossorigin="anonymous" />
@@ -371,16 +371,14 @@
         <link rel="stylesheet" href="~/vendor/fonts/iransans/iransans.css" asp-append-version="true" />
 
     }
-    <link rel="icon" type="image/x-icon" href="~/mashal-logo.ico" asp-append-version="true" />
-    <link rel="shortcut icon" type="image/x-icon" href="~/mashal-logo.ico" asp-append-version="true" />
-    <link rel="apple-touch-icon" sizes="180x180" href="~/mashal-logo-180.png" asp-append-version="true" />
-    <link rel="icon" type="image/png" sizes="192x192" href="~/mashal-logo-192.png" asp-append-version="true" />
-    <link rel="icon" type="image/png" sizes="512x512" href="~/mashal-logo-512.png" asp-append-version="true" />
+    <link rel="icon" type="image/x-icon" href="~/images/app-icon.ico" asp-append-version="true" />
+    <link rel="icon" type="image/png" sizes="192x192" href="~/images/app-icon-192.png" asp-append-version="true" />
+    <link rel="apple-touch-icon" sizes="180x180" href="~/images/app-icon-180.png" asp-append-version="true" />
     @* PWA: نصب روی Android/iPhone/Windows و بازشدن آفلاین (sw.js فقط پوستهٔ آفلاین را cache می‌کند، نه صفحات واردشده). *@
     <link rel="manifest" href="~/manifest.webmanifest" asp-append-version="true" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="مشعل" />
+    <meta name="apple-mobile-web-app-title" content="صدیقی" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     @if (renderShellChrome)
     {
@@ -538,7 +536,7 @@
                 <div class="boltz-sidebar-scroll">
                     <a class="boltz-brand boltz-brand-logo-only" asp-controller="Home" asp-action="Index">
                         <span class="boltz-brand-mark">
-                            <img class="boltz-brand-logo" src="~/images/mashal-sidebar-white.webp" asp-append-version="true" alt="مشعل — سیستم مدیریت تجارت نفت و گاز" width="2289" height="1143" decoding="async" />
+                            <img class="boltz-brand-logo" src="~/images/saddiqi-sidebar-wordmark.webp" asp-append-version="true" alt="گروپ کمپنی‌های فواد صدیقی" width="1226" height="354" decoding="async" />
                         </span>
                     </a>
 

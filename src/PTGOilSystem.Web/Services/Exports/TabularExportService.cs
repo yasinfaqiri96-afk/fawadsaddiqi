@@ -8,6 +8,8 @@ using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 using QuestPDF.Drawing;
 using QColors = QuestPDF.Helpers.Colors;
+using A = DocumentFormat.OpenXml.Drawing;
+using Xdr = DocumentFormat.OpenXml.Drawing.Spreadsheet;
 
 namespace PTGOilSystem.Web.Services.Exports;
 
@@ -416,6 +418,68 @@ public sealed class TabularExportService : ITabularExportService
             PageOrder = PageOrderValues.DownThenOver
         });
         writer.WriteEndElement();
+        writer.Close();
+
+        AddExcelBrandLogo(worksheetPart, totalColumnCount);
+    }
+
+    private void AddExcelBrandLogo(WorksheetPart worksheetPart, int totalColumnCount)
+    {
+        var logoPath = PdfDesignSystem.ResolveWebAsset(
+            _environment.WebRootPath,
+            ExcelDesignSystem.ExcelLogoRelativePath);
+        if (logoPath is null)
+        {
+            return;
+        }
+
+        var drawingsPart = worksheetPart.AddNewPart<DrawingsPart>();
+        var imagePart = drawingsPart.AddImagePart(ImagePartType.Png);
+        using (var image = File.OpenRead(logoPath))
+        {
+            imagePart.FeedData(image);
+        }
+
+        const long logoSize = 42L * 9525L;
+        var picture = new Xdr.Picture(
+            new Xdr.NonVisualPictureProperties(
+                new Xdr.NonVisualDrawingProperties { Id = 1U, Name = "Saddiqi brand logo" },
+                new Xdr.NonVisualPictureDrawingProperties(
+                    new A.PictureLocks { NoChangeAspect = true })),
+            new Xdr.BlipFill(
+                new A.Blip
+                {
+                    Embed = drawingsPart.GetIdOfPart(imagePart),
+                    CompressionState = A.BlipCompressionValues.Print
+                },
+                new A.Stretch(new A.FillRectangle())),
+            new Xdr.ShapeProperties(
+                new A.Transform2D(
+                    new A.Offset { X = 0L, Y = 0L },
+                    new A.Extents { Cx = logoSize, Cy = logoSize }),
+                new A.PresetGeometry(new A.AdjustValueList())
+                {
+                    Preset = A.ShapeTypeValues.Rectangle
+                }));
+
+        var anchorColumn = Math.Max(totalColumnCount - 1, 0).ToString(CultureInfo.InvariantCulture);
+        drawingsPart.WorksheetDrawing = new Xdr.WorksheetDrawing(
+            new Xdr.OneCellAnchor(
+                new Xdr.FromMarker(
+                    new Xdr.ColumnId(anchorColumn),
+                    new Xdr.ColumnOffset("0"),
+                    new Xdr.RowId("0"),
+                    new Xdr.RowOffset("0")),
+                new Xdr.Extent { Cx = logoSize, Cy = logoSize },
+                picture,
+                new Xdr.ClientData()));
+        drawingsPart.WorksheetDrawing.Save();
+
+        worksheetPart.Worksheet.Append(new Drawing
+        {
+            Id = worksheetPart.GetIdOfPart(drawingsPart)
+        });
+        worksheetPart.Worksheet.Save();
     }
 
     private async Task WritePdfWorkbookAsync(

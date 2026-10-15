@@ -65,7 +65,7 @@ const fxRate = () => num('fxRate', 'نرخ تبدیل به دالر (برای ا
 export const OPERATION_FORMS = Object.freeze({
   'Sale.Request': {
     label: 'فروش از مخزن',
-    hint: 'پس از اتصال، با همان فرم فروش مشعل ثبت قطعی می‌شود (کنترل موجودی، فاکتور و حسابداری). نرخ خالی = «قیمت بعداً تعیین می‌شود».',
+    hint: 'پس از اتصال، با همان فرم فروش سیستم صدیقی ثبت قطعی می‌شود (کنترل موجودی، فاکتور و حسابداری). نرخ خالی = «قیمت بعداً تعیین می‌شود».',
     fields: [ref('customerId', 'مشتری', 'customers', true, { allowPending: 'Customer.Draft' }), ref('productId', 'جنس', 'products'),
       ref('tankId', 'مخزن', 'tanks'), num('quantity', 'مقدار (تن)'), num('unitPrice', 'نرخ واحد', false),
       currency(), fxRate(), ref('companyId', 'شرکت فروشنده', 'companies', false), text('reference', 'شماره تکت/مرجع'), text('description', 'شرح')]
@@ -84,20 +84,20 @@ export const OPERATION_FORMS = Object.freeze({
   },
   'Expense.Request': {
     label: 'مصرف',
-    hint: 'پس از اتصال، با فرم مصارف مشعل ثبت قطعی می‌شود.',
+    hint: 'پس از اتصال، با فرم مصارف سیستم صدیقی ثبت قطعی می‌شود.',
     fields: [ref('expenseTypeId', 'نوع مصرف', 'expenseTypes'), num('amount', 'مبلغ'), currency(), fxRate(),
       ref('cashAccountId', 'حساب پرداخت', 'cashAccounts', false), text('description', 'شرح', true)]
   },
   'Loading.Note': {
     label: 'بارگیری',
-    hint: 'پس از اتصال، با فرم بارگیری مشعل (یک موتر) روی قرارداد خرید ثبت قطعی می‌شود.',
+    hint: 'پس از اتصال، با فرم بارگیری سیستم صدیقی (یک موتر) روی قرارداد خرید ثبت قطعی می‌شود.',
     fields: [ref('contractId', 'قرارداد خرید', 'purchaseContracts'), ref('productId', 'جنس', 'products'),
       ref('truckId', 'موتر', 'trucks', false), num('quantity', 'مقدار بارگیری (تن)'), text('reference', 'شماره بارنامه'),
       text('driverName', 'نام راننده'), text('description', 'شرح')]
   },
   'Receipt.Note': {
     label: 'رسید و تخلیه به مخزن',
-    hint: 'پس از اتصال، با فرم رسید مشعل ثبت قطعی می‌شود و موجودی مخزن همان‌جا افزایش می‌یابد.',
+    hint: 'پس از اتصال، با فرم رسید سیستم صدیقی ثبت قطعی می‌شود و موجودی مخزن همان‌جا افزایش می‌یابد.',
     fields: [ref('loadingId', 'بار', 'loadings'), ref('tankId', 'مخزن مقصد', 'tanks'), num('quantity', 'مقدار رسید (تن)'),
       text('reference', 'شماره سند'), text('description', 'شرح')]
   },
@@ -115,7 +115,7 @@ export const OPERATION_FORMS = Object.freeze({
   },
   'Form.Submit': {
     label: 'فورم اصلی',
-    hint: 'در همان صفحهٔ مشعل ثبت شد؛ پس از اتصال با همان فورم سرور ثبت قطعی می‌شود.',
+    hint: 'در همان صفحهٔ سیستم صدیقی ثبت شد؛ پس از اتصال با همان فورم سرور ثبت قطعی می‌شود.',
     fields: [],
     hidden: true
   }

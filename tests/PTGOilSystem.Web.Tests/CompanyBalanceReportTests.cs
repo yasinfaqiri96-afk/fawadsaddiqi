@@ -717,7 +717,7 @@ public sealed class CompanyBalanceReportTests
         {
             ExcelMaxRows = 100,
             PdfMaxRows = 100,
-            CompanyLogoPath = "/images/mashal-logo-blue.webp",
+            CompanyLogoPath = "/invoice-templates/fawad/logo.png",
             QuestPdfLicense = "Community"
         });
         return new TabularExportService(options, environment);

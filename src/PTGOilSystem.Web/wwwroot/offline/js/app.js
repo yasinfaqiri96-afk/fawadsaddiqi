@@ -244,7 +244,7 @@ async function renderLock(message = '') {
         : `
         <form class="ox-form" data-activate>
           <p>فعال‌سازی کار آفلاین برای <strong>${h(s.fullName || s.username)}</strong> — ${h(s.companyName)}</p>
-          <p class="ox-hint">رمز محلی فقط روی همین دستگاه است و برای باز کردن مشعل بدون اینترنت لازم می‌شود. حداقل ${MIN_PIN_LENGTH} حرف یا رقم؛ رمز طولانی‌تر امن‌تر است.</p>
+          <p class="ox-hint">رمز محلی فقط روی همین دستگاه است و برای باز کردن سیستم صدیقی بدون اینترنت لازم می‌شود. حداقل ${MIN_PIN_LENGTH} حرف یا رقم؛ رمز طولانی‌تر امن‌تر است.</p>
           <div class="ox-form-grid">
             <div class="ox-field"><label for="pin1">رمز محلی</label><input class="ox-input" id="pin1" type="password" autocomplete="new-password" required minlength="${MIN_PIN_LENGTH}" /></div>
             <div class="ox-field"><label for="pin2">تکرار رمز</label><input class="ox-input" id="pin2" type="password" autocomplete="new-password" required minlength="${MIN_PIN_LENGTH}" /></div>
@@ -255,8 +255,8 @@ async function renderLock(message = '') {
       app.pendingSession = s;
     }
   } else if (monitor.reachable) {
-    activation = `<p>برای فعال‌سازی کار آفلاین، یک‌بار با اینترنت وارد مشعل شوید.</p>
-      <div class="ox-actions"><a class="ox-btn" href="${LOGIN_URL}">ورود به مشعل</a></div>`;
+    activation = `<p>برای فعال‌سازی کار آفلاین، یک‌بار با اینترنت وارد سیستم صدیقی شوید.</p>
+      <div class="ox-actions"><a class="ox-btn" href="${LOGIN_URL}">ورود به سیستم صدیقی</a></div>`;
   } else {
     activation = '<p class="ox-muted">فعال‌سازی دستگاه تازه فقط با اینترنت و ورود موفق ممکن است.</p>';
   }
@@ -288,7 +288,7 @@ async function renderLock(message = '') {
       ${activation}
     </section>
     <section class="ox-card">
-      <p class="ox-muted">سیستم کامل مشعل (آنلاین): <a href="/">بازکردن مشعل</a></p>
+      <p class="ox-muted">سیستم کامل صدیقی (آنلاین): <a href="/">بازکردن سیستم صدیقی</a></p>
     </section>`;
 
   const unlockForm = $('[data-unlock]');
@@ -552,7 +552,7 @@ async function renderHome() {
       <div class="ox-actions">
         ${allowedTypes().map((k) => `<a class="ox-btn ox-btn--ghost" href="#/new/${encodeURIComponent(k)}">${h(OPERATION_FORMS[k].label)}</a>`).join('')}
       </div>
-      ${allowedTypes().includes('Customer.Draft') ? `<p class="ox-muted">فورم اصلی مشعل که بدون سرور هم باز می‌شود (پس از یک‌بار بازکردن آنلاین):
+      ${allowedTypes().includes('Customer.Draft') ? `<p class="ox-muted">فورم اصلی سیستم صدیقی که بدون سرور هم باز می‌شود (پس از یک‌بار بازکردن آنلاین):
         <a href="/Customers/Create">ثبت مشتری</a></p>` : ''}
     </section>
     ${dashboard}
@@ -583,8 +583,8 @@ async function renderNew(type, draftId, editRecord = null) {
     main.innerHTML = `
       <section class="ox-card">
         <h2>ثبت جدید</h2>
-        <p>ثبت جدید در همان فورم‌های اصلی مشعل انجام می‌شود؛ بدون سرور هم همان فورم در دستگاه ذخیره و پس از اتصال خودکار فرستاده می‌شود.</p>
-        <div class="ox-actions"><a class="ox-btn" href="/">بازکردن مشعل</a><a class="ox-btn ox-btn--ghost" href="#/ops">عملیات آفلاین</a></div>
+        <p>ثبت جدید در همان فورم‌های اصلی سیستم صدیقی انجام می‌شود؛ بدون سرور هم همان فورم در دستگاه ذخیره و پس از اتصال خودکار فرستاده می‌شود.</p>
+        <div class="ox-actions"><a class="ox-btn" href="/">بازکردن سیستم صدیقی</a><a class="ox-btn ox-btn--ghost" href="#/ops">عملیات آفلاین</a></div>
       </section>`;
     return;
   }
@@ -908,7 +908,7 @@ async function renderBackup() {
       let shared = false;
       if (file && navigator.canShare?.({ files: [file] }) && /Android|iPhone|iPad/i.test(navigator.userAgent)) {
         try {
-          await navigator.share({ files: [file], title: 'بکاپ مشعل' });
+          await navigator.share({ files: [file], title: 'بکاپ سیستم صدیقی' });
           shared = true;
         } catch {
           shared = false;

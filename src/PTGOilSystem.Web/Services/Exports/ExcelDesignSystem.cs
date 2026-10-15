@@ -10,11 +10,13 @@ namespace PTGOilSystem.Web.Services.Exports;
 /// </summary>
 public static class ExcelDesignSystem
 {
-    /// <summary>هویت مشترک همهٔ خروجی‌ها (سطر اول Excel، سربرگ و پابرگ PDF). فقط نام مشعل.</summary>
-    public const string OrganizationName = "مشعل | نرم‌افزار تخصصی نفت و گاز";
-    public const string OrganizationNameEn = "MASHAL | Oil & Gas Management Software";
-    /// <summary>لوگوی اصلی مشعل با متن سرمه‌ای روی زمینهٔ سفید؛ نسخهٔ سفید روی کاغذ دیده نمی‌شود.</summary>
-    public const string LogoRelativePath = "/images/mashal-logo-blue.webp";
+    /// <summary>هویت مشترک همهٔ خروجی‌ها (سطر اول Excel، سربرگ و پابرگ PDF).</summary>
+    public const string OrganizationName = "گروپ کمپنی‌های فواد صدیقی";
+    public const string OrganizationNameEn = "Fawad Saddiqi Group of Companies";
+    /// <summary>لوگوی رسمی صدیقی برای سندهای سفید و خروجی‌های قابل چاپ.</summary>
+    public const string LogoRelativePath = "/invoice-templates/fawad/logo.png";
+    /// <summary>نشان مربع صدیقی برای سربرگ فشردهٔ Excel.</summary>
+    public const string ExcelLogoRelativePath = "/images/saddiqi-loader-symbol.png";
 
     // Soft variants of the shared PTG palette: primary-lighter, table-head and divider.
     public const string Navy = "FFDCE2F9";
