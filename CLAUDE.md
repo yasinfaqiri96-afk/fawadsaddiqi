@@ -10,6 +10,14 @@ EF commands target `src/PTGOilSystem.Migrations/PTGOilSystem.Migrations.csproj`
 with `--startup-project src/PTGOilSystem.Web/PTGOilSystem.Web.csproj`; use
 `--no-build` after a fresh build. See `docs/migrations-project.md`.
 
+## Response style
+
+Caveman mode (`full`) is always on in this project from the first response of
+every session: follow `.claude/skills/caveman/SKILL.md` without waiting for
+`/caveman`. Its Auto-Clarity and Boundaries sections still apply (code,
+commits, PRs written normally). Switch level with `/caveman lite|full|ultra`;
+off for the session only on "stop caveman" / "normal mode".
+
 ## Mandatory Rules
 
 - Read and understand the existing code before making changes.
