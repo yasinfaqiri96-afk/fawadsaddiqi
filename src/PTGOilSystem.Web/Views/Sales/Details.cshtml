@@ -1,5 +1,6 @@
 @model PTGOilSystem.Web.Models.Sales.SalesDetailsViewModel
 @using PTGOilSystem.Web.Models.Sales
+@inject Microsoft.Extensions.Options.IOptions<PTGOilSystem.Web.Configuration.ClientProfileOptions> ClientProfileOptionsAccessor
 @{
     string T(string fa, string en) => UiText.T(Context, fa, en);
 
@@ -278,7 +279,18 @@
         });
     }
     // فاکتور بدون قیمت چاپ نمی‌شود؛ پس از تعیین قیمت دوباره در دسترس است.
-    if (!pricePending)
+    // Instanceی که قالب اختصاصی دارد (مثلاً Mashal) فقط همان یک فاکتور را می‌بیند.
+    var instanceInvoiceTemplates = SalesInvoiceTemplateOptions.AllowedFor(ClientProfileOptionsAccessor.Value.InvoiceTemplate);
+    if (!pricePending && instanceInvoiceTemplates.Count == 1)
+    {
+        nextActions.Add(new AkHeaderMenuItem
+        {
+            Label = T("فاکتور", "Invoice"),
+            Href = Url.Action("Invoice", new { id = Model.Id, template = instanceInvoiceTemplates[0].ToString().ToLowerInvariant() }),
+            Icon = "bi-receipt"
+        });
+    }
+    else if (!pricePending)
     {
         nextActions.Add(new AkHeaderMenuItem
         {

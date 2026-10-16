@@ -18,6 +18,9 @@
     var currentRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "User";
     var isAdmin = string.Equals(currentRole, PTGOilSystem.Web.Security.AuthRoles.Admin, StringComparison.Ordinal);
     var simplePurchaseEnabled = ClientProfileOptionsAccessor.Value.SimplePurchaseEnabled;
+    // هشدار نسخهٔ آزمایشی فقط برای Instanceی که پیام آن را در ClientProfile تنظیم کرده است.
+    var trialWarningMessage = ClientProfileOptionsAccessor.Value.TrialWarningMessage?.Trim();
+    var trialWarningEnabled = !string.IsNullOrWhiteSpace(trialWarningMessage);
     var canManageUsers = PTGOilSystem.Web.Security.RoleAccessRules.CanManageUsers(User);
     // راهنمای شروع (Trial): خاموش باشد هیچ دکمه، CSS یا JS آن بارگذاری نمی‌شود.
     var onboardingEnabled = isAuthenticated
@@ -495,6 +498,10 @@
     {
         <link rel="stylesheet" href="~/css/ptg/60-loader.css" asp-append-version="true" />
     }
+    @if (renderShellChrome && trialWarningEnabled)
+    {
+        <link rel="stylesheet" href="~/css/ptg/82-trial-warning.css" asp-append-version="true" />
+    }
 </head>
 <body class="app-body boltz-shell @(isAuthenticated ?"app-shell-authenticated" : "app-shell-public") @(isEnglishUi ? "boltz-ltr" : "boltz-rtl") @foundationCompactClass @masterDataCompactClass @(isFinanceWorkspace ? "is-finance-workspace" : null) @routeBodyClass"
       data-ui-language="@htmlLanguage"
@@ -689,6 +696,10 @@
                 <main class="boltz-content ptg-page" id="ptg-main-content" tabindex="-1">
                     @* زمان سرورِ همین صفحه: نسخهٔ پایهٔ ویرایش/لغوِ آفلاین (همراه محتوای main در ناوبری SPA و نسخهٔ ذخیره). *@
                     <span hidden data-ptg-rendered="@DateTime.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture)"></span>
+                    @if (trialWarningEnabled)
+                    {
+                        <div class="ptg-trial-warning" role="alert"><i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i><span>@trialWarningMessage</span></div>
+                    }
                     @await Html.PartialAsync("_ToastNotifications")
 
                     @* Shared PageFrame: page-top cards, summary, tabs, header, form
@@ -727,6 +738,10 @@
     else
     {
         <main class="boltz-public-shell">
+            @if (trialWarningEnabled)
+            {
+                <div class="ptg-trial-warning" role="alert"><i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i><span>@trialWarningMessage</span></div>
+            }
             @RenderBody()
         </main>
     }

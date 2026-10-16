@@ -1503,6 +1503,19 @@ public class SalesControllerTests
     }
 
     [Fact]
+    public void Invoice_Templates_Follow_Client_Profile()
+    {
+        Assert.Equal([InvoiceTemplateKey.Faisal, InvoiceTemplateKey.Fawad], SalesInvoiceTemplateOptions.AllowedFor(null));
+        Assert.False(SalesInvoiceTemplateOptions.TryGet("mashal", null, out _));
+
+        Assert.Equal([InvoiceTemplateKey.Mashal], SalesInvoiceTemplateOptions.AllowedFor("Mashal"));
+        Assert.True(SalesInvoiceTemplateOptions.TryGet("mashal", "Mashal", out var mashal));
+        Assert.Equal("MASHAL", mashal.SellerName);
+        Assert.False(SalesInvoiceTemplateOptions.TryGet("fawad", "Mashal", out _));
+        Assert.False(SalesInvoiceTemplateOptions.TryGet("faisal", "Mashal", out _));
+    }
+
+    [Fact]
     public async Task Invoice_Maps_Print_ViewModel_Amounts_And_InvoiceNumber()
     {
         var options = NewDbOptions();

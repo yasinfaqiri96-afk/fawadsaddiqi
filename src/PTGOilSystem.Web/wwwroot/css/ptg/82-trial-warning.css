@@ -1,0 +1,35 @@
+/* Trial-expiry warning (ClientProfile:TrialWarningMessage) — top of every page.
+   Loaded only when the message is configured; fallbacks cover the login page,
+   which does not load the core token bundle. */
+.ptg-trial-warning {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .6rem;
+    margin: 0 0 1rem;
+    padding: .85rem 1.25rem;
+    border-radius: 10px;
+    background: var(--ptg-danger, #d92d20);
+    color: #fff;
+    font-weight: 700;
+    font-size: 1rem;
+    line-height: 1.6;
+    text-align: center;
+    box-shadow: 0 6px 18px rgba(217, 45, 32, .28);
+}
+
+.ptg-trial-warning .bi {
+    flex: 0 0 auto;
+    font-size: 1.25rem;
+}
+
+.boltz-public-shell > .ptg-trial-warning {
+    margin: 0;
+    border-radius: 0;
+}
+
+@media print {
+    .ptg-trial-warning {
+        display: none;
+    }
+}

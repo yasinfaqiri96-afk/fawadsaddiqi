@@ -3011,9 +3011,22 @@ public partial class SalesController : Controller
 
     public async Task<IActionResult> Invoice(int id, string template)
     {
-        if (!SalesInvoiceTemplateOptions.TryGet(template, out var templateMetadata))
+        var services = HttpContext?.RequestServices;
+        var instanceTemplate = services?.GetService<Microsoft.Extensions.Options.IOptions<PTGOilSystem.Web.Configuration.ClientProfileOptions>>()?.Value.InvoiceTemplate;
+        if (!SalesInvoiceTemplateOptions.TryGet(template, instanceTemplate, out var templateMetadata))
         {
             return BadRequest("Invalid invoice template.");
+        }
+
+        // مهر/امضایی که فایلش کنار قالب نیست چاپ نمی‌شود (به‌جای تصویر شکسته).
+        var webRoot = services?.GetService<IWebHostEnvironment>()?.WebRootFileProvider;
+        if (webRoot is not null)
+        {
+            templateMetadata = templateMetadata with
+            {
+                SignaturePath = webRoot.GetFileInfo(templateMetadata.SignaturePath).Exists ? templateMetadata.SignaturePath : string.Empty,
+                StampPath = webRoot.GetFileInfo(templateMetadata.StampPath).Exists ? templateMetadata.StampPath : string.Empty
+            };
         }
 
         var sale = await _db.SalesTransactions

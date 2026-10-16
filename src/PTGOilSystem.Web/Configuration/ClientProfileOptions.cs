@@ -24,4 +24,12 @@ public sealed class ClientProfileOptions
 
     /// <summary>نام Controllerهایی که برای این مشتری مخفی و از URL مستقیم هم بسته‌اند.</summary>
     public string[] HiddenControllers { get; set; } = [];
+
+    /// <summary>
+    /// قالب فاکتور فروش این Instance (مثلاً "Mashal"). خالی یعنی همان دو قالب پیش‌فرض.
+    /// </summary>
+    public string? InvoiceTemplate { get; set; }
+
+    /// <summary>هشدار سرخ نسخهٔ آزمایشی که بالای همهٔ صفحات نمایش داده می‌شود؛ خالی یعنی خاموش.</summary>
+    public string? TrialWarningMessage { get; set; }
 }

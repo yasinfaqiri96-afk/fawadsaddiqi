@@ -166,6 +166,15 @@ body {
     --block-gap: 6mm;
 }
 
+/* mashal — header rule ends at 47mm, footer rule starts 31mm from the bottom. */
+.template-mashal {
+    --zone-top: 54mm;
+    --zone-end: 18mm;
+    --zone-bottom: 38mm;
+    --zone-start: 18mm;
+    --block-gap: 6mm;
+}
+
 /* The sheet is the only surface: no data block may paint one of its own. */
 .invoice-body,
 .invoice-body *:not(.sales-table):not(thead):not(tbody):not(tr):not(th):not(td) {

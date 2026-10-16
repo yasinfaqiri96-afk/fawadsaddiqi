@@ -7,7 +7,8 @@ namespace PTGOilSystem.Web.Models.Sales;
 public enum InvoiceTemplateKey
 {
     Faisal = 1,
-    Fawad = 2
+    Fawad = 2,
+    Mashal = 3
 }
 
 public sealed record SalesInvoiceTemplateMetadata(
@@ -69,8 +70,46 @@ public static class SalesInvoiceTemplateOptions
                 "/invoice-templates/fawad/header-bg.png",
                 "/invoice-templates/fawad/page-bg.jpg",
                 FawadNote,
-                "#142d57")
+                "#142d57"),
+            // فقط برای Instanceهایی که ClientProfile:InvoiceTemplate = "Mashal" دارند.
+            // امضای فروشنده فقط وقتی چاپ می‌شود که فایل واقعی آن کنار قالب گذاشته شود.
+            [InvoiceTemplateKey.Mashal] = new(
+                InvoiceTemplateKey.Mashal,
+                "MASHAL",
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                "/invoice-templates/mashal/logo.png",
+                string.Empty,
+                "/invoice-templates/mashal/signature-seller.png",
+                "/invoice-templates/mashal/stamp.png",
+                string.Empty,
+                string.Empty,
+                "/invoice-templates/mashal/page-bg.jpg",
+                string.Empty,
+                "#0b2a8a")
         };
+
+    // بدون تنظیم Profile همان دو قالب قبلی؛ با تنظیم، فقط قالب همان Instance.
+    private static readonly InvoiceTemplateKey[] DefaultTemplates = [InvoiceTemplateKey.Faisal, InvoiceTemplateKey.Fawad];
+
+    public static IReadOnlyList<InvoiceTemplateKey> AllowedFor(string? instanceTemplate)
+        => Enum.TryParse<InvoiceTemplateKey>(instanceTemplate?.Trim(), ignoreCase: true, out var key)
+            && Templates.ContainsKey(key)
+                ? [key]
+                : DefaultTemplates;
+
+    public static bool TryGet(string? template, string? instanceTemplate, out SalesInvoiceTemplateMetadata metadata)
+    {
+        if (TryGet(template, out metadata) && AllowedFor(instanceTemplate).Contains(metadata.TemplateKey))
+        {
+            return true;
+        }
+
+        metadata = null!;
+        return false;
+    }
 
     public static bool TryGet(string? template, out SalesInvoiceTemplateMetadata metadata)
     {
@@ -122,7 +161,12 @@ public sealed class SalesInvoicePrintViewModel
     public string PageBackgroundPath { get; init; } = string.Empty;
     public string ThemeColor { get; init; } = "#142d57";
 
-    public string TemplateCssClass => TemplateKey == InvoiceTemplateKey.Faisal ? "template-faisal" : "template-fawad";
+    public string TemplateCssClass => TemplateKey switch
+    {
+        InvoiceTemplateKey.Faisal => "template-faisal",
+        InvoiceTemplateKey.Mashal => "template-mashal",
+        _ => "template-fawad"
+    };
     public string FormattedQuantityMt => FormatDecimal(QuantityMt);
     public string FormattedUnitPriceUsd => FormatMoney(UnitPriceUsd);
     public string FormattedTotalPriceUsd => FormatMoney(TotalPriceUsd);
