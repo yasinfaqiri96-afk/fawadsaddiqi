@@ -7,6 +7,12 @@ public sealed class PartnershipStatementPageViewModel
 {
     public IReadOnlyList<PartnershipPairOption> Pairs { get; init; } = [];
     public PartnershipStatement? Statement { get; init; }
+
+    /// <summary>تسویه‌های بدون قرارداد که با فیلترِ یک قرارداد کنار رفته‌اند.</summary>
+    public int GeneralSettlementsOutOfView { get; init; }
+
+    /// <summary>کد ارزهای فعال برای فورم تسویه؛ دالر اول.</summary>
+    public IReadOnlyList<string> Currencies { get; init; } = [];
 }
 
 public sealed class PartnerSettlementFormViewModel

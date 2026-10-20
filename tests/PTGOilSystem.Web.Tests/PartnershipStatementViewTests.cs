@@ -19,7 +19,7 @@ public sealed class PartnershipStatementViewTests
 
         var summaryStart = view.IndexOf("statement.DebtorPartnerId.HasValue", StringComparison.Ordinal);
         Assert.True(summaryStart >= 0);
-        var summary = view[summaryStart..view.IndexOf("@foreach (var contract in statement.Contracts)", summaryStart, StringComparison.Ordinal)];
+        var summary = view[summaryStart..view.IndexOf("حساب هر شریک", summaryStart, StringComparison.Ordinal)];
 
         Assert.Contains("مبلغ قابل تسویه", summary);
         Assert.Contains("statement.AmountDueUsd", summary);
