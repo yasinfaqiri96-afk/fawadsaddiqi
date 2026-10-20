@@ -220,6 +220,17 @@
                             </div>
                             <span asp-validation-for="PartnerSharesEffectiveFrom" class="ak-field-error"></span>
                         </div>
+                        <div class="ak-field">
+                            <div class="form-check">
+                                <input asp-for="PartnerSharesCorrectFromStart" class="form-check-input" />
+                                <label asp-for="PartnerSharesCorrectFromStart" class="form-check-label"></label>
+                            </div>
+                            <div class="form-text">
+                                اگر شریک اشتباه ثبت شده بود این را بزنید: سهم‌های قبلی کامل پاک و همین شرکا از اول قرارداد حساب می‌شوند.
+                                تاریخ اجرا در این حالت نادیده گرفته می‌شود.
+                            </div>
+                            <span asp-validation-for="PartnerSharesCorrectFromStart" class="ak-field-error"></span>
+                        </div>
                     </div>
                 </div>
 
