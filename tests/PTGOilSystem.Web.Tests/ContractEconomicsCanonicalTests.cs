@@ -305,6 +305,109 @@ public class ContractEconomicsCanonicalTests
         Assert.Equal(decimal.Round(e.OperationalCostBaseUsd * 0.4m, 2), e.RealizedOperationalCostUsd);
     }
 
+    [Fact]
+    public async Task Leg_Continued_From_Terminal_Stock_Carries_The_First_Legs_Costs_To_Its_Sales()
+    {
+        await using var db = NewDb();
+        Seed(db);
+        db.LoadingRegisters.Add(Loading(1, PurchaseId, 100m, 500m));
+        // حملِ ۱ تا ترمینال (رسید به موجودی)، حملِ ۲ از حرکتِ همان رسید؛ نیمِ حملِ ۲ مستقیم فروخته شد.
+        db.InventoryTransportLegs.AddRange(ChainLeg(1, 100m), ChainLeg(2, 100m));
+        db.InventoryMovements.Add(new InventoryMovement
+        {
+            Id = 10,
+            ProductId = 1,
+            ContractId = PurchaseId,
+            TerminalId = 1,
+            StorageTankId = 1,
+            Direction = MovementDirection.In,
+            MovementDate = new DateTime(2026, 4, 8),
+            QuantityMt = 100m
+        });
+        db.InventoryTransportReceipts.Add(new InventoryTransportReceipt
+        {
+            Id = 1,
+            InventoryTransportLegId = 1,
+            ReceiptDate = new DateTime(2026, 4, 8),
+            ReceivedQuantityMt = 100m,
+            ReceiptDestination = InventoryTransportReceiptDestination.ToInventory,
+            InventoryMovementId = 10
+        });
+        db.InventoryTransportLegAllocations.Add(new InventoryTransportLegAllocation
+        {
+            Id = 1,
+            InventoryTransportLegId = 2,
+            SourcePurchaseContractId = PurchaseId,
+            SourceInventoryMovementId = 10,
+            QuantityMt = 100m
+        });
+        db.ExpenseTransactions.AddRange(ChainLegExpense(1, 1_000m, legId: 1), ChainLegExpense(2, 500m, legId: 2));
+        db.SalesTransactions.Add(Sale(100, 50m, 35_000m));
+        db.SalesTransactionSourceAllocations.Add(new SalesTransactionSourceAllocation
+        {
+            Id = 1,
+            SalesTransactionId = 100,
+            TransportLegId = 2,
+            SourcePurchaseContractId = PurchaseId,
+            QuantityMt = 50m,
+            AmountUsd = 35_000m
+        });
+        await db.SaveChangesAsync();
+
+        var e = await EconomicsAsync(db, PurchaseId);
+
+        Assert.False(e.IsFullyDisposed);
+        // حملِ ۲: ۵۰۰ × ۵۰٪؛ حملِ ۱ هم به همان ۵۰ تنِ فروخته‌شده رسیده: ۱٬۰۰۰ × ۵۰٪.
+        Assert.Equal(750m, e.RealizedOperationalCostUsd);
+        Assert.Equal(25_750m, e.UnsoldCostUsd);
+
+        static InventoryTransportLeg ChainLeg(int id, decimal quantityMt) => new()
+        {
+            Id = id,
+            SourcePurchaseContractId = PurchaseId,
+            ProductId = 1,
+            LoadedDate = new DateTime(2026, 4, 5),
+            QuantityMt = quantityMt,
+            Status = InventoryTransportLegStatus.Received
+        };
+
+        static ExpenseTransaction ChainLegExpense(int id, decimal amountUsd, int legId)
+        {
+            var expense = Expense(id, amountUsd, contractId: PurchaseId);
+            expense.TransportLegId = legId;
+            return expense;
+        }
+    }
+
+    [Theory]
+    [InlineData(2, 2)] // ضایعهٔ قابلِ شارژ
+    [InlineData(2, 0)] // ضایعه در حدِ مجاز
+    public async Task Fully_Sold_Or_Lost_Contract_Has_No_Unsold_Cost_And_Realizes_All_Costs(
+        int differenceMt, int chargeableMt)
+    {
+        await using var db = NewDb();
+        Seed(db);
+        db.LoadingRegisters.Add(Loading(1, PurchaseId, 100m, 500m));
+        db.ExpenseTransactions.Add(Expense(1, 1_000m, contractId: PurchaseId));
+        var loss = Loss(1, chargeableMt, loadingRegisterId: 1);
+        loss.DifferenceQuantityMt = differenceMt;
+        db.LossEvents.Add(loss);
+        db.SalesTransactions.Add(Sale(100, 98m, 68_600m));
+        db.InventoryMovements.Add(StockOut(1, PurchaseId, saleId: 100, quantityMt: 98m));
+        await db.SaveChangesAsync();
+
+        var e = await EconomicsAsync(db, PurchaseId);
+
+        Assert.True(e.IsFullyDisposed);
+        Assert.Equal(1m, e.SoldShareRatio);
+        Assert.Equal(0m, e.UnsoldCostUsd);
+        Assert.Equal(e.PurchaseValueUsd + e.RecordedExpenseCostUsd,
+            e.RealizedCostOfGoodsSoldUsd + e.RealizedOperationalCostUsd);
+        // همهٔ هزینه به فروش رسیده: سودِ محقق = فروش − خرید − مصارف.
+        Assert.Equal(68_600m - 50_000m - 1_000m, e.RealizedNetProfitUsd);
+        Assert.Equal(e.LifecycleMarginUsd, e.RealizedNetProfitUsd);
+    }
+
     /// <summary>
     /// سناریوی P-001: دو بارگیریِ ۵۰ تنی × ۹۰۰؛ حملِ ۵۰ تنی (۱ تن ضایعه، ۰٫۸ قابل‌جبران، کرایهٔ خالص
     /// ۱٬۷۰۰، گمرک ۱٬۵۰۰، مصرف ۱۰۰) و حملِ ۴۰ تنی (گمرک ۱٬۰۰۰، مصرف ۸۰).

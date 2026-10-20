@@ -45,6 +45,12 @@ public sealed record ContractEconomicsSnapshot
     public decimal ExternalPartyBorneExpenseUsd { get; init; }
     public decimal LossCostUsd { get; init; }
     public int UnvaluedLossCount { get; init; }
+
+    /// <summary>
+    /// مقدارِ واقعاً ازدست‌رفتهٔ این قرارداد (ضایعهٔ ثبت‌شده، چه قابل‌جبران چه در حدِ مجاز، و کسریِ
+    /// بی‌ضایعهٔ محموله/حمل). این بار نه فروخته شده و نه مانده است.
+    /// </summary>
+    public decimal LostQuantityMt { get; init; }
     public decimal PendingSettlementQuantityMt { get; init; }
 
     /// <summary>
@@ -103,6 +109,7 @@ public sealed record ContractEconomicsSnapshot
     /// پولی − بهای فروش‌های انجام‌شده. مفاد نمی‌سازد؛ فقط ارزشِ دفتریِ باقی‌مانده است.
     /// </summary>
     public decimal UnsoldCostUsd => ContractType == ContractType.Purchase && WeightedAveragePurchasePriceUsd.HasValue
+        && !IsExactlyDisposed
         ? decimal.Round(
             PurchaseValueUsd + RecordedExpenseCostUsd - RealizedCostOfGoodsSoldUsd - RealizedOperationalCostUsd,
             2,
@@ -117,12 +124,33 @@ public sealed record ContractEconomicsSnapshot
     /// پس هزینه‌هایش کامل به فروش‌هایش تعلق دارد.
     /// </summary>
     public decimal SoldShareRatio => ContractType == ContractType.Purchase
-        ? PricedLoadedMt > 0m ? Math.Clamp(SoldQuantityMt / PricedLoadedMt, 0m, 1m) : 0m
+        ? IsFullyDisposed ? 1m
+            : PricedLoadedMt > 0m ? Math.Clamp(SoldQuantityMt / PricedLoadedMt, 0m, 1m) : 0m
         : 1m;
+
+    /// <summary>
+    /// همهٔ بارِ قیمت‌دارِ قرارداد خرید یا فروخته شده یا ضایع شده و بارگیریِ در انتظار نیست؛ پس کالای
+    /// فروخته‌نشده‌ای نمانده و کلِ خرید و مصارف به فروش‌ها می‌رسد (ارزشِ ضایعه همان هزینهٔ ضایعه است).
+    /// </summary>
+    public bool IsFullyDisposed => ContractType == ContractType.Purchase
+        && WeightedAveragePurchasePriceUsd.HasValue
+        && PricedLoadedMt > 0m
+        && PendingLoadedMt == 0m
+        && PendingLoadingCount == 0
+        && SoldQuantityMt + LostQuantityMt >= PricedLoadedMt - FullyDisposedToleranceMt;
+
+    private const decimal FullyDisposedToleranceMt = 0.001m;
+
+    /// <summary>فروش + ضایعه دقیقاً همان بارِ قیمت‌دار است (نه بیشتر از آن، که داده ناسازگار است).</summary>
+    private bool IsExactlyDisposed => IsFullyDisposed
+        && SoldQuantityMt + LostQuantityMt <= PricedLoadedMt + FullyDisposedToleranceMt;
 
     public decimal RealizedCostOfGoodsSoldUsd => ContractType == ContractType.Purchase
         ? WeightedAveragePurchasePriceUsd.HasValue
-            ? decimal.Round(SoldQuantityMt * WeightedAveragePurchasePriceUsd.Value, 2, MidpointRounding.AwayFromZero)
+            ? IsExactlyDisposed
+                // خرید منهای ارزشِ ضایعه (که در هزینهٔ عملیاتی است)؛ هر دالرِ خرید یک بار و بی‌باقیماندهٔ گرد.
+                ? decimal.Round(Math.Max(PurchaseValueUsd - LossCostUsd - ShipmentLossCostUsd, 0m), 2, MidpointRounding.AwayFromZero)
+                : decimal.Round(SoldQuantityMt * WeightedAveragePurchasePriceUsd.Value, 2, MidpointRounding.AwayFromZero)
             : 0m
         : PoolCostOfGoodsSoldUsd;
 
@@ -135,7 +163,7 @@ public sealed record ContractEconomicsSnapshot
     /// بارگیری نمی‌رسد.
     /// </summary>
     public decimal RealizedOperationalCostUsd => ContractType == ContractType.Purchase && WeightedAveragePurchasePriceUsd.HasValue
-        ? decimal.Round(
+        ? IsFullyDisposed ? OperationalCostBaseUsd : decimal.Round(
             (OperationalCostBaseUsd - TransportLegCosts.Sum(l => l.CostUsd)) * SoldShareRatio + RealizedTransportLegCostUsd,
             2,
             MidpointRounding.AwayFromZero)
@@ -328,7 +356,7 @@ public sealed partial class ProfitAndLossService
         // پروندهٔ قرارداد)؛ هر ضایعه یک مالک دارد.
         var lossRows = (await _db.LossEvents.AsNoTracking()
             .Where(le => (!_reportBefore.HasValue || le.EventDate < _reportBefore.Value) && !le.IsCancelled
-                && le.ChargeableLossMt > 0m
+                && (le.ChargeableLossMt > 0m || le.DifferenceQuantityMt > 0m)
                 && ((le.ContractId.HasValue && purchaseIds.Contains(le.ContractId.Value))
                     || (le.TransportLeg != null && purchaseIds.Contains(le.TransportLeg.SourcePurchaseContractId))
                     || (le.LoadingRegister != null && purchaseIds.Contains(le.LoadingRegister.ContractId))
@@ -349,6 +377,7 @@ public sealed partial class ProfitAndLossService
                     ?? (le.TruckDispatch != null ? (int?)le.TruckDispatch.ContractId : null)
                     ?? 0,
                 le.ChargeableLossMt,
+                le.DifferenceQuantityMt,
                 le.TransportLegId,
                 UsesContractAverage = le.TransportLegId.HasValue || le.Stage == LossEventStage.TankFinalSettlement,
                 LoadingRegisterId = le.LoadingRegisterId
@@ -365,6 +394,11 @@ public sealed partial class ProfitAndLossService
             .ToListAsync(ct))
             .Where(x => purchaseIds.Contains(x.ContractId))
             .ToList();
+        // مقدارِ ازدست‌رفته شاملِ ضایعهٔ در حدِ مجاز هم هست؛ ارزش‌گذاری فقط بخشِ قابلِ شارژ را می‌شناسد.
+        var lostMtByContract = lossRows
+            .GroupBy(x => x.ContractId)
+            .ToDictionary(g => g.Key, g => g.Sum(x => x.DifferenceQuantityMt > 0m ? x.DifferenceQuantityMt : x.ChargeableLossMt));
+        lossRows = lossRows.Where(x => x.ChargeableLossMt > 0m).ToList();
         var lossRegisterIds = lossRows.Where(x => x.LoadingRegisterId.HasValue).Select(x => x.LoadingRegisterId!.Value).Distinct().ToList();
         var registerPrice = lossRegisterIds.Count == 0
             ? new Dictionary<int, (int ContractId, decimal? PriceUsd)>()
@@ -478,6 +512,20 @@ public sealed partial class ProfitAndLossService
                     .ToListAsync(ct))
                 .Select(a => (a.ChildLegId, a.SourceLegId, a.QuantityMt))
                 .ToList();
+        // همان زنجیره وقتی بارِ حملِ مادر در ترمینال رسید شده و حملِ بعدی از حرکتِ همان رسید برداشته است.
+        if (legIds.Count > 0)
+        {
+            legSourceRows.AddRange((await (
+                    from a in _db.InventoryTransportLegAllocations.AsNoTracking()
+                    join r in _db.InventoryTransportReceipts.AsNoTracking()
+                        on a.SourceInventoryMovementId equals r.InventoryMovementId
+                    where a.SourceTransportLegId == null && a.SourceInventoryMovementId != null && !r.IsCancelled
+                        && legIds.Contains(a.InventoryTransportLegId) && legIds.Contains(r.InventoryTransportLegId)
+                        && a.InventoryTransportLegId != r.InventoryTransportLegId
+                    select new { ChildLegId = a.InventoryTransportLegId, SourceLegId = r.InventoryTransportLegId, a.QuantityMt })
+                .ToListAsync(ct))
+                .Select(a => (a.ChildLegId, a.SourceLegId, a.QuantityMt)));
+        }
 
         return purchaseContracts.Select(c =>
         {
@@ -564,6 +612,7 @@ public sealed partial class ProfitAndLossService
                 ExternalPartyBorneExpenseUsd = externalBorne.GetValueOrDefault(c.Id),
                 LossCostUsd = loss.Cost,
                 UnvaluedLossCount = loss.Unvalued + (shipmentLossMt > 0m && !shipmentLossValued ? 1 : 0),
+                LostQuantityMt = lostMtByContract.GetValueOrDefault(c.Id) + shipmentLossMt,
                 PendingSettlementQuantityMt = pendingTankSettlement.GetValueOrDefault(c.Id),
                 SharedShipmentExpenseUsd = shipment.SharedExpenseUsd,
                 ShipmentLossCostUsd = shipmentLossValued
