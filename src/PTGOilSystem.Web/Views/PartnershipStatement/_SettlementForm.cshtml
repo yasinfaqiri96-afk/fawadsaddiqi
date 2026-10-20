@@ -6,76 +6,102 @@
     var returnUrl = ViewData["PartnershipReturnUrl"] as string;
     var partners = statement?.Totals ?? new List<PartnershipPartnerTotals>();
     var contracts = statement?.ContractOptions ?? new List<PartnershipContractOption>();
+    var currencies = ViewData["PartnershipCurrencies"] as IReadOnlyList<string> ?? new[] { "USD" };
+    var isUsd = string.Equals(Model.Currency, "USD", StringComparison.OrdinalIgnoreCase);
 }
 
+@Html.AntiForgeryToken()
 <input type="hidden" name="returnUrl" value="@returnUrl" />
 
-<p class="ak-note">
-    این یادداشتِ حساب شراکت است: پول از جیب یک شریک به شریک دیگر رفته و صندوق، بانک یا صرافِ
-    شرکت حرکت نکرده. اگر انتقال از حساب نقد/بانک/صراف شرکت انجام شده، آن را در
-    <strong>روزنامچه</strong> ثبت کنید تا دوبار ثبت نشود، و شمارهٔ همان سند را در «مرجع» بنویسید.
-</p>
+<section class="ak-form-section" data-partner-settlement-form>
+    @if (statement?.DebtorPartnerId is not null)
+    {
+        <p class="ak-note">
+            مانده فعلی: <strong>@statement.DebtorPartnerName</strong> باید
+            <bdi dir="ltr">@statement.AmountDueUsd.ToString("N2") USD</bdi>
+            به <strong>@statement.CreditorPartnerName</strong> بپردازد. فورم با همین مبلغ پر شده است؛ اگر کمتر پرداخت شده، مبلغ را عوض کنید.
+        </p>
+    }
 
-<div class="ak-form-grid">
-    <div class="ak-field">
-        <label class="ak-label" asp-for="SettlementDate">تاریخ</label>
-        <input class="ak-input" asp-for="SettlementDate" type="date" required />
+    <div class="ak-form-grid">
+        <div class="ak-field">
+            <label class="ak-label" asp-for="FromPartnerId">پرداخت‌کننده <span class="ak-req">*</span></label>
+            <select class="ak-input" asp-for="FromPartnerId" required data-settlement-from>
+                @foreach (var partner in partners)
+                {
+                    <option value="@partner.PartnerId">@partner.PartnerName</option>
+                }
+            </select>
+        </div>
+
+        <div class="ak-field">
+            <label class="ak-label" asp-for="ToPartnerId">دریافت‌کننده <span class="ak-req">*</span></label>
+            <select class="ak-input" asp-for="ToPartnerId" required data-settlement-to>
+                @foreach (var partner in partners)
+                {
+                    <option value="@partner.PartnerId">@partner.PartnerName</option>
+                }
+            </select>
+            <span class="ak-field-error" data-settlement-same-error hidden>پرداخت‌کننده و دریافت‌کننده نمی‌توانند یک نفر باشند.</span>
+        </div>
+
+        <div class="ak-field">
+            <label class="ak-label" asp-for="Amount">مبلغ <span class="ak-req">*</span></label>
+            <input class="ak-input ak-num" asp-for="Amount" type="number" step="0.01" min="0.01" required
+                   value="@(Model.Amount > 0m ? Model.Amount.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) : null)"
+                   data-settlement-amount />
+        </div>
+
+        <div class="ak-field">
+            <label class="ak-label" asp-for="Currency">ارز <span class="ak-req">*</span></label>
+            <select class="ak-input" asp-for="Currency" required data-settlement-currency>
+                @foreach (var code in currencies)
+                {
+                    <option value="@code">@code</option>
+                }
+            </select>
+        </div>
+
+        <div class="ak-field" data-settlement-fx-field hidden="@isUsd">
+            <label class="ak-label" asp-for="AppliedFxRateToUsd">نرخ تبدیل به دالر <span class="ak-req">*</span></label>
+            <input class="ak-input ak-num" asp-for="AppliedFxRateToUsd" type="number" step="0.000001" min="0.000001"
+                   data-settlement-fx />
+            <div class="form-text">ارزش یک واحد از این ارز به دالر؛ مثلاً برای افغانی حدود 0.014.</div>
+        </div>
+
+        <div class="ak-field">
+            <span class="ak-label">معادل دالر</span>
+            <output class="ak-input ak-num" dir="ltr" data-settlement-usd>—</output>
+        </div>
+
+        <div class="ak-field">
+            <label class="ak-label" asp-for="SettlementDate">تاریخ پرداخت <span class="ak-req">*</span></label>
+            <input class="ak-input" asp-for="SettlementDate" type="date" required />
+        </div>
+
+        <div class="ak-field">
+            <label class="ak-label" asp-for="ContractId">بابت قرارداد</label>
+            <select class="ak-input" asp-for="ContractId">
+                <option value="">کلی — همهٔ قراردادها</option>
+                @foreach (var option in contracts)
+                {
+                    <option value="@option.ContractId">@option.ContractLabel</option>
+                }
+            </select>
+        </div>
+
+        <div class="ak-field">
+            <label class="ak-label" asp-for="Reference">شمارهٔ حواله یا رسید</label>
+            <input class="ak-input" asp-for="Reference" maxlength="200" autocomplete="off" />
+        </div>
+
+        <div class="ak-field ak-col-full">
+            <label class="ak-label" asp-for="Description">توضیح</label>
+            <textarea class="ak-input" asp-for="Description" maxlength="1000" rows="2"></textarea>
+        </div>
     </div>
 
-    <div class="ak-field">
-        <label class="ak-label" asp-for="ContractId">قرارداد (اختیاری)</label>
-        <select class="ak-input" asp-for="ContractId">
-            <option value="">— تسویهٔ کلی حساب شراکت —</option>
-            @foreach (var option in contracts)
-            {
-                <option value="@option.ContractId">@option.ContractLabel</option>
-            }
-        </select>
-    </div>
-
-    <div class="ak-field">
-        <label class="ak-label" asp-for="FromPartnerId">از شریک (پرداخت‌کننده)</label>
-        <select class="ak-input" asp-for="FromPartnerId" required>
-            @foreach (var partner in partners)
-            {
-                <option value="@partner.PartnerId">@partner.PartnerName</option>
-            }
-        </select>
-    </div>
-
-    <div class="ak-field">
-        <label class="ak-label" asp-for="ToPartnerId">به شریک (دریافت‌کننده)</label>
-        <select class="ak-input" asp-for="ToPartnerId" required>
-            @foreach (var partner in partners)
-            {
-                <option value="@partner.PartnerId">@partner.PartnerName</option>
-            }
-        </select>
-    </div>
-
-    <div class="ak-field">
-        <label class="ak-label" asp-for="Amount">مبلغ</label>
-        <input class="ak-input ak-num" asp-for="Amount" type="number" step="0.01" min="0.01" required />
-    </div>
-
-    <div class="ak-field">
-        <label class="ak-label" asp-for="Currency">ارز</label>
-        <input class="ak-input" asp-for="Currency" maxlength="10" />
-    </div>
-
-    <div class="ak-field">
-        <label class="ak-label" asp-for="AppliedFxRateToUsd">نرخ تبدیل به دالر</label>
-        <input class="ak-input ak-num" asp-for="AppliedFxRateToUsd" type="number" step="0.000001" min="0.000001" />
-    </div>
-
-    <div class="ak-field">
-        <label class="ak-label" asp-for="Reference">مرجع روزنامچه / حواله</label>
-        <input class="ak-input" asp-for="Reference" maxlength="200"
-               placeholder="شماره حواله یا سند روزنامچهٔ همان انتقال" />
-    </div>
-
-    <div class="ak-field ak-col-full">
-        <label class="ak-label" asp-for="Description">توضیح</label>
-        <input class="ak-input" asp-for="Description" maxlength="1000" />
-    </div>
-</div>
+    <p class="ak-note">
+        اگر این پول از صندوق، بانک یا صراف شرکت رفته، آن را در <strong>روزنامچه</strong> ثبت کنید، نه اینجا.
+    </p>
+</section>

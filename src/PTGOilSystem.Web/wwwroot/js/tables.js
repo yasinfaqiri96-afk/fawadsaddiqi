@@ -36,6 +36,8 @@
 
         var iconClass = resolveListRowIcon();
         document.querySelectorAll(".ak-table").forEach(function (table) {
+            // Statement/detail tables are figures, not entity lists, even on an Index route.
+            if (table.closest("[data-ak-detail-v2='true']")) return;
             Array.prototype.forEach.call(table.tBodies, function (body) {
                 Array.prototype.forEach.call(body.rows, function (row) {
                     if (row.dataset.akEntityAvatarReady === "true") return;

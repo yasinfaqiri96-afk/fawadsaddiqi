@@ -44,7 +44,8 @@ public partial class PartnershipStatementController : Controller
     public async Task<IActionResult> Index(
         int? partnerAId = null,
         int? partnerBId = null,
-        int[]? contractIds = null)
+        int[]? contractIds = null,
+        string? pair = null)
     {
         var pairs = await _statements.ListPairsAsync(HttpContext.RequestAborted);
         if (pairs.Count == 0)
@@ -52,22 +53,62 @@ public partial class PartnershipStatementController : Controller
             return View(new PartnershipStatementPageViewModel { Pairs = pairs });
         }
 
-        var pair = pairs.FirstOrDefault(p =>
+        // فیلترِ صفحه شرکا را با یک انتخاب «A-B» می‌فرستد.
+        if (TryParsePair(pair, out var pairA, out var pairB))
+        {
+            partnerAId = pairA;
+            partnerBId = pairB;
+        }
+
+        var selectedPair = pairs.FirstOrDefault(p =>
             (p.PartnerAId == partnerAId && p.PartnerBId == partnerBId)
             || (p.PartnerAId == partnerBId && p.PartnerBId == partnerAId))
             ?? pairs[0];
 
         var statement = await _statements.BuildAsync(
-            pair.PartnerAId,
-            pair.PartnerBId,
-            contractIds,
+            selectedPair.PartnerAId,
+            selectedPair.PartnerBId,
+            contractIds?.Where(id => id > 0).ToArray(),
             HttpContext.RequestAborted);
+
+        // تسویهٔ بدون قرارداد فقط در «همهٔ قراردادها» شمرده می‌شود. وقتی یک قرارداد انتخاب
+        // شده، تعدادِ همین تسویه‌های کنارگذاشته گفته می‌شود تا فهرست بی‌دلیل خالی دیده نشود.
+        var generalSettlementsOutOfView = 0;
+        if (statement is not null && statement.ContractOptions.Any(o => !o.IsSelected))
+        {
+            generalSettlementsOutOfView = await _db.PartnerSettlements
+                .AsNoTracking()
+                .CountAsync(s => s.ContractId == null
+                    && ((s.FromPartnerId == statement.PartnerAId && s.ToPartnerId == statement.PartnerBId)
+                        || (s.FromPartnerId == statement.PartnerBId && s.ToPartnerId == statement.PartnerAId)),
+                    HttpContext.RequestAborted);
+        }
+
+        var currencies = await _db.Currencies
+            .AsNoTracking()
+            .Where(c => c.IsActive)
+            .OrderBy(c => c.Code == "USD" ? 0 : 1)
+            .ThenBy(c => c.Code)
+            .Select(c => c.Code)
+            .ToListAsync(HttpContext.RequestAborted);
 
         return View(new PartnershipStatementPageViewModel
         {
             Pairs = pairs,
-            Statement = statement
+            Statement = statement,
+            GeneralSettlementsOutOfView = generalSettlementsOutOfView,
+            Currencies = currencies
         });
+    }
+
+    private static bool TryParsePair(string? pair, out int partnerAId, out int partnerBId)
+    {
+        partnerAId = 0;
+        partnerBId = 0;
+        var parts = (pair ?? string.Empty).Split('-', 2);
+        return parts.Length == 2
+            && int.TryParse(parts[0], out partnerAId)
+            && int.TryParse(parts[1], out partnerBId);
     }
 
     /// <summary>
@@ -156,7 +197,13 @@ public partial class PartnershipStatementController : Controller
         }
 
         var currency = string.IsNullOrWhiteSpace(model.Currency) ? "USD" : model.Currency.Trim().ToUpperInvariant();
-        var fxRate = model.AppliedFxRateToUsd > 0m ? model.AppliedFxRateToUsd : 1m;
+        // دالر نرخ ندارد؛ نرخِ جاماندهٔ فرم نباید مبلغ دالری را عوض کند.
+        var fxRate = currency == "USD" ? 1m : model.AppliedFxRateToUsd;
+        if (fxRate <= 0m)
+        {
+            TempData["err"] = $"برای ارز {currency} نرخ تبدیل به دالر لازم است.";
+            return RedirectBack(returnUrl);
+        }
 
         var settlement = new PartnerSettlement
         {
