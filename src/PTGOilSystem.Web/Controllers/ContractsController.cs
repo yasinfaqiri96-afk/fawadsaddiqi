@@ -765,7 +765,8 @@ public partial class ContractsController : Controller
         var shareSliceOpened = ApplyPartnerShareChange(
             existing,
             normalizedPartnerShares,
-            model.PartnerSharesEffectiveFrom);
+            model.PartnerSharesEffectiveFrom,
+            model.PartnerSharesCorrectFromStart);
 
         // قاعدهٔ #9: ویرایش عمومی قرارداد هم مانند EditPricing فقط بارگیری‌های «در انتظار قیمت» را قطعی
         // می‌کند. تغییر نرخ قرارداد، بارگیریِ از پیش قطعی‌شده را بازقیمت‌گذاری/بازقفل نمی‌کند.
@@ -796,9 +797,11 @@ public partial class ContractsController : Controller
         var appliedShareStart = existing.ContractPartners.Count == 0
             ? _businessClock.Today.Date
             : existing.ContractPartners.Max(cp => cp.EffectiveFrom).Date;
-        var shareSliceNote = shareSliceOpened
-            ? $" سهم‌های جدید از تاریخ {appliedShareStart.ToCalendarString("yyyy-MM-dd")} تطبیق می‌شوند و دوره‌های قبلی تغییر نمی‌کنند."
-            : string.Empty;
+        var shareSliceNote = !shareSliceOpened
+            ? string.Empty
+            : model.PartnerSharesCorrectFromStart
+                ? $" سهم شرکا از ابتدای قرارداد ({appliedShareStart.ToCalendarString("yyyy-MM-dd")}) اصلاح شد."
+                : $" سهم‌های جدید از تاریخ {appliedShareStart.ToCalendarString("yyyy-MM-dd")} تطبیق می‌شوند و دوره‌های قبلی تغییر نمی‌کنند.";
 
         TempData["ok"] = BuildPricingSyncMessage(
             (syncedLoadingCount > 0
@@ -1816,6 +1819,12 @@ public partial class ContractsController : Controller
     /// </summary>
     private async Task ValidatePartnerShareEffectiveDateAsync(ContractFormViewModel model)
     {
+        if (model.PartnerSharesCorrectFromStart)
+        {
+            await ValidatePartnerShareCorrectionAsync(model);
+            return;
+        }
+
         if (model.PartnerSharesEffectiveFrom is not { } requested)
         {
             return;
@@ -1866,6 +1875,73 @@ public partial class ContractsController : Controller
     }
 
     /// <summary>
+    /// «اصلاح اشتباه از ابتدا» تاریخچهٔ سهم را بازنویسی می‌کند، پس فقط وقتی مجاز است که هیچ
+    /// پولی به نامِ شریکِ حذف‌شونده روی همین قرارداد ثبت نشده باشد — وگرنه پرداخت یا تسویهٔ
+    /// او بی‌صدا از صورت‌حسابش بیرون می‌افتاد — و آغاز قرارداد داخل دورهٔ بسته نباشد.
+    /// </summary>
+    private async Task ValidatePartnerShareCorrectionAsync(ContractFormViewModel model)
+    {
+        if (model.Id <= 0)
+        {
+            return;
+        }
+
+        var existing = await _db.ContractPartners
+            .AsNoTracking()
+            .Where(cp => cp.ContractId == model.Id)
+            .Select(cp => new { cp.PartnerId, cp.EffectiveFrom })
+            .ToListAsync();
+        if (existing.Count == 0)
+        {
+            return;
+        }
+
+        var desiredIds = GetNormalizedPartnerShares(model)
+            .Where(p => p.PartnerId.HasValue)
+            .Select(p => p.PartnerId!.Value)
+            .ToHashSet();
+        var removedIds = existing
+            .Select(cp => cp.PartnerId)
+            .Where(id => !desiredIds.Contains(id))
+            .Distinct()
+            .ToList();
+
+        if (removedIds.Count > 0)
+        {
+            var hasMoney = await _db.PaymentTransactions.AsNoTracking()
+                    .AnyAsync(p => p.ContractId == model.Id
+                        && p.PaidByPartnerId.HasValue
+                        && removedIds.Contains(p.PaidByPartnerId.Value))
+                || await _db.PartnerSettlements.AsNoTracking()
+                    .AnyAsync(s => s.ContractId == model.Id
+                        && (removedIds.Contains(s.FromPartnerId) || removedIds.Contains(s.ToPartnerId)));
+            if (hasMoney)
+            {
+                ModelState.AddModelError(
+                    nameof(model.PartnerSharesCorrectFromStart),
+                    "برای شریکی که حذف می‌شود، پرداخت یا تسویه روی همین قرارداد ثبت شده است؛ "
+                    + "اول آن سند را اصلاح کنید یا تغییر را از یک تاریخ مشخص اجرا کنید.");
+                return;
+            }
+        }
+
+        var firstStart = existing.Min(cp => cp.EffectiveFrom).Date;
+        var closedThrough = await _db.OperationalPeriodLocks
+            .AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderByDescending(x => x.LockedThroughDate)
+            .Select(x => (DateTime?)x.LockedThroughDate)
+            .FirstOrDefaultAsync();
+
+        if (closedThrough is { } lockedThrough && firstStart <= lockedThrough.Date)
+        {
+            ModelState.AddModelError(
+                nameof(model.PartnerSharesCorrectFromStart),
+                $"دوره مالی تا {lockedThrough.ToCalendarString("yyyy-MM-dd")} بسته است و سهم این قرارداد از ابتدا قابل اصلاح نیست.");
+        }
+    }
+
+    /// <summary>
     /// PTG-P0-03 — اعمال ترکیب تازهٔ شرکا به‌صورت «بازهٔ جدید»، نه بازنویسیِ گذشته.
     ///
     /// اگر ترکیب دقیقاً همان بازهٔ جاری باشد، هیچ سطری دست نمی‌خورد (ویرایشِ بی‌اثر نباید
@@ -1876,7 +1952,8 @@ public partial class ContractsController : Controller
     private bool ApplyPartnerShareChange(
         Contract existing,
         IReadOnlyList<ContractPartnerShareInput> normalizedPartnerShares,
-        DateTime? requestedEffectiveFrom = null)
+        DateTime? requestedEffectiveFrom = null,
+        bool correctFromStart = false)
     {
         var desired = normalizedPartnerShares
             .Select(p => (PartnerId: p.PartnerId!.Value, SharePercent: p.SharePercent!.Value))
@@ -1912,6 +1989,31 @@ public partial class ContractsController : Controller
             && current.Zip(desired).All(pair =>
                 pair.First.PartnerId == pair.Second.PartnerId
                 && pair.First.SharePercent == pair.Second.SharePercent);
+
+        if (correctFromStart)
+        {
+            // اصلاح اشتباه: ترکیب تازه جای همهٔ بازه‌ها را می‌گیرد، از آغازِ نخستین بازه.
+            var firstStart = slices.Min(x => x.EffectiveFrom);
+            if (unchanged && slices.All(x => x.EffectiveFrom == firstStart))
+            {
+                return false;
+            }
+
+            _db.ContractPartners.RemoveRange(slices);
+            foreach (var (partnerId, sharePercent) in desired)
+            {
+                existing.ContractPartners.Add(new ContractPartner
+                {
+                    ContractId = existing.Id,
+                    PartnerId = partnerId,
+                    SharePercent = sharePercent,
+                    EffectiveFrom = firstStart
+                });
+            }
+
+            return true;
+        }
+
         if (unchanged)
         {
             return false;

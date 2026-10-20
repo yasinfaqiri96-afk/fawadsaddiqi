@@ -8,6 +8,7 @@ using PTGOilSystem.Web.Models.Contracts;
 using PTGOilSystem.Web.Models.Entities;
 using PTGOilSystem.Web.Services;
 using PTGOilSystem.Web.Services.Audit;
+using PTGOilSystem.Web.Services.PartyStatements;
 using PTGOilSystem.Web.Services.Time;
 using Xunit;
 
@@ -254,6 +255,100 @@ public sealed class PartnerShareEffectiveFromTests
         Assert.Equal(2, fromJuly.Count);
         Assert.Equal(100m, fromJuly.Sum(s => s.SharePercent));
         Assert.Equal(70m, fromJuly.Single(s => s.PartnerId == 1).SharePercent);
+    }
+
+    /// <summary>
+    /// شریکی که جای شریک دیگر می‌آید نباید در بازهٔ پیش از آمدنش سهم بگیرد، و شریکِ رفته در بازهٔ
+    /// بعد. پیش از این هر شریک جدا به نخستین بازهٔ خودش برمی‌گشت و جمعِ سهم‌ها ۱۵۰٪ می‌شد.
+    /// </summary>
+    [Fact]
+    public void A_Replaced_Partner_Never_Pushes_The_Shares_Of_A_Period_Above_100()
+    {
+        var october3 = new DateTime(2026, 10, 3, 0, 0, 0, DateTimeKind.Utc);
+        var october15 = new DateTime(2026, 10, 15, 0, 0, 0, DateTimeKind.Utc);
+        var history = ContractPartnerShareHistory.FromSlices(
+        [
+            new ContractPartnerShareSlice(5, PartnerId: 1, 50m, october3, october15),
+            new ContractPartnerShareSlice(5, PartnerId: 8, 50m, october3, october15),
+            new ContractPartnerShareSlice(5, PartnerId: 1, 50m, october15, null),
+            new ContractPartnerShareSlice(5, PartnerId: 2, 50m, october15, null),
+        ]);
+
+        var before = history.SharesOn(5, october3.AddDays(2));
+        Assert.Equal([1, 8], before.Select(s => s.PartnerId).Order());
+        Assert.Equal(100m, before.Sum(s => s.SharePercent));
+
+        var after = history.SharesOn(5, october15.AddDays(5));
+        Assert.Equal([1, 2], after.Select(s => s.PartnerId).Order());
+        Assert.Equal(100m, after.Sum(s => s.SharePercent));
+
+        // تاریخِ پیش از نخستین بازه همان بازهٔ اول را می‌گیرد، نه ترکیبی از همه.
+        Assert.Equal(100m, history.SharesOn(5, october3.AddMonths(-1)).Sum(s => s.SharePercent));
+
+        Assert.Equal(0m, history.ShareFor(5, partnerId: 2, october3.AddDays(2)));
+        Assert.Equal(0m, history.ShareFor(5, partnerId: 8, october15.AddDays(5)));
+        Assert.Equal(50m, history.ShareFor(5, partnerId: 8, october3.AddDays(2)));
+    }
+
+    [Fact]
+    public async Task Correct_From_Start_Replaces_Every_Period_With_The_New_Partners()
+    {
+        var options = NewDbOptions();
+        await using var db = new ApplicationDbContext(options);
+        await SeedFiftyFiftyAsync(db);
+        db.Partners.Add(new Partner { Id = 3, Code = "P3", Name = "شریک درست", IsActive = true });
+        await db.SaveChangesAsync();
+
+        // اول یک ویرایش عادی که بازهٔ تازه باز می‌کند، بعد اصلاحِ اشتباه از ابتدا.
+        await BuildController(db).Edit(1, EightyTwenty(new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc)));
+        var correction = EightyTwenty(effectiveFrom: new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc));
+        correction.PartnerSharesCorrectFromStart = true;
+        correction.PartnerShares[1].PartnerId = 3;
+
+        Assert.IsType<RedirectToActionResult>(await BuildController(db).Edit(1, correction));
+
+        var slices = await db.ContractPartners.AsNoTracking()
+            .Where(cp => cp.ContractId == 1)
+            .OrderBy(cp => cp.PartnerId)
+            .ToListAsync();
+
+        Assert.Equal([1, 3], slices.Select(s => s.PartnerId));
+        Assert.All(slices, s => Assert.Equal(new DateTime(2026, 1, 1), s.EffectiveFrom.Date));
+        Assert.All(slices, s => Assert.Null(s.EffectiveTo));
+        Assert.Equal(80m, slices[0].SharePercent);
+        Assert.Equal(20m, slices[1].SharePercent);
+    }
+
+    [Fact]
+    public async Task Correct_From_Start_Is_Refused_When_The_Removed_Partner_Has_A_Settlement_On_The_Contract()
+    {
+        var options = NewDbOptions();
+        await using var db = new ApplicationDbContext(options);
+        await SeedFiftyFiftyAsync(db);
+        db.Partners.Add(new Partner { Id = 3, Code = "P3", Name = "شریک درست", IsActive = true });
+        db.PartnerSettlements.Add(new PartnerSettlement
+        {
+            SettlementDate = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc),
+            FromPartnerId = 2,
+            ToPartnerId = 1,
+            ContractId = 1,
+            Amount = 1000m,
+            AmountUsd = 1000m,
+        });
+        await db.SaveChangesAsync();
+
+        var correction = EightyTwenty(effectiveFrom: null);
+        correction.PartnerSharesCorrectFromStart = true;
+        correction.PartnerShares[1].PartnerId = 3;
+
+        var controller = BuildController(db);
+        Assert.IsType<ViewResult>(await controller.Edit(1, correction));
+        Assert.Contains(
+            controller.ModelState[nameof(ContractFormViewModel.PartnerSharesCorrectFromStart)]!.Errors,
+            e => e.ErrorMessage.Contains("تسویه"));
+
+        var slices = await db.ContractPartners.AsNoTracking().Where(cp => cp.ContractId == 1).ToListAsync();
+        Assert.Equal([1, 2], slices.Select(s => s.PartnerId).Order());
     }
 
     private sealed class NullTempDataProvider : ITempDataProvider

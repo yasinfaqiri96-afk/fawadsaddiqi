@@ -33,6 +33,14 @@ public sealed class ContractFormViewModel
     [DataType(DataType.Date)]
     public DateTime? PartnerSharesEffectiveFrom { get; set; }
 
+    /// <summary>
+    /// شرکای قبلی اشتباه ثبت شده بودند: همهٔ بازه‌های سهم پاک و ترکیب تازه از آغازِ
+    /// نخستین بازه ثبت می‌شود، انگار از اول همین بوده است. <see cref="PartnerSharesEffectiveFrom"/>
+    /// در این حالت نادیده گرفته می‌شود.
+    /// </summary>
+    [Display(Name = "اصلاح اشتباه: این شرکا از ابتدای قرارداد بوده‌اند")]
+    public bool PartnerSharesCorrectFromStart { get; set; }
+
     public int Id { get; set; }
 
     [Display(Name = "نام قرارداد")]

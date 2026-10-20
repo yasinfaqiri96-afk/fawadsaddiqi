@@ -120,16 +120,20 @@ public sealed class ContractPartnerShareHistory
             return 0m;
         }
 
-        var partnerSlices = slices.Where(s => s.PartnerId == partnerId).ToList();
-        if (partnerSlices.Count == 0)
-        {
-            return 0m;
-        }
-
-        return ResolveSlice(partnerSlices, onDate)?.SharePercent ?? 0m;
+        var start = ResolvePeriodStart(slices, onDate);
+        return slices
+            .Where(s => s.PartnerId == partnerId && s.EffectiveFrom.Date == start)
+            .Select(s => s.SharePercent)
+            .FirstOrDefault();
     }
 
-    /// <summary>ترکیب شرکا در تاریخ داده‌شده — برای تقسیمِ یک مبلغ بین همهٔ شرکای همان لحظه.</summary>
+    /// <summary>
+    /// ترکیب شرکا در تاریخ داده‌شده — برای تقسیمِ یک مبلغ بین همهٔ شرکای همان لحظه.
+    ///
+    /// بازه برای کلِ قرارداد یکی انتخاب می‌شود، نه جدا برای هر شریک: شریکی که در بازهٔ
+    /// تازه نیست سهمی از آن ندارد، و شریکی که تازه آمده سهمی از بازهٔ پیش از آمدنش ندارد.
+    /// انتخابِ جداگانه برای هر شریک، با عوض‌شدن شریک جمعِ سهم‌ها را بیش از ۱۰۰ می‌کرد.
+    /// </summary>
     public IReadOnlyList<(int PartnerId, decimal SharePercent)> SharesOn(int contractId, DateTime? onDate)
     {
         if (!_byContract.TryGetValue(contractId, out var slices))
@@ -137,11 +141,10 @@ public sealed class ContractPartnerShareHistory
             return [];
         }
 
+        var start = ResolvePeriodStart(slices, onDate);
         return slices
-            .GroupBy(s => s.PartnerId)
-            .Select(g => (PartnerId: g.Key, Slice: ResolveSlice(g.ToList(), onDate)))
-            .Where(x => x.Slice is not null)
-            .Select(x => (x.PartnerId, x.Slice!.SharePercent))
+            .Where(s => s.EffectiveFrom.Date == start)
+            .Select(s => (s.PartnerId, s.SharePercent))
             .OrderByDescending(x => x.SharePercent)
             .ThenBy(x => x.PartnerId)
             .ToList();
@@ -160,32 +163,21 @@ public sealed class ContractPartnerShareHistory
             ? slices.Select(s => s.EffectiveFrom).Distinct().OrderBy(d => d).ToList()
             : [];
 
-    private static ContractPartnerShareSlice? ResolveSlice(
-        List<ContractPartnerShareSlice> partnerSlices,
+    /// <summary>آغازِ بازه‌ای که تاریخ داده‌شده در آن است؛ تاریخِ خالی یعنی آخرین بازه.</summary>
+    private static DateTime ResolvePeriodStart(
+        IReadOnlyList<ContractPartnerShareSlice> slices,
         DateTime? onDate)
     {
-        if (partnerSlices.Count == 0)
-        {
-            return null;
-        }
-
-        var ordered = partnerSlices.OrderBy(s => s.EffectiveFrom).ToList();
+        var starts = slices.Select(s => s.EffectiveFrom.Date).Distinct().OrderBy(d => d).ToList();
         if (onDate is null)
         {
-            return ordered[^1];
+            return starts[^1];
         }
 
         var date = onDate.Value.Date;
-        ContractPartnerShareSlice? match = null;
-        foreach (var slice in ordered)
-        {
-            if (slice.EffectiveFrom.Date <= date)
-            {
-                match = slice;
-            }
-        }
+        var match = starts.LastOrDefault(start => start <= date);
 
         // هیچ بازه‌ای پیش از این تاریخ نبود ⇒ نخستین بازه (سازگاری کامل با دادهٔ Backfill‌شده).
-        return match ?? ordered[0];
+        return match == default ? starts[0] : match;
     }
 }
