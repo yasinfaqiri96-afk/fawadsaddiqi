@@ -35,6 +35,15 @@ public sealed class PartnershipStatementViewTests
     }
 
     [Fact]
+    public void CombinedStatement_ExplainsWhenNeitherPartnerOwesTheOther()
+    {
+        var view = ReadRepoFile("src/PTGOilSystem.Web/Views/PartnershipStatement/Index.cshtml");
+
+        Assert.Contains("هیچ‌کدام به دیگری بدهکار نیست؛ هر دو سهم خود از هزینهٔ پرداخت‌نشده را دارند.", view);
+        Assert.Contains("هیچ‌کدام به دیگری بدهکار نیست؛ هر دو بیش از سهم خود پرداخته‌اند", view);
+    }
+
+    [Fact]
     public void NoBalanceIsProducedByAveragingTheTwoPartnerPositions()
     {
         var service = ReadRepoFile("src/PTGOilSystem.Web/Services/PartyStatements/PartnershipStatementService.cs");

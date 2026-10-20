@@ -511,17 +511,13 @@ public sealed class PartnershipStatementService : IPartnershipStatementService
             })
             .ToList();
 
-        var debtor = totals.OrderBy(t => t.NetPositionUsd).First();
-        var creditor = totals.OrderByDescending(t => t.NetPositionUsd).First();
-
-        // مبلغِ قابلِ پرداخت = بدهیِ واقعیِ شریکِ بدهکار. طلبِ شریکِ طلبکار می‌تواند به اندازهٔ
-        // باقیماندهٔ تطبیق‌نشده فرق کند؛ آن عدد جداگانه گزارش می‌شود و اینجا صاف نمی‌شود.
-        var amountDue = Round(Math.Abs(debtor.NetPositionUsd));
-        var creditorClaim = Round(creditor.NetPositionUsd);
+        var settlement = ResolveSettlement(totals.Select(t => (t.PartnerId, t.NetPositionUsd)).ToList());
+        var debtor = totals.FirstOrDefault(t => t.PartnerId == settlement.DebtorPartnerId);
+        var creditor = totals.FirstOrDefault(t => t.PartnerId == settlement.CreditorPartnerId);
+        var amountDue = settlement.AmountDueUsd;
+        var creditorClaim = creditor is null ? 0m : Round(creditor.NetPositionUsd);
         var unreconciledResidual = Round(totals.Sum(t => t.NetPositionUsd));
-        var hasDirection = amountDue > 0m
-            && debtor.PartnerId != creditor.PartnerId
-            && debtor.NetPositionUsd < 0m;
+        var hasDirection = debtor is not null && creditor is not null && amountDue > 0m;
 
         return new PartnershipStatement(
             PartnerAId: partnerAId,
@@ -532,13 +528,33 @@ public sealed class PartnershipStatementService : IPartnershipStatementService
             Contracts: contractStatements,
             Totals: totals,
             Settlements: settlements,
-            DebtorPartnerId: hasDirection ? debtor.PartnerId : null,
-            DebtorPartnerName: hasDirection ? debtor.PartnerName : null,
-            CreditorPartnerId: hasDirection ? creditor.PartnerId : null,
-            CreditorPartnerName: hasDirection ? creditor.PartnerName : null,
+            DebtorPartnerId: hasDirection ? debtor!.PartnerId : null,
+            DebtorPartnerName: hasDirection ? debtor!.PartnerName : null,
+            CreditorPartnerId: hasDirection ? creditor!.PartnerId : null,
+            CreditorPartnerName: hasDirection ? creditor!.PartnerName : null,
             AmountDueUsd: hasDirection ? amountDue : 0m,
             CreditorClaimUsd: hasDirection ? creditorClaim : 0m,
             UnreconciledResidualUsd: unreconciledResidual);
+    }
+
+    /// <summary>
+    /// جهتِ تسویه بین دو شریک فقط وقتی هست که یکی مانده مثبت (طلب) و دیگری مانده منفی (بدهی) دارد.
+    /// مبلغ = کوچک‌ترِ بدهیِ بدهکار و طلبِ طلبکار؛ بیش از آن را هیچ‌کدام نمی‌تواند از دیگری بخواهد.
+    /// اگر هر دو منفی یا هر دو مثبت‌اند (مثلاً هر دو سهمِ خود از هزینهٔ پرداخت‌نشده را دارند)، هیچ‌کدام
+    /// به دیگری بدهکار نیست؛ یک سنتِ گرد کردن جهت نمی‌سازد.
+    /// </summary>
+    internal static (int? DebtorPartnerId, int? CreditorPartnerId, decimal AmountDueUsd) ResolveSettlement(
+        IReadOnlyList<(int PartnerId, decimal NetPositionUsd)> positions)
+    {
+        var debtor = positions.Where(p => p.NetPositionUsd < 0m).OrderBy(p => p.NetPositionUsd).FirstOrDefault();
+        var creditor = positions.Where(p => p.NetPositionUsd > 0m).OrderByDescending(p => p.NetPositionUsd).FirstOrDefault();
+        if (debtor == default || creditor == default || debtor.PartnerId == creditor.PartnerId)
+        {
+            return (null, null, 0m);
+        }
+
+        var amountDue = Round(Math.Min(Math.Abs(debtor.NetPositionUsd), creditor.NetPositionUsd));
+        return amountDue > 0m ? (debtor.PartnerId, creditor.PartnerId, amountDue) : (null, null, 0m);
     }
 
 

@@ -143,6 +143,20 @@
                     </p>
                 }
             }
+            else if (statement.Totals.Count > 1 && statement.Totals.All(t => t.NetPositionUsd < 0m))
+            {
+                <p class="ak-party-meaning">
+                    <i class="bi bi-check-circle" aria-hidden="true"></i>
+                    <span>هیچ‌کدام به دیگری بدهکار نیست؛ هر دو سهم خود از هزینهٔ پرداخت‌نشده را دارند.</span>
+                </p>
+            }
+            else if (statement.Totals.Count > 1 && statement.Totals.All(t => t.NetPositionUsd > 0m))
+            {
+                <p class="ak-party-meaning">
+                    <i class="bi bi-check-circle" aria-hidden="true"></i>
+                    <span>هیچ‌کدام به دیگری بدهکار نیست؛ هر دو بیش از سهم خود پرداخته‌اند و هر دو از شراکت طلب دارند.</span>
+                </p>
+            }
             else
             {
                 <p class="ak-party-meaning">

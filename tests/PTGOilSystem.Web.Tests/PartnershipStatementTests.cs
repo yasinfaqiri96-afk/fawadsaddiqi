@@ -156,6 +156,65 @@ public sealed class PartnershipStatementTests
             decimal.Round(fawad.NetPositionUsd + yusuf.NetPositionUsd, 2, MidpointRounding.AwayFromZero));
     }
 
+    [Fact]
+    public void Settlement_BothPartnersNegative_ByOneCent_HasNoDirection()
+    {
+        // P-003/P-004: هر دو فقط سهمِ خود از هزینهٔ پرداخت‌نشده را دارند؛ یک سنت گرد کردن جهت نمی‌سازد.
+        var result = PartnershipStatementService.ResolveSettlement([(5, -10_215_000.68m), (2, -10_215_000.67m)]);
+
+        Assert.Null(result.DebtorPartnerId);
+        Assert.Null(result.CreditorPartnerId);
+        Assert.Equal(0m, result.AmountDueUsd);
+    }
+
+    [Fact]
+    public void Settlement_OnePositiveOneNegative_DueIsTheSmallerOfDebtAndClaim()
+    {
+        // یوسف/فواد: بدهی ۱۱۹٬۰۷۷٫۴۸ و طلب ۱۱۹٬۰۷۷٫۴۷ → مبلغ قابل تسویه ۱۱۹٬۰۷۷٫۴۷.
+        var result = PartnershipStatementService.ResolveSettlement([(1, -119_077.48m), (2, 119_077.47m)]);
+
+        Assert.Equal(1, result.DebtorPartnerId);
+        Assert.Equal(2, result.CreditorPartnerId);
+        Assert.Equal(119_077.47m, result.AmountDueUsd);
+    }
+
+    [Fact]
+    public void Settlement_BothPartnersPositive_HasNoDirection()
+    {
+        var result = PartnershipStatementService.ResolveSettlement([(1, 0.50m), (2, 1.49m)]);
+
+        Assert.Null(result.DebtorPartnerId);
+        Assert.Null(result.CreditorPartnerId);
+        Assert.Equal(0m, result.AmountDueUsd);
+    }
+
+    [Fact]
+    public async Task CombinedStatement_BothPartnersPositive_ShowsNoDebtorAndNoAmount()
+    {
+        await using var db = CreateDb();
+        var s = await SeedAsync(db);
+        db.PartnerSettlements.Add(new PartnerSettlement
+        {
+            SettlementDate = new DateTime(2026, 8, 23),
+            FromPartnerId = s.FawadId,
+            ToPartnerId = s.YusufId,
+            Amount = 414_561.96m,
+            Currency = "USD",
+            AppliedFxRateToUsd = 1m,
+            AmountUsd = 414_561.96m
+        });
+        await db.SaveChangesAsync();
+
+        var statement = await BuildAsync(db, s);
+
+        Assert.Equal(0.50m, statement.Totals.Single(t => t.PartnerId == s.FawadId).NetPositionUsd);
+        Assert.Equal(1.49m, statement.Totals.Single(t => t.PartnerId == s.YusufId).NetPositionUsd);
+        Assert.Null(statement.DebtorPartnerId);
+        Assert.Null(statement.CreditorPartnerId);
+        Assert.Equal(0m, statement.AmountDueUsd);
+        Assert.Equal(1.99m, statement.UnreconciledResidualUsd);
+    }
+
     // ————————————————— G: اثر تسویه روی مانده —————————————————
 
     [Fact]
