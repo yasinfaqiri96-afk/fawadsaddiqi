@@ -186,6 +186,7 @@
       <PtgAppCss Include="wwwroot/css/ptg/76-form-system.css" />
       <PtgAppCss Include="wwwroot/css/ptg/66-backups.css" />
       <PtgAppCss Include="wwwroot/css/ptg/80-assistant.css" />
+      <PtgAppCss Include="wwwroot/css/ptg/78-mashal-reference.css" />
 
       <PtgCoreJs Include="wwwroot/js/core.js" />
       <PtgCoreJs Include="wwwroot/js/ptg-toasts.js" />
@@ -195,6 +196,7 @@
       <PtgCoreJs Include="wwwroot/js/clone-entity.js" />
       <PtgCoreJs Include="wwwroot/js/navigation.js" />
       <PtgCoreJs Include="wwwroot/js/header-ui.js" />
+      <PtgCoreJs Include="wwwroot/js/mashal-reference.js" />
       <PtgCoreJs Include="wwwroot/js/tables.js" />
       <PtgCoreJs Include="wwwroot/js/ak-search-filter.js" />
       <PtgCoreJs Include="wwwroot/js/list-toolbar-row.js" />

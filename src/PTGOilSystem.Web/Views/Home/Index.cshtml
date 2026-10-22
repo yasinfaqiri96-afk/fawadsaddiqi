@@ -43,8 +43,57 @@
         <partial name="_OnboardingPanel" model="onboarding" />
     }
 
+    <div class="mashal-dashboard-toolbar">
+        <h1>@T("داشبورد", "Dashboard")</h1>
+        <div><button type="button" class="mashal-dashboard-save" data-mashal-save><i class="bi bi-bookmark-fill" aria-hidden="true"></i> @T("ذخیره", "Save")</button><button type="button" class="mashal-widget-add" data-bs-toggle="modal" data-bs-target="#mashalWidgetPicker" aria-label="افزودن ابزار"><i class="bi bi-plus-lg" aria-hidden="true"></i></button><span class="visually-hidden" data-mashal-save-status role="status"></span></div>
+    </div>
+    <section class="mashal-dashboard-lists" aria-label="خلاصه فعالیت‌ها">
+        <article class="mashal-widget mashal-recent" data-mashal-widget="activities">
+            <header><h2>@T("آخرین فعالیت‌ها", "Recent activities")</h2><span class="mashal-count">@Model.RecentActivities.Count</span></header>
+            <div class="mashal-widget-rows">
+            @foreach (var item in Model.RecentActivities.Take(3))
+            {
+                <div class="mashal-document-row"><div><span class="mashal-document-badge"><i class="bi @item.DirectionIcon" aria-hidden="true"></i></span><span class="mashal-document-status">@item.Status</span></div><div><span class="mashal-document-amount"><bdi>@item.Amount</bdi></span><span>@item.Name</span><small>@item.TimeText</small></div></div>
+            }
+            @if (Model.RecentActivities.Count == 0) { <p class="mashal-widget-empty">فعالیتی ثبت نشده است.</p> }
+            </div>
+        </article>
+        <article class="mashal-widget mashal-tanks" data-mashal-widget="tanks">
+            <header><h2>@T("موجودی مخازن", "Tank inventory")</h2><span class="mashal-count">@Model.TankCapacities.Count</span></header>
+            <div class="mashal-widget-rows">
+            @foreach (var tank in Model.TankCapacities.Take(5))
+            {
+                <a asp-controller="StorageTanks" asp-action="Details" asp-route-id="@tank.TankId" class="mashal-tank-row"><span>@tank.TankName</span><bdi>@StatCardFormatter.Number(tank.StockMt, 2) MT</bdi></a>
+            }
+            @if (Model.TankCapacities.Count == 0) { <p class="mashal-widget-empty">مخزنی ثبت نشده است.</p> }
+            </div>
+        </article>
+        <article class="mashal-widget mashal-alerts" data-mashal-widget="alerts">
+            <header><h2>@T("هشدارهای عملیات", "Operational alerts")</h2><span class="mashal-count">@(Model.LowStockAlerts.Count + Model.ContractsEndingSoonAlerts.Count + Model.ShipmentsWithoutSalesAlerts.Count + Model.ShipmentsWithoutExpensesAlerts.Count)</span></header>
+            <div class="mashal-widget-rows">
+            @foreach (var alert in Model.LowStockAlerts.Concat(Model.ContractsEndingSoonAlerts).Concat(Model.ShipmentsWithoutSalesAlerts).Concat(Model.ShipmentsWithoutExpensesAlerts).Take(3))
+            {
+                <div class="mashal-alert-row"><i class="bi bi-exclamation-circle" aria-hidden="true"></i><div><strong>@alert.Title</strong><small>@alert.Message</small></div></div>
+            }
+            @if (Model.LowStockAlerts.Count + Model.ContractsEndingSoonAlerts.Count + Model.ShipmentsWithoutSalesAlerts.Count + Model.ShipmentsWithoutExpensesAlerts.Count == 0) { <p class="mashal-widget-empty">هشداری وجود ندارد.</p> }
+            </div>
+        </article>
+    </section>
+    <div class="modal fade mashal-widget-picker" id="mashalWidgetPicker" tabindex="-1" aria-labelledby="mashalWidgetTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+            <div class="mashal-widget-picker-head"><h2 id="mashalWidgetTitle">افزودن ابزار</h2><label>انتخاب همه <input type="checkbox" data-mashal-widgets-all /></label></div>
+            <div class="mashal-widget-options">
+            @foreach (var widget in new[] { ("activities", "آخرین فعالیت‌ها", "file-earmark-text-fill"), ("tanks", "موجودی مخازن", "database-fill"), ("alerts", "هشدارهای عملیات", "exclamation-square-fill"), ("summary", "خلاصه امروز", "bar-chart-fill"), ("analytics", "تحلیل درآمد و فروش", "pie-chart-fill"), ("shipments", "محموله‌های در جریان", "box-seam-fill") })
+            {
+                <label class="mashal-widget-option"><input type="checkbox" value="@widget.Item1" data-mashal-widget-choice /><i class="bi bi-@widget.Item3" aria-hidden="true"></i><span>@widget.Item2</span></label>
+            }
+            </div>
+            <div class="mashal-widget-picker-actions"><button type="button" data-mashal-widgets-apply disabled>تأیید</button><button type="button" data-bs-dismiss="modal">لغو</button></div>
+        </div></div>
+    </div>
+
     @* ===== ردیف کارت‌های خلاصه ===== *@
-    <section class="ak-stat-grid" aria-label="@T("خلاصه امروز", "Today's summary")">
+    <section data-mashal-widget="summary" class="ak-stat-grid" aria-label="@T("خلاصه امروز", "Today's summary")">
         <vc:stat-card title="@T("فروش امروز", "Today's sales")"
                       value="@StatCardFormatter.Number(Model.TodaySalesUsd, 0)"
                       unit="USD"
@@ -67,7 +116,7 @@
     </section>
 
     @* ===== نمودار روند + ترکیب فروش ===== *@
-    <section class="dash-analytics" aria-label="@T("تحلیل درآمد و فروش", "Revenue and sales analytics")">
+    <section data-mashal-widget="analytics" class="dash-analytics" aria-label="@T("تحلیل درآمد و فروش", "Revenue and sales analytics")">
         <article class="dash-card dash-mix">
             <header class="dash-card-head">
                 <h2>@T("ترکیب فروش", "Sales mix")</h2>

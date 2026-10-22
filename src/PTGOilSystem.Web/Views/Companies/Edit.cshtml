@@ -1,7 +1,7 @@
 @model Company
 @{ ViewData["Title"] = "ویرایش شرکت"; }
 
-<div class="ak-form-page">
+<div class="ak-form-page mashal-business-page">
     <partial name="~/Views/Shared/Components/Ak/_AkPageHeader.cshtml"
              model="@(("ویرایش شرکت", true,
                        (string?)null, (string?)null, (string?)null, (string?)null,
@@ -13,9 +13,10 @@
         <input type="hidden" asp-for="Id" />
         <div asp-validation-summary="ModelOnly" class="alert alert-danger ak-form-alert"></div>
 
-        <section class="ak-form-section">
+        <section class="ak-form-section mashal-business-main">
+            <div class="mashal-business-identity"><img src="~/images/لوکو شمعل فارسی رنک ابی.webp" width="110" height="110" alt="مشعل" /><span>کسب‌وکار</span></div>
             <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
-                     model="@(("اطلاعات شرکت", (string?)"کد، شرکت و نام شرکت را با الگوی Master Data وارد کنید."))" />
+                     model="@(("اطلاعات کسب‌وکار", (string?)null))" />
             <div class="ak-form-grid">
                 <div class="ak-field">
                     <label asp-for="Code" class="ak-label">کد <span class="ak-req">*</span></label>
@@ -45,12 +46,12 @@
                      model="@(("جزئیات بیشتر", (string?)"آدرس، یادداشت و وضعیت فعال بودن شرکت."))" />
             <div class="ak-form-grid">
                 <div class="ak-field ak-col-full">
-                    <label asp-for="Address" class="ak-label">Address</label>
+                    <label asp-for="Address" class="ak-label">نشانی</label>
                     <input asp-for="Address" class="ak-input" autocomplete="off" />
                     <span asp-validation-for="Address" class="ak-field-error"></span>
                 </div>
                 <div class="ak-field ak-col-full">
-                    <label asp-for="Notes" class="ak-label">Additional Notes</label>
+                    <label asp-for="Notes" class="ak-label">یادداشت</label>
                     <textarea asp-for="Notes" class="ak-input" rows="2"></textarea>
                     <span asp-validation-for="Notes" class="ak-field-error"></span>
                 </div>

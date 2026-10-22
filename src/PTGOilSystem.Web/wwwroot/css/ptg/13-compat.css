@@ -84,7 +84,7 @@ body.boltz-shell.app-shell-authenticated .ptg-topbar {
     padding: .35rem 1.25rem !important;
     border: 0 !important;
     border-radius: 0 !important;
-    background: transparent !important;
+    background: var(--mashal-topbar-bg, transparent) !important;
 }
 
 /* اندازه و ظاهر کنترل‌های هدر در 74-header-controls.css یکسان‌سازی شده است. */

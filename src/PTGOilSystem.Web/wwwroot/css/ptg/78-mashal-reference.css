@@ -1,0 +1,446 @@
+/* Mashal reference variants. R01–R04: light; R05–R06: legacy dashboard.
+   Route state is copied by spa-nav; both variants stay in the persistent bundle. */
+body.boltz-shell.app-shell-authenticated.mashal-ui {
+    --layout-sidebar: 240px;
+    --layout-navpanel: var(--layout-sidebar);
+    --layout-header: 48px;
+    --mashal-topbar-bg: #fff;
+    --layout-shell-gap: 0px;
+    --ptg-page-top: 0px;
+    --layout-gutter-desktop: 24px;
+    --font-body: 13px;
+    --font-label: 12px;
+    --font-page-title: 16px;
+    --font-section-title: 14px;
+    --primary-main: #2d60c9;
+    --primary-dark: #2453b4;
+    --primary-main-rgb: 45,96,201;
+    --background-default: #f5f6fa;
+    --ptg-bg: #f5f6fa;
+    --ptg-panel-shadow: none;
+    --ptg-sidebar-panel: #fff;
+    --ptg-sidebar-ink: #7d858d;
+    --ptg-sidebar-icon: #7d858d;
+    --ptg-sidebar-ink-strong: #2d60c9;
+    --ptg-sidebar-sub-ink: #7d858d;
+    --ptg-sidebar-line: #eceef2;
+    --ptg-sidebar-hover-bg: #f6f7fb;
+    --ptg-sidebar-active-bg: #f1f5fc;
+    --ptg-sidebar-accent: #2d60c9;
+    --ptg-sidebar-danger: #ba2337;
+    --chk-title: #343a40;
+    --chk-field-border: #d9dee5;
+    --chk-field-h: 32px;
+    --ak-form-content-max: 100%;
+    color: #343a40;
+    font-family: IRANSans, Vazirmatn, Tahoma, sans-serif;
+    font-size: 13px;
+}
+body.boltz-shell.app-shell-authenticated.mashal-ui .ptg-main { padding-block: 0 24px; gap: 0; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ptg-topbar { min-height: 48px; height: 48px; padding: 0 24px; background: #fff; border-radius: 0; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .boltz-topbar-start { display: flex; align-items: center; gap: 16px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-topbar-date { font-size: 12px; }
+body.boltz-shell.app-shell-authenticated.mashal-light .mashal-topbar-date { display: none; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ptg-header-cluster { gap: 12px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ptg-header-cluster :is(.ptg-h3d,.ptg-havatar-ring) { width: 26px; height: 26px; min-width: 26px; min-height: 26px; border-radius: 3px; border: 0; background: transparent; box-shadow: none; color: #788da8; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ptg-header-cluster :is(i,.ptg-havatar-ico) { font-size: 17px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui [data-offline-chip] { color: #63ad6d; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ptg-page { padding-block: 24px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ptg-page-frame { gap: 16px; max-inline-size: 100%; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .boltz-sidebar-scroll { padding: 0 10px 16px; gap: 8px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ptg-sidebar { box-shadow: -4px 0 16px rgb(29 46 78 / 5%); }
+body.boltz-shell.app-shell-authenticated.mashal-ui .boltz-brand { min-block-size: 48px; height: 48px; padding: 5px 12px; justify-content: end; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .boltz-brand-mark { inline-size: 110px; padding: 0; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .boltz-brand-logo { inline-size: 100%; block-size: 36px; object-fit: contain; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .boltz-nav-list { gap: 2px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .boltz-nav-link { min-block-size: 36px; gap: 8px; padding: 6px 10px; border-radius: 4px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .boltz-nav-link > span { font-size: 12px; font-weight: 400; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ptg-nav-ic { flex-basis: 20px; inline-size: 20px; block-size: 20px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ptg-nav-ic > svg { inline-size: 17px; block-size: 17px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .boltz-nav-sub { background: #f8f8fa; margin: 0 6px; border-radius: 3px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .boltz-nav-sublink { font-size: 12px; min-height: 30px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .boltz-sidebar-foot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--ptg-sidebar-line); }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-sidebar-context { display: grid; gap: 10px; padding: 12px 0 0; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-company-link { display: flex; gap: 10px; align-items: center; padding: 0 8px; font-size: 12px; color: #7d858d; }
+body.boltz-shell.app-shell-authenticated.mashal-ui a.mashal-primary-create { display: flex; align-items: center; justify-content: center; gap: 8px; height: 32px; color: #fff; background: #2d60c9; border-radius: 4px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ptg-hfyear { width: 100%; min-height: 30px; border: 0; background: #f6f7fb; font-size: 11px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-nav-search,.mashal-settings-search { display: flex; align-items: center; gap: 8px; border: 1px solid #d9dee5; border-radius: 3px; height: 30px; padding: 0 8px; color: #a0a5ad; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-nav-search input,.mashal-settings-search input { width: 100%; min-width: 0; border: 0; outline: none; background: transparent; font: inherit; color: #343a40; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-settings-search input::placeholder { color: #a0a5ad; }
+/* Shared real controls; original validation, readonly and disabled states stay visible. */
+body.boltz-shell.app-shell-authenticated.mashal-ui :is(.ak-input,.form-control,.form-select,.ak-combobox-input) { min-height: 32px; height: 32px; font-size: 12px; border: 1px solid #d9dee5; border-radius: 3px; box-shadow: none; background-color: #fff; padding-block: 4px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui textarea.ak-input { height: auto; min-height: 64px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui :is(.ak-input,.form-control,.form-select):focus { border-color: #7b9cde; outline: 2px solid #2d60c926; outline-offset: 1px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui :is(.ak-input,.form-control,.form-select):disabled { background: #f2f3f5; color: #9299a2; cursor: not-allowed; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .input-validation-error { border-color: #cf3446; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ak-label { font-size: 12px; font-weight: 400; margin-bottom: 6px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ak-help { font-size: 11px; color: #7d858d; line-height: 1.8; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ak-page-header { margin-bottom: 20px; padding: 0; min-height: 32px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ak-page-title { font-size: 16px; line-height: 1.6; font-weight: 400; }
+body.boltz-shell.app-shell-authenticated.mashal-ui :is(.ak-section-title,.ak-form-group-title,.fte-section-title) { font-size: 14px; font-weight: 400; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ak-form > div > .ak-form-section,body.boltz-shell.app-shell-authenticated.mashal-ui .ak-form-section { box-shadow: none; border: 0; background: transparent; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ak-form-grid { gap: 20px 28px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui :is(.ak-save,.btn-primary) { background: #2d60c9; border-color: #2d60c9; border-radius: 4px; font-size: 12px; min-height: 32px; box-shadow: none; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ak-cancel { font-size: 12px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ak-footer-actions { min-height: 52px; margin-top: 32px; border: 0; padding: 10px 16px; background: #fff; box-shadow: 0 -2px 12px rgb(24 40 70 / 5%); justify-content: end; gap: 12px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ak-table :is(th,td) { font-size: 12px; padding: 10px 12px; border-color: #eceef2; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .ak-table thead th { background: #f2f5fc; color: #6f7784; font-weight: 400; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .form-switch .form-check-input { width: 36px; height: 18px; border: 0; background-color: #dedfe4; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .form-switch .form-check-input:checked { background-color: #24c75a; }
+body.boltz-shell.app-shell-authenticated.mashal-ui :focus-visible { outline: 2px solid #2d60c9; outline-offset: 3px; }
+/* R01–R03: independent settings navigation column, no horizontal tabs. */
+body.boltz-shell.app-shell-authenticated.mashal-settings .ptg-page-frame > [data-section-tabs-strip] { display: none; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-settings-frame { display: grid; grid-template-columns: 265px minmax(0,1fr); min-height: calc(100vh - 96px); background: #fff; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-settings-nav { padding: 24px 18px; border-inline-end: 1px solid #eceef2; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-settings-search { font-size: 11px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-settings-group { margin-top: 22px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-settings-group h2 { margin: 0 10px 6px; color: #a1a5ac; font-size: 11px; font-weight: 400; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-settings-group a { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: #7d858d; font-size: 12px; border-radius: 3px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-settings-group a.is-active { background: #f1f5fc; color: #2d60c9; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-settings-content { min-width: 0; padding: 32px 44px 0; }
+body.boltz-shell.app-shell-authenticated.mashal-settings .mashal-settings-content > :is(.ak-form-page,.ak-list-page) { background: transparent; padding: 0; border: 0; border-radius: 0; box-shadow: none; }
+body.boltz-shell.app-shell-authenticated.mashal-settings .ak-form { border: 0; background: transparent; padding: 0; border-radius: 0; box-shadow: none; }
+body.boltz-shell.app-shell-authenticated.mashal-settings .ak-form-section { padding: 0; margin: 0 0 48px; }
+body.boltz-shell.app-shell-authenticated.mashal-settings .ak-section-head { border: 0; }
+body.boltz-shell.app-shell-authenticated.mashal-settings .ak-footer-actions { position: sticky; bottom: 0; margin-inline: -24px; margin-top: 48px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-profile-overview { display: flex; align-items: start; gap: 28px; min-height: 200px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-profile-avatar { width: 112px; height: 112px; object-fit: contain; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-profile-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 22px 14px; flex: 1; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-security-title { font-size: 14px; font-weight: 400; color: #7d858d; margin: 16px 0 40px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-password-details summary { display: flex; align-items: center; gap: 14px; cursor: pointer; list-style: none; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-password-details summary::-webkit-details-marker { display: none; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-security-icon { display: grid; place-items: center; width: 48px; height: 48px; background: #edf2ff; color: #2d60c9; font-size: 26px; border-radius: 4px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-password-details summary strong { display: block; font-weight: 400; font-size: 13px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-password-details summary small { display: block; font-size: 11px; color: #7d858d; margin-top: 6px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-password-action { margin-inline-start: auto; padding: 7px 12px; background: #2d60c9; color: #fff; border-radius: 3px; white-space: nowrap; font-size: 11px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-password-details[open] > section { margin-top: 36px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-business-main { display: grid; grid-template-columns: 180px minmax(0,1fr); gap: 22px; padding-block: 56px 24px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-business-main > .ak-section-head { grid-column: 1/-1; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-business-identity { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; grid-row: 2; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-business-identity img { width: 110px; height: 110px; object-fit: contain; border: 1px solid #edf0f6; border-radius: 50%; padding: 12px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-business-identity span { color: #7d858d; font-size: 11px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-business-main > .ak-form-grid { grid-column: 2; grid-row: 2; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-accounting-section { margin-bottom: 48px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-accounting-section h2 { font-size: 14px; font-weight: 400; margin: 0 0 24px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-accounting-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 24px 32px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-mapping-form { display: flex; align-items: center; gap: 6px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-mapping-form select { min-width: 0; flex: 1; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-mapping-form button { min-height: 32px; width: 32px; padding: 4px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-accounting-grid .ak-status { align-self: start; font-size: 10px; }
+/* R04: narrow transaction work area and two distinct destination cards. */
+body.boltz-shell.app-shell-authenticated.mashal-ui .roznamcha-entry-page { max-width: 864px; margin-inline: auto; padding: 16px 12px; background: #fff; box-shadow: none; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .roznamcha-entry-page > .ak-page-header { margin-bottom: 12px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .roznamcha-entry-page .ak-form { padding: 0; border: 0; background: transparent; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .journal-direction-segmented { margin-bottom: 16px; justify-content: start; border-bottom: 1px solid #eceef2; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .journal-mode-bar { padding: 14px 12px; background: #f6f7fb; border-radius: 6px; margin-bottom: 16px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .journal-mode-bar .ptg-tab-item { min-height: 28px; font-size: 12px; padding: 4px 10px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .journal-main-fieldset { padding: 0; margin: 0; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .journal-main-fieldset > .fte-section { padding: 8px 0 20px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .journal-primary-grid { display: grid; grid-template-columns: repeat(12,minmax(0,1fr)); gap: 14px 12px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .journal-primary-grid > .fec-span-3 { grid-column: span 3; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .journal-primary-grid > .fec-span-4 { grid-column: span 4; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .journal-primary-grid > .fec-span-5 { grid-column: span 5; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .journal-primary-grid > .ak-form-full { grid-column: 1/-1; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-payment-destinations { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; padding: 18px 14px; background: #f6f7fb; border-radius: 6px; margin-bottom: 24px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-payment-destinations > .fte-section { background: #fff; padding: 12px; min-height: 230px; border: 1px solid #edf0f5; border-radius: 3px; margin: 0; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-payment-party { order: 2; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-payment-bank { order: 1; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-payment-destinations .journal-primary-grid { grid-template-columns: minmax(0,1fr); }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-payment-destinations .journal-primary-grid > .ak-field { grid-column: 1/-1; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-payment-destinations h2 { background: #f6f7fb; font-size: 12px; padding: 6px 8px; margin: -4px -4px 16px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .journal-more-toggle { border: 1px dashed #d9dee5; border-radius: 3px; width: 100%; font-size: 12px; padding: 8px; color: #2d60c9; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .journal-summary { background: transparent; border: 0; border-radius: 0; font-size: 12px; margin: 24px 0 12px; padding: 0; }
+/* Legacy route-only palette and exact dashboard dimensions from R05/R06. */
+body.boltz-shell.app-shell-authenticated.mashal-legacy {
+    --ptg-sidebar-panel: #007db2;
+    --mashal-topbar-bg: #007db2;
+    --ptg-sidebar-ink: #fff;
+    --ptg-sidebar-icon: #fff;
+    --ptg-sidebar-ink-strong: #fff;
+    --ptg-sidebar-sub-ink: #fff;
+    --ptg-sidebar-line: #ffffff33;
+    --ptg-sidebar-hover-bg: #006f9c;
+    --ptg-sidebar-active-bg: #006088;
+    --ptg-sidebar-accent: #fff;
+    --primary-main: #0080e2;
+    --primary-main-rgb: 0,128,226;
+    --layout-gutter-desktop: 8px;
+}
+body.boltz-shell.app-shell-authenticated.mashal-legacy .ptg-topbar { background: #007db2; color: #fff; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .ptg-header-cluster :is(.ptg-h3d,.ptg-havatar-ring) { color: #fff; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .boltz-brand-logo { content: url('/images/لوگو فارسی مشعل رنگ سفید.webp'); }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .mashal-sidebar-context { display: none; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .mashal-nav-search { border-color: #fff; margin: 0 2px 4px; height: 34px; border-radius: 8px; color: #fff; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .mashal-nav-search input { color: #fff; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .boltz-nav-link { min-height: 47px; border-radius: 8px; padding: 8px 14px; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .boltz-nav-link > span { font-size: 14px; font-weight: 500; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .ptg-nav-ic > svg { width: 19px; height: 19px; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .boltz-nav-sub { background: #006088; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .ptg-page { padding-top: 0; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .dashboard-page.dashboard-ref { padding: 0; background: transparent; border: 0; box-shadow: none; border-radius: 0; --dash-card-shadow: none; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-dashboard-toolbar { display: flex; align-items: center; justify-content: space-between; height: 56px; padding: 0 24px 0 32px; background: #fcfcfc; margin-bottom: 39px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-dashboard-toolbar h1 { font-size: 13px; font-weight: 400; margin: 0; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-dashboard-toolbar > div { display: flex; align-items: center; gap: 16px; direction: ltr; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-dashboard-save { border: 1px solid #20c131; background: #fff; color: #666; height: 36px; border-radius: 8px; padding: 0 14px; font: inherit; font-size: 12px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-dashboard-save i { color: #14b92c; margin-inline-end: 6px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-add { border: 0; color: #a530ff; background: transparent; font-size: 23px; padding: 0; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-dashboard-lists { display: grid; grid-template-columns: minmax(0,457fr) minmax(0,305fr) minmax(0,258fr); gap: 24px; padding-inline: 0 42px; margin-bottom: 24px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget { min-width: 0; height: 368px; padding: 20px; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: auto; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; height: 35px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget h2 { margin: 0; font-size: 13px; font-weight: 500; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-count { padding: 10px; border-radius: 8px; font-size: 11px; background: #f5f6fa; color: #46607e; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-rows { display: grid; gap: 12px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-document-row { display: grid; grid-template-columns: 72px minmax(0,1fr); gap: 12px; padding: 12px; background: #f9f9f9; border-radius: 10px; min-height: 80px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-document-row > div { display: flex; flex-direction: column; gap: 6px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-document-row > div:last-child { font-size: 12px; text-align: start; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-document-amount { text-align: end; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-document-row small { font-size: 10px; color: #6c7b8e; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-document-badge { background: #0080e2; color: #fff; border-radius: 3px; padding: 3px 8px; text-align: center; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-document-status { font-size: 10px; text-align: center; background: #fcf4e7; color: #9953e0; border-radius: 3px; padding: 3px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-tank-row { display: flex; gap: 12px; justify-content: space-between; align-items: center; padding: 10px 12px; min-height: 44px; background: #f9f9f9; border-radius: 10px; color: #343a40; font-size: 12px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-alert-row { display: flex; gap: 12px; align-items: center; padding: 12px; border-radius: 10px; background: #f9f9f9; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-alert-row > i { font-size: 32px; color: #a2a2a2; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-alert-row strong { font-size: 12px; font-weight: 400; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-alert-row small { display: block; font-size: 11px; margin-top: 6px; color: #7d858d; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-empty { font-size: 12px; color: #7d858d; text-align: center; padding: 64px 0; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .dashboard-page > :is(.ak-stat-grid,.dash-analytics,.dash-insights) { margin: 24px 42px 24px 0; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .dash-card { border: 1px solid #e5e5e5; border-radius: 8px; padding: 20px; box-shadow: none; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .dash-card h2 { font-size: 13px; font-weight: 500; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy .ak-stat-card { border: 1px solid #e5e5e5; border-radius: 8px; box-shadow: none; }
+/* The Bootstrap modal keeps its focus trap, Escape and return-focus behaviour. */
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-picker .modal-dialog { width: calc(100% - 32px); max-width: 652px; margin-inline: auto; min-height: calc(100% - 48px); }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-picker .modal-content { height: 469px; padding: 24px; border: 0; border-top: 6px solid #0080e2; border-radius: 8px; background: #fff; box-shadow: 0 4px 14px #0003; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-picker-head { display: flex; align-items: center; justify-content: space-between; height: 34px; margin-bottom: 24px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-picker-head h2 { font-size: 14px; font-weight: 400; margin: 0; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-picker-head label { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-picker input { accent-color: #008cff; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-options { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-option { display: flex; align-items: center; gap: 14px; height: 72px; padding: 12px 16px; border-radius: 9px; background: #e8e8e8; color: #483c55; font-size: 12px; cursor: pointer; position: relative; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-option input { position: absolute; inset-inline-end: 7px; bottom: 7px; width: 12px; height: 12px; opacity: 0; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-option:focus-within { outline: 2px solid #0080e2; outline-offset: 2px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-option:has(input:checked) { box-shadow: none; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-option > i { font-size: 31px; color: #200e32; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-picker-actions { display: flex; gap: 16px; direction: ltr; margin-top: auto; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-picker-actions button { height: 35px; min-width: 80px; border: 0; background: #0080e2; color: #fff; border-radius: 8px; font: inherit; font-size: 11px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-picker-actions button:disabled { background: #bbb; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-picker-actions button[data-bs-dismiss] { min-width: 72px; border: 1px solid #ff9600; color: #ff9600; background: #fff; }
+body.boltz-shell.app-shell-authenticated.mashal-legacy:has(.mashal-widget-picker.show) .modal-backdrop { opacity: .4; }
+/* R07 is restricted to the existing invoice-linked subflow. */
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-invoice-receipt { max-width: none; margin: 0; padding: 18px 42px; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-invoice-receipt .ak-input { height: 36px; border-color: #655675; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-invoice-receipt .mashal-payment-destinations { grid-template-columns: minmax(0,1fr); background: transparent; padding: 0; gap: 74px; margin: 48px 0; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-invoice-receipt .mashal-payment-destinations > .fte-section { min-height: 210px; border: 1px solid #008cff; border-radius: 8px; padding: 32px; background: #fafafa; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-invoice-receipt .mashal-payment-party { order: 0; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-invoice-receipt .mashal-payment-bank { order: 1; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-invoice-receipt .mashal-payment-destinations .journal-primary-grid { grid-template-columns: repeat(2,minmax(0,1fr)); background: #fff; padding: 24px; border-radius: 10px; box-shadow: 0 2px 16px #00000014; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-invoice-receipt .mashal-payment-destinations .journal-primary-grid > .ak-field { grid-column: auto; }
+@media (min-width: 992px) and (max-width: 1199px) {
+    body.boltz-shell.app-shell-authenticated.mashal-ui:not(.is-sidebar-collapsed) .boltz-shell-frame { grid-template-columns: var(--layout-sidebar) minmax(0,1fr); }
+    body.boltz-shell.app-shell-authenticated.mashal-ui:not(.is-sidebar-collapsed) .ptg-sidebar { inline-size: var(--layout-sidebar); }
+}
+@media (max-width: 1199px) {
+    .mashal-settings-frame { grid-template-columns: 210px minmax(0,1fr); }
+    .mashal-settings-content { padding-inline: 24px; }
+    .mashal-profile-fields { grid-template-columns: 1fr; }
+    .mashal-dashboard-lists { padding-inline-end: 16px; gap: 16px; }
+}
+@media (max-width: 991px) {
+    .mashal-dashboard-lists { grid-template-columns: repeat(2,minmax(0,1fr)); padding: 0; }
+    .mashal-settings-frame { grid-template-columns: 180px minmax(0,1fr); }
+    body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-business-main { grid-template-columns: 110px minmax(0,1fr); gap: 12px; }
+    .mashal-profile-overview { flex-direction: column; }
+    .mashal-profile-fields { width: 100%; }
+    .mashal-password-details summary { flex-wrap: wrap; }
+    body.boltz-shell.app-shell-authenticated.mashal-legacy .dashboard-page > :is(.ak-stat-grid,.dash-analytics,.dash-insights) { margin-inline: 0; }
+}
+@media (max-width: 639px) {
+    body.boltz-shell.app-shell-authenticated.mashal-ui .ptg-page { padding: 12px; }
+    .mashal-settings-frame { display: flex; flex-direction: column; }
+    .mashal-settings-nav { border-inline-end: 0; border-bottom: 1px solid #eceef2; padding: 14px; }
+    .mashal-settings-nav .mashal-settings-group { display: flex; overflow-x: auto; margin-top: 8px; }
+    .mashal-settings-group h2 { display: none; }
+    body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-settings-group a { flex-shrink: 0; font-size: 11px; }
+    .mashal-settings-content { padding: 24px 16px 0; }
+    .mashal-accounting-grid,.mashal-dashboard-lists,.mashal-payment-destinations { grid-template-columns: 1fr; }
+    body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-business-main { display: flex; flex-direction: column; padding-top: 12px; }
+    .mashal-dashboard-toolbar { padding-inline: 12px; margin-bottom: 24px; }
+    .mashal-widget { height: auto; min-height: 230px; }
+    .mashal-widget-options { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+    .mashal-widget-option { height: 64px; padding: 8px; gap: 8px; font-size: 11px; }
+    .mashal-widget-option > i { font-size: 24px; }
+    body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-picker .modal-content { height: 500px; padding: 18px; }
+    body.boltz-shell.app-shell-authenticated.mashal-ui .journal-primary-grid > :is(.fec-span-3,.fec-span-4,.fec-span-5) { grid-column: span 6; }
+    body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-invoice-receipt { padding: 12px; }
+    body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-invoice-receipt .mashal-payment-destinations > .fte-section { padding: 16px; }
+    body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-invoice-receipt .mashal-payment-destinations .journal-primary-grid { grid-template-columns: 1fr; padding: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    body.boltz-shell.app-shell-authenticated.mashal-ui .modal.fade .modal-dialog { transition: none; }
+}
+@media (min-width: 992px) {
+    body.boltz-shell.app-shell-authenticated.mashal-ui.is-sidebar-collapsed :is(.mashal-sidebar-context,.mashal-nav-search) { display: none; }
+}
+body.boltz-shell.app-shell-authenticated.mashal-legacy .boltz-nav-link.is-active::before { display: none; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-picker .modal-dialog { margin-block: 24px; }
+/* QA iteration 2: release inherited PageFrame/KPI ordering and type rules. */
+body.mashal-ui #ptg-main-content > .ptg-page-frame { padding: 0; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+body.mashal-legacy #ptg-main-content .dashboard-page.dashboard-ref { gap: 0; padding: 0; margin: 0; }
+body.mashal-legacy #ptg-main-content .dashboard-page.dashboard-ref > .ak-stat-grid { order: 0; }
+body.mashal-legacy #ptg-main-content .mashal-dashboard-toolbar { order: 0; margin-bottom: 39px; }
+body.mashal-legacy #ptg-main-content .mashal-dashboard-toolbar h1 { font-size: 13px; font-weight: 400; }
+body.mashal-ui #ptg-main-content .mashal-widget h2 { font-size: 13px; font-weight: 500; }
+body.mashal-ui #ptg-main-content .mashal-security-title { font-size: 14px; font-weight: 400; }
+body.mashal-ui #ptg-main-content .mashal-settings-group h2 { font-size: 11px; font-weight: 400; color: #a1a5ac; }
+body.mashal-ui #ptg-main-content .mashal-settings-frame { border-radius: 0; }
+body.mashal-ui #ptg-main-content .mashal-settings-content .ak-page-title { font-size: 15px; font-weight: 400; }
+body.mashal-ui #ptg-main-content .mashal-business-main > .ak-form-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+body.mashal-ui #ptg-main-content .mashal-business-main .ak-form-grid > .ak-field { grid-column: auto; }
+body.mashal-ui #ptg-main-content .mashal-business-main .ak-form-grid > .ak-field:has(input[name="Name"]) { grid-column: 1/-1; order: -1; }
+body.mashal-ui #ptg-main-content .mashal-business-main .ak-form-grid > .ak-field:has(input[name="NamePersian"]) { grid-column: 1/-1; order: 1; }
+body.mashal-ui #ptg-main-content .roznamcha-entry-page .fte-section { margin: 0; padding-block: 12px; }
+body.mashal-ui #ptg-main-content .roznamcha-entry-page .fte-section-title { margin: 0 0 12px; font-size: 13px; }
+body.mashal-ui #roznamchaForm :is(.ak-entity-combobox-control,.ak-entity-combobox-input,.ak-date-control,.ak-date-input) { min-height: 32px; height: 32px; border-radius: 3px; font-size: 12px; }
+body.mashal-ui #roznamchaForm .ak-field { gap: 4px; }
+body.mashal-ui #roznamchaForm .ak-label { margin: 0; font-size: 12px; }
+body.mashal-ui #roznamchaForm .journal-mode-bar { margin-block: 0 12px; }
+body.mashal-ui #roznamchaForm .journal-direction-segmented { margin-block: 0 12px; }
+body.mashal-ui #roznamchaForm .mashal-payment-destinations { margin-block: 8px 16px; }
+body.mashal-ui #roznamchaForm .mashal-payment-destinations > .fte-section { padding: 12px; }
+body.mashal-ui #roznamchaForm .journal-action-bar { justify-content: end; }
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-option:has(input:not(:checked)) { background: #f8f8f8; box-shadow: inset 0 0 0 1px #ccc; }
+/* Measured desktop alignment: R05 cards x=619/290/8, y=143. */
+@media (min-width: 1200px) {
+    body.mashal-legacy #ptg-main-content { padding-inline: 8px; }
+    body.mashal-legacy #ptg-main-content .mashal-dashboard-lists { padding-inline: 42px 0; }
+    body.mashal-settings #ptg-main-content { padding-inline: 34px; }
+    body.mashal-settings #ptg-main-content .mashal-settings-frame { grid-template-columns: 275px minmax(0,1fr); }
+}
+body.mashal-legacy #ptg-main-content .dashboard-page > :is(.ak-stat-grid,.dash-analytics,.dash-insights) { width: auto; inline-size: auto; min-inline-size: 0; margin-inline: 42px 0; }
+body.mashal-settings #ptg-main-content .mashal-settings-content { padding-top: 16px; }
+body.mashal-settings.controller-auth #ptg-main-content { padding-block: 0; }
+body.mashal-settings.controller-auth #ptg-main-content .mashal-settings-content { padding-top: 0; }
+body.mashal-settings.controller-auth #ptg-main-content .mashal-profile-overview { min-height: 160px; }
+body.mashal-settings.controller-auth #ptg-main-content .mashal-profile-avatar { width: 128px; height: 128px; }
+@media (max-width: 991px) {
+    body.mashal-legacy #ptg-main-content .dashboard-page > :is(.ak-stat-grid,.dash-analytics,.dash-insights) { margin-inline: 0; }
+    body.mashal-settings.controller-auth #ptg-main-content .mashal-settings-content { padding-top: 24px; }
+}
+body.boltz-shell.app-shell-authenticated.mashal-ui .roznamcha-entry-page.mashal-transaction { max-width: 828px; }
+/* QA: at the R06 benchmark the panel is five pixels above geometric centre. */
+body.boltz-shell.app-shell-authenticated.mashal-ui .mashal-widget-picker .modal-dialog { margin-block: 19px 29px; }
+/* Keep responsive rules as specific as their desktop counterparts. */
+@media (max-width: 991px) {
+    body.mashal-ui #ptg-main-content .mashal-dashboard-lists { grid-template-columns: repeat(2,minmax(0,1fr)); padding: 0; }
+    body.mashal-ui #ptg-main-content .mashal-profile-overview { flex-direction: column; }
+    body.mashal-ui #ptg-main-content .mashal-profile-fields { width: 100%; grid-template-columns: 1fr; }
+    body.mashal-ui #ptg-main-content .mashal-password-details summary { flex-wrap: wrap; }
+    body.mashal-ui #ptg-main-content .mashal-settings-content { padding-inline: 24px; }
+}
+@media (max-width: 639px) {
+    body.mashal-ui #ptg-main-content .mashal-settings-frame { display: flex; flex-direction: column; min-width: 0; }
+    body.mashal-ui #ptg-main-content .mashal-settings-nav { width: 100%; min-width: 0; padding: 14px; border-inline-end: 0; border-bottom: 1px solid #eceef2; }
+    body.mashal-ui #ptg-main-content .mashal-settings-group { display: flex; overflow-x: auto; margin-top: 8px; }
+    body.mashal-ui #ptg-main-content .mashal-settings-group h2 { display: none; }
+    body.mashal-ui #ptg-main-content .mashal-settings-group a { flex-shrink: 0; font-size: 11px; }
+    body.mashal-ui #ptg-main-content .mashal-settings-content { padding: 24px 16px 0; width: 100%; min-width: 0; }
+    body.mashal-ui #ptg-main-content :is(.mashal-accounting-grid,.mashal-dashboard-lists,.mashal-payment-destinations) { grid-template-columns: minmax(0,1fr); }
+    body.mashal-ui #ptg-main-content .mashal-business-main { display: flex; flex-direction: column; padding-top: 12px; }
+    body.mashal-ui #ptg-main-content .mashal-dashboard-toolbar { padding-inline: 12px; margin-bottom: 24px; }
+    body.mashal-ui #ptg-main-content .mashal-widget { height: auto; min-height: 230px; }
+    body.mashal-ui #ptg-main-content .mashal-widget-options { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+    body.mashal-ui #ptg-main-content .mashal-widget-option { height: 64px; padding: 8px; gap: 8px; font-size: 11px; }
+    body.mashal-ui #ptg-main-content .mashal-widget-option > i { font-size: 24px; }
+    body.mashal-ui #ptg-main-content .mashal-invoice-receipt { padding: 12px; }
+    body.mashal-ui #ptg-main-content .mashal-invoice-receipt .mashal-payment-destinations > .fte-section { padding: 16px; }
+    body.mashal-ui #ptg-main-content .mashal-invoice-receipt .mashal-payment-destinations .journal-primary-grid { grid-template-columns: 1fr; padding: 16px; }
+    body.mashal-ui #roznamchaForm .journal-primary-grid > :is(.fec-span-3,.fec-span-4,.fec-span-5) { grid-column: span 6; }
+}
+/* R07 reuses the same posted controls; only the invoice-linked arrangement differs. */
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .journal-main-fieldset > .fte-section { padding: 0; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .journal-main-fieldset > .fte-section > .fte-section-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .journal-main-fieldset > .fte-section > .journal-primary-grid { grid-template-columns: 209px minmax(0,1fr) 266px; gap: 24px 32px; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .journal-main-fieldset > .fte-section > .journal-primary-grid > .ak-field { grid-column: auto; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .ak-field:has(select[name="PaymentKind"]) { order: -2; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .ak-field:has(input[name="PaymentDate"]) { order: -1; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-payment-destinations { margin-block: 48px; gap: 74px; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-payment-destinations > .fte-section { padding: 32px; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-payment-party { display: grid; grid-template-columns: 90px minmax(0,1fr); column-gap: 24px; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-payment-party > h2 { grid-column: 1/-1; background: transparent; padding: 0; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-payment-party > .journal-primary-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px 28px; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-person { font-size: 100px; color: #888; align-self: center; justify-self: center; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-description { grid-column: 1/-1; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-description textarea { min-height: 36px; height: 36px; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-options { padding: 12px; border: 1px solid #e5e5e5; border-radius: 4px; margin-bottom: 16px; font-size: 12px; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-options[open] > .journal-direction-segmented { margin-top: 16px; }
+@media (max-width: 767px) {
+    body.mashal-ui .mashal-invoice-receipt #roznamchaForm .journal-main-fieldset > .fte-section > .journal-primary-grid { grid-template-columns: minmax(0,1fr); }
+    body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-payment-destinations > .fte-section { padding: 16px; }
+    body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-payment-party { display: block; }
+    body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-person { display: none; }
+    body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-payment-party > .journal-primary-grid { grid-template-columns: minmax(0,1fr); }
+}
+body.mashal-ui #boltzSidebar a.mashal-primary-create { color: #fff; background: #2d60c9; border-color: #2d60c9; }
+body.mashal-ui #ptg-main-content .ak-entity-chip { background: transparent; color: #656b75; border-radius: 2px; }
+body.mashal-ui #ptg-main-content .ak-entity-chip-x { color: #8a929d; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-payment-party { display: block; margin-bottom: 74px; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-payment-party > h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-card { display: grid; grid-template-columns: 128px minmax(0,1fr); gap: 81px; padding: 16px 24px; background: #fff; border-radius: 10px; box-shadow: 0 2px 16px #00000014; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-card > .journal-primary-grid { grid-template-columns: minmax(0,373fr) minmax(0,282fr); gap: 24px 32px; padding: 0; box-shadow: none; background: transparent; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-card .ak-field { grid-column: auto; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-card .mashal-receipt-description { grid-column: 1/-1; width: 565px; max-width: 100%; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-payment-destinations { gap: 0; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-payment-destinations > .journal-summary { width: 476px; max-width: 100%; justify-self: end; min-height: 40px; padding: 8px 12px; margin: 0 0 64px; background: #f3f3f3; border: 1px solid #bdbdbd; border-radius: 8px; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .ak-label { position: relative; z-index: 1; inset-inline-start: 8px; padding-inline: 4px; margin-bottom: -6px; width: fit-content; font-size: 10px; line-height: 12px; background: #fff; }
+@media (min-width: 1200px) {
+    body.mashal-legacy:has(.mashal-invoice-receipt) #ptg-main-content { padding-inline: 0; }
+    body.mashal-ui #ptg-main-content .mashal-invoice-receipt { padding-inline: 51px 59px; }
+}
+@media (max-width: 1199px) {
+    body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-card { grid-template-columns: 90px minmax(0,1fr); gap: 24px; }
+}
+@media (max-width: 767px) {
+    body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-card { display: block; padding: 16px; }
+    body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-card > .journal-primary-grid { grid-template-columns: minmax(0,1fr); }
+}
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-description { grid-row: 2; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-party-options { grid-column: 1/-1; grid-row: 2; justify-self: end; align-self: center; width: 100px; font-size: 10px; color: #7d858d; }
+@media (max-width: 767px) {
+    body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-card .mashal-receipt-description,
+    body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-party-options { grid-row: auto; }
+}
+body.mashal-ui #boltzSidebar a.mashal-primary-create { --_bg: #2d60c9; --_fg: #fff; --_bg-h: #2453b4; }
+body.mashal-ui #ptg-main-content :is(.ak-entity-input,.ak-date-field) { height: 32px; min-height: 32px; border-color: #d9dee5; border-radius: 3px; font-size: 12px; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm :is(.ak-entity-input,.ak-date-field) { height: 36px; min-height: 36px; border-color: #655675; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-person { line-height: 1; height: 113px; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-card { align-items: center; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-card > .journal-primary-grid { align-self: start; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-totals { display: grid; grid-template-columns: minmax(0,1fr) 476px; gap: 50px; margin-bottom: 64px; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-totals > :is(.journal-summary,.journal-party-balance) { width: 100%; min-width: 0; min-height: 40px; margin: 0; padding: 8px 12px; font-size: 12px; line-height: 20px; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-totals > .journal-summary { background: #f3f3f3; border: 1px solid #bdbdbd; border-radius: 8px; }
+@media (max-width: 1199px) {
+    body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-totals { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 24px; }
+}
+@media (max-width: 767px) {
+    body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-totals { grid-template-columns: minmax(0,1fr); gap: 12px; margin-bottom: 32px; }
+}
+/* R04 ordering without moving controls across their owning fieldsets. */
+body.mashal-ui .mashal-transaction #roznamchaForm > div { display: flex; flex-direction: column; }
+body.mashal-ui .mashal-transaction #roznamchaForm > div > * { order: 10; }
+body.mashal-ui .mashal-transaction #roznamchaForm > div > .journal-direction-segmented { order: -1; }
+body.mashal-ui .mashal-transaction #roznamchaForm > div > .journal-mode-bar { order: 1; }
+body.mashal-ui .mashal-transaction #roznamchaForm .journal-main-fieldset { display: contents; }
+body.mashal-ui .mashal-transaction #roznamchaForm .journal-main-fieldset > .fte-section { order: 0; }
+body.mashal-ui .mashal-transaction #roznamchaForm .mashal-payment-destinations { order: 2; }
+body.mashal-ui .mashal-transaction #roznamchaForm .journal-main-fieldset > .fte-section > .journal-primary-grid { grid-template-columns: repeat(4,minmax(0,1fr)); }
+body.mashal-ui .mashal-transaction #roznamchaForm .journal-main-fieldset > .fte-section > .journal-primary-grid > .ak-field { grid-column: auto; }
+body.mashal-ui .mashal-transaction #roznamchaForm .journal-main-fieldset > .fte-section > .journal-primary-grid > .ak-form-full { grid-column: 1/-1; }
+@media (max-width: 639px) {
+    body.mashal-ui .mashal-transaction #roznamchaForm .journal-main-fieldset > .fte-section > .journal-primary-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (min-width: 1200px) {
+    body.mashal-ui #ptg-main-content .mashal-invoice-receipt { padding-block-start: 8px; }
+}
+/* R07 floating legends occupy no extra row height: card 942×145px. */
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-card .ak-field { gap: 0; min-height: 0; }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-card .ak-label { height: 12px; min-height: 12px; margin-bottom: -12px; padding-block: 0; line-height: 12px; transform: translateY(-6px); }
+body.mashal-ui .mashal-invoice-receipt #roznamchaForm .mashal-receipt-card > .journal-primary-grid { row-gap: 35px; }

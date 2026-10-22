@@ -1,0 +1,25 @@
+@inject PTGOilSystem.Web.Security.ClientModuleProfile Modules
+@{
+    var controller = ViewContext.RouteData.Values["controller"]?.ToString();
+    var action = ViewContext.RouteData.Values["action"]?.ToString();
+    var groups = new[] {
+        (Label: "عمومی", Items: new[] { ("Auth", "ChangePassword", "حساب کاربری", "person"), ("Companies", "Index", "کسب‌وکار", "briefcase"), ("Users", "Index", "مدیریت کاربران", "people") }),
+        (Label: "مالی", Items: new[] { ("ChartOfAccounts", "Mapping", "حسابداری", "bar-chart"), ("FiscalYears", "Index", "سال مالی", "calendar3"), ("Currencies", "Index", "ارزها و نرخ تبدیل", "currency-exchange"), ("CashAccounts", "Index", "صندوق و بانک", "bank") }),
+        (Label: "سیستم", Items: new[] { ("SystemSettings", "Index", "تقویم و تنظیمات", "gear"), ("Backups", "Index", "نسخه پشتیبان", "cloud-arrow-down"), ("AuditLogs", "Index", "رویدادهای سیستم", "clock-history") })
+    };
+}
+<aside class="mashal-settings-nav" aria-label="تنظیمات">
+    <label class="mashal-settings-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" placeholder="جستجو در تنظیمات…" aria-label="جستجو در تنظیمات" data-mashal-settings-search /></label>
+    @foreach (var group in groups)
+    {
+        <div class="mashal-settings-group">
+            <h2>@group.Label</h2>
+            @foreach (var item in group.Items)
+            {
+                if (item.Item1 != "Auth" && !PTGOilSystem.Web.Security.RoleAccessRules.CanAccessController(User, item.Item1, Modules)) { continue; }
+                var active = controller == item.Item1 && (action == item.Item2 || controller == "Companies");
+                <a asp-controller="@item.Item1" asp-action="@item.Item2" aria-current="@(active ? "page" : null)" class="mashal-settings-link @(active ? "is-active" : null)"><i class="bi bi-@item.Item4" aria-hidden="true"></i><span>@item.Item3</span></a>
+            }
+        </div>
+    }
+</aside>

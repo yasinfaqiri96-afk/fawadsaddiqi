@@ -434,11 +434,11 @@ body.boltz-shell.app-shell-authenticated .pagination .page-item:not(.active):not
    Pagination is excluded for the same reason: it carries an extra element in
    the selector, so it also outweighs the rules above and would repaint the
    active page link navy — invisible on the navy disc it sits in. */
-body.boltz-shell.app-shell-authenticated a:not(.btn):not(.boltz-nav-link):not(.dropdown-item):not(.ptg-tab-item):not(.page-link) {
+body.boltz-shell.app-shell-authenticated a:not(.btn):not(.boltz-nav-link):not(.dropdown-item):not(.ptg-tab-item):not(.page-link):not(.mashal-settings-link):not(.mashal-tank-row):not(.mashal-company-link) {
     color: var(--primary-main);
 }
 
-body.boltz-shell.app-shell-authenticated a:not(.btn):not(.boltz-nav-link):not(.dropdown-item):not(.ptg-tab-item):not(.page-link):hover {
+body.boltz-shell.app-shell-authenticated a:not(.btn):not(.boltz-nav-link):not(.dropdown-item):not(.ptg-tab-item):not(.page-link):not(.mashal-settings-link):not(.mashal-tank-row):not(.mashal-company-link):hover {
     color: var(--primary-dark);
 }
 

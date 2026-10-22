@@ -3,7 +3,8 @@
 @Html.AntiForgeryToken()
 <div asp-validation-summary="ModelOnly" class="alert alert-danger ak-form-alert"></div>
 
-<section class="ak-form-section">
+<section class="ak-form-section mashal-business-main">
+    <div class="mashal-business-identity"><img src="~/images/لوکو شمعل فارسی رنک ابی.webp" width="110" height="110" alt="مشعل" /><span>کسب‌وکار</span></div>
     <partial name="~/Views/Shared/Components/Ak/_AkSectionHead.cshtml"
              model="@(("اطلاعات شرکت", (string?)"کد، شرکت و کشور شرکت را وارد کنید."))" />
     <div class="ak-form-grid">

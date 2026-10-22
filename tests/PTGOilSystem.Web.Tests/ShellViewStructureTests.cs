@@ -115,12 +115,12 @@ public class ShellViewStructureTests
     }
 
     [Fact]
-    public void Sidebar_Uses_Saddiqi_Brand_And_Settings_Starts_Collapsed()
+    public void Sidebar_Uses_Mashal_Brand_And_Settings_Starts_Collapsed()
     {
         var layout = ReadRepoFile("src/PTGOilSystem.Web/Views/Shared/_Layout.cshtml");
 
-        Assert.Contains("~/images/saddiqi-sidebar-wordmark.webp", layout);
-        Assert.Contains("alt=\"گروپ کمپنی‌های فواد صدیقی\"", layout);
+        Assert.Contains("~/images/لوکو شمعل فارسی رنک ابی.webp", layout);
+        Assert.Contains("alt=\"مشعل\"", layout);
         Assert.DoesNotContain("~/images/mashal-sidebar-white.webp", layout);
         Assert.Contains("!string.Equals(node.Controller, \"SystemSettings\", StringComparison.OrdinalIgnoreCase)", layout);
     }
@@ -192,7 +192,9 @@ public class ShellViewStructureTests
             "src/PTGOilSystem.Web/Views/Shared/Components/FiscalYearSwitcher/Default.cshtml");
 
         // The topbar cluster no longer carries the fiscal-year switcher.
-        Assert.DoesNotContain("<vc:fiscal-year-switcher>", layout);
+        var topbar = layout[layout.IndexOf("<header class=\"boltz-topbar", StringComparison.Ordinal)..layout.IndexOf("</header>", layout.IndexOf("<header class=\"boltz-topbar", StringComparison.Ordinal), StringComparison.Ordinal)];
+        Assert.DoesNotContain("<vc:fiscal-year-switcher>", topbar);
+        Assert.Contains("<vc:fiscal-year-switcher>", layout);
         Assert.DoesNotContain("ptg-hfyear", layout);
 
         // The component itself stays intact: selection posts to the dedicated context
@@ -356,7 +358,7 @@ public class ShellViewStructureTests
         Assert.DoesNotContain("dashboard-kpis", view);
         Assert.DoesNotContain("dashboard-metric-card", view);
         Assert.DoesNotContain("dashboard-activity", view);
-        Assert.DoesNotContain("RecentActivities", view);
+        Assert.Contains("Model.RecentActivities", view);
 
         // The quick-action rail was removed from the dashboard; navigation lives in the shell.
         Assert.DoesNotContain("dash-quick", view);

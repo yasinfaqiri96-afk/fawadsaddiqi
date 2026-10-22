@@ -1,4 +1,4 @@
-﻿@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment HostEnvironment
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment HostEnvironment
 @inject Microsoft.Extensions.Configuration.IConfiguration AppConfiguration
 @inject Microsoft.Extensions.Options.IOptions<PTGOilSystem.Web.Configuration.OnboardingOptions> OnboardingOptionsAccessor
 @inject Microsoft.Extensions.Options.IOptions<PTGOilSystem.Web.Configuration.ClientProfileOptions> ClientProfileOptionsAccessor
@@ -112,6 +112,12 @@
         }
     }
 
+    var mashalLegacy = (currentController == "Home" && currentAction == "Index")
+        || ViewData["MashalLegacyReceipt"] as bool? == true;
+    var mashalSettings = (currentController == "Auth" && currentAction == "ChangePassword")
+        || currentController == "SystemSettings"
+        || (currentController == "Companies" && (currentAction == "Edit" || currentAction == "Create"))
+        || (currentController == "ChartOfAccounts" && currentAction == "Mapping");
     var routeBodyClass = $"controller-{currentController.ToLowerInvariant()} action-{currentAction.ToLowerInvariant()}{genericActionClass}";
 
     var foundationItems = new (string Controller, string Action, string Label, string Icon)[]
@@ -339,7 +345,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#FCFCFC" />
-    <title>@title - @T("گروپ کمپنی‌های فواد صدیقی", "Fawad Saddiqi Group of Companies")</title>
+    <title>@title - @T("مشعل | نواتیک", "Mashal | Novatech")</title>
     @if (!isLoginPage && renderShellChrome)
     {
         <link rel="preload" href="~/vendor/fonts/iransans/files/iransans-400.woff2" asp-append-version="true" as="font" type="font/woff2" crossorigin="anonymous" />
@@ -478,6 +484,7 @@
             @* راهنمای هوشمند — همهٔ قواعد زیر .ptg-assistant قفل‌اند. مثل ۶۱ و ۶۴ در همین
                پوستهٔ ماندگار می‌ماند تا با ناوبری SPA بدون CSS خودش نرسد. *@
             <link rel="stylesheet" href="~/css/ptg/80-assistant.css" asp-append-version="true" />
+            <link rel="stylesheet" href="~/css/ptg/78-mashal-reference.css" asp-append-version="true" />
         }
         else
         {
@@ -496,7 +503,7 @@
         <link rel="stylesheet" href="~/css/ptg/60-loader.css" asp-append-version="true" />
     }
 </head>
-<body class="app-body boltz-shell @(isAuthenticated ?"app-shell-authenticated" : "app-shell-public") @(isEnglishUi ? "boltz-ltr" : "boltz-rtl") @foundationCompactClass @masterDataCompactClass @(isFinanceWorkspace ? "is-finance-workspace" : null) @routeBodyClass"
+<body class="app-body boltz-shell @(isAuthenticated ?"app-shell-authenticated" : "app-shell-public") @(isEnglishUi ? "boltz-ltr" : "boltz-rtl") @foundationCompactClass @masterDataCompactClass @(isFinanceWorkspace ? "is-finance-workspace" : null) @routeBodyClass mashal-ui @(mashalLegacy ? "mashal-legacy" : "mashal-light") @(mashalSettings ? "mashal-settings" : null)"
       data-ui-language="@htmlLanguage"
       data-calendar="@(PTGOilSystem.Web.Helpers.DateDisplay.IsSolarHijri ? "solar" : "gregorian")"
       data-ptg-view="@(uiPickEnabled ? ViewContext.View?.Path : null)"
@@ -536,10 +543,19 @@
                 <div class="boltz-sidebar-scroll">
                     <a class="boltz-brand boltz-brand-logo-only" asp-controller="Home" asp-action="Index">
                         <span class="boltz-brand-mark">
-                            <img class="boltz-brand-logo" src="~/images/saddiqi-sidebar-wordmark.webp" asp-append-version="true" alt="گروپ کمپنی‌های فواد صدیقی" width="1226" height="354" decoding="async" />
+                            <img class="boltz-brand-logo" src="~/images/لوکو شمعل فارسی رنک ابی.webp" asp-append-version="true" alt="مشعل" width="1226" height="354" decoding="async" />
                         </span>
                     </a>
 
+                    <div class="mashal-sidebar-context">
+                        <a class="mashal-company-link" asp-controller="Companies" asp-action="Index"><i class="bi bi-building" aria-hidden="true"></i>@T("کسب‌وکار مشعل", "Mashal business")</a>
+                        <vc:fiscal-year-switcher></vc:fiscal-year-switcher>
+                        @if (CanAccessController("Payments") && PTGOilSystem.Web.Security.RoleAccessRules.CanManageData(User))
+                        {
+                            <a class="btn mashal-primary-create" asp-controller="Payments" asp-action="Create"><i class="bi bi-plus-circle" aria-hidden="true"></i>@T("ثبت تراکنش", "New transaction")</a>
+                        }
+                    </div>
+                    <div class="mashal-nav-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" data-mashal-nav-search aria-label="@T("جستجوی منو", "Search menu")" /></div>
                     <nav class="boltz-sidebar-nav" aria-label="@T("ناوبری اصلی", "Main Navigation")">
                         <ul class="boltz-nav-list ptg-sidebar-nav">
                             @foreach (var node in navTree)
@@ -623,7 +639,7 @@
                 @if (renderShellChrome)
                 {
                 <header class="boltz-topbar ptg-topbar">
-                    <div class="boltz-topbar-start">
+                    <div class="boltz-topbar-start"><span class="mashal-topbar-date">@PTGOilSystem.Web.Helpers.DateDisplay.Date(BusinessClock.Today)</span>
                         <button type="button"
                                 class="boltz-topbar-toggle"
                                 data-shell-toggle="true"
@@ -711,7 +727,17 @@
                             @await Html.PartialAsync("_SectionTabs")
                         }
 
-                        @RenderBody()
+                        @if (mashalSettings)
+                        {
+                            <div class="mashal-settings-frame">
+                                <partial name="_MashalSettingsNav" />
+                                <div class="mashal-settings-content">@RenderBody()</div>
+                            </div>
+                        }
+                        else
+                        {
+                            @RenderBody()
+                        }
                     </div>
                 </main>
 
@@ -821,6 +847,7 @@
         <script src="~/js/clone-entity.js" asp-append-version="true" defer></script>
         <script src="~/js/navigation.js" asp-append-version="true" defer></script>
         <script src="~/js/header-ui.js" asp-append-version="true" defer></script>
+        <script src="~/js/mashal-reference.js" asp-append-version="true" defer></script>
         <script src="~/js/tables.js" asp-append-version="true" defer></script>
         <script src="~/js/ak-search-filter.js" asp-append-version="true" defer></script>
         <script src="~/js/list-toolbar-row.js" asp-append-version="true" defer></script>

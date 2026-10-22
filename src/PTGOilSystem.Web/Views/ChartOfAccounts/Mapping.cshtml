@@ -66,86 +66,42 @@
         }
         else
         {
-            <div class="ak-table-wrap">
-                <table class="ak-table coa-table">
-                    <thead>
-                        <tr>
-                            <th class="ak-col-grow">@UiText.T(Context, "نقش و کاربرد در عملیات", "Role and where it is used")</th>
-                            <th>@UiText.T(Context, "نوع لازم", "Required type")</th>
-                            <th>@UiText.T(Context, "سرفصل فعلی", "Current account")</th>
-                            <th>@UiText.T(Context, "وضعیت", "Status")</th>
-                            @if (canManage)
-                            {
-                                <th class="no-print">@UiText.T(Context, "تغییر سرفصل", "Change account")</th>
-                            }
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var section in Model.Rows.GroupBy(r => (r.Section, r.SectionEn)))
+            <div class="mashal-accounting-sections">
+                @foreach (var section in Model.Rows.GroupBy(r => (r.Section, r.SectionEn)))
+                {
+                    <section class="mashal-accounting-section">
+                        <h2>@UiText.T(Context, section.Key.Section, section.Key.SectionEn)</h2>
+                        <div class="mashal-accounting-grid">
+                        @foreach (var row in section)
                         {
-                            <tr class="coa-root-row">
-                                <th colspan="@(canManage ? 5 : 4)" scope="rowgroup">@UiText.T(Context, section.Key.Section, section.Key.SectionEn)</th>
-                            </tr>
-                            @foreach (var row in section)
-                            {
-                                <tr>
-                                    <td class="ak-col-grow">
-                                        <strong>@UiText.T(Context, row.Label, row.LabelEn)</strong>
-                                        <div class="text-muted small">@UiText.T(Context, row.Usage, row.UsageEn)</div>
-                                    </td>
-                                    <td>@AccountTypeLabel(row.ExpectedType)</td>
-                                    <td>
-                                        @if (row.AccountCode is not null)
-                                        {
-                                            <span class="coa-parent-code ak-num">@row.AccountCode</span>
-                                            <span class="coa-parent-name">@row.AccountName</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted">—</span>
-                                        }
-                                    </td>
-                                    <td>
-                                        <span class="ak-status @(row.Issue == AccountingMappingIssue.None ? "is-active" : "is-inactive")">@IssueLabel(row.Issue)</span>
-                                    </td>
-                                    @if (canManage)
-                                    {
-                                        <td class="no-print">
-                                            @if (row.IsLocked)
-                                            {
-                                                <span class="text-muted" title="@UiText.T(Context, "حساب فعلی سند ثبت‌شده دارد؛ تغییر آن ماندهٔ قبلی را جدا می‌کند.", "The current account has posted journals; changing it would split the existing balance.")">
-                                                    <i class="bi bi-lock" aria-hidden="true"></i>
-                                                    @UiText.T(Context, "قفل (دارای سند)", "Locked (has journals)")
-                                                </span>
-                                            }
-                                            else
-                                            {
-                                                <form method="post" asp-action="Mapping" class="d-flex gap-2 align-items-center">
-                                                    @Html.AntiForgeryToken()
-                                                    <input type="hidden" name="role" value="@row.Key" />
-                                                    <select name="accountId" class="ak-input" data-ak-entity-combobox required
-                                                            aria-label="@UiText.T(Context, "سرفصل برای ", "Account for ")@UiText.T(Context, row.Label, row.LabelEn)">
-                                                        @if (row.AccountId is null || row.Options.All(o => o.Id != row.AccountId))
-                                                        {
-                                                            <option value="">@UiText.T(Context, "— انتخاب کنید —", "— Select —")</option>
-                                                        }
-                                                        @foreach (var option in row.Options)
-                                                        {
-                                                            <option value="@option.Id" selected="@(option.Id == row.AccountId)">@option.Code - @option.Name</option>
-                                                        }
-                                                    </select>
-                                                    <button type="submit" class="btn btn-sm btn-primary">@UiText.T(Context, "ذخیره", "Save")</button>
-                                                </form>
-                                            }
-                                        </td>
-                                    }
-                                </tr>
-                            }
+                            <div class="ak-field">
+                                <label class="ak-label" for="mapping-@row.Key">@UiText.T(Context, row.Label, row.LabelEn)</label>
+                                @if (canManage && !row.IsLocked)
+                                {
+                                    <form method="post" asp-action="Mapping" class="mashal-mapping-form">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="role" value="@row.Key" />
+                                        <select name="accountId" id="mapping-@row.Key" class="ak-input" data-ak-entity-combobox required>
+                                            @if (row.AccountId is null || row.Options.All(o => o.Id != row.AccountId))
+                                            { <option value="">— انتخاب کنید —</option> }
+                                            @foreach (var option in row.Options)
+                                            { <option value="@option.Id" selected="@(option.Id == row.AccountId)">@option.Code - @option.Name</option> }
+                                        </select>
+                                        <button type="submit" class="btn btn-sm btn-primary" aria-label="ذخیره @row.Label"><i class="bi bi-check-lg" aria-hidden="true"></i></button>
+                                    </form>
+                                }
+                                else
+                                {
+                                    <div class="ak-input" aria-readonly="true"><bdi>@row.AccountCode</bdi> @row.AccountName @if (row.IsLocked) { <i class="bi bi-lock" title="قفل (دارای سند)" aria-hidden="true"></i> }</div>
+                                }
+                                <small class="ak-help">@UiText.T(Context, row.Usage, row.UsageEn)</small>
+                                <span class="ak-status @(row.Issue == AccountingMappingIssue.None ? "is-active" : "is-inactive")">@IssueLabel(row.Issue) · @AccountTypeLabel(row.ExpectedType)</span>
+                            </div>
                         }
-                    </tbody>
-                </table>
+                        </div>
+                    </section>
+                }
             </div>
-
             <footer class="coa-list-footer">
                 <span>
                     @UiText.T(Context,

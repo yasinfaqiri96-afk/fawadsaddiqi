@@ -1,0 +1,16 @@
+{
+  "density": 1,
+  "zoom": 1,
+  "source_directory": "/workspace/scratch/mashal-reference/Mashal-UI-Reference-Pack/ui-references",
+  "references": [
+    {"id":"R01","file":"R01-profile.jpeg","crop":[39,61,975,640],"viewport":[1401,920],"route":"/Auth/ChangePassword","capture":"profile","scale":1.4371257485,"annotations":[[734,576,72,28]],"notes":"Outer rounded presentation frame omitted; user identity and existing avatar deliberately differ."},
+    {"id":"R02","file":"R02-business-settings.jpeg","crop":[18,114,977,526],"viewport":[1413,760],"route":"/Companies/Edit/1","capture":"business","scale":1.4457831325,"annotations":[[474,187,138,58],[623,269,180,33]],"notes":"Top presentation whitespace omitted; Mashal logo and actual company fields retained."},
+    {"id":"R03","file":"R03-accounting-settings.jpeg","crop":[9,28,1087,577],"viewport":[1426,757],"route":"/accounting/chart-of-accounts/mapping","capture":"accounting","scale":1.3114754098,"annotations":[[524,67,130,55],[688,192,193,33],[534,196,111,49],[520,313,131,51]],"notes":"Accounting role mapping is the actual product configuration; there are no editable FIFO, tax or inventory-accounting-system fields. These are intentional domain differences, not an exact R03 form clone."},
+    {"id":"R04","file":"R04-transaction.jpeg","crop":[75,22,974,615],"viewport":[1284,811],"route":"/Payments/Create","capture":"transaction","scale":1.3186813187,"annotations":[[154,242,628,243]],"notes":"Only the annotation stroke is masked, never its interior. Existing single transaction model and supported cash/bank/sarraf methods retained."},
+    {"id":"R05","file":"R05-dashboard.png","crop":[0,0,1366,667],"viewport":[1366,667],"route":"/","capture":"dashboard","scale":1,"annotations":[],"notes":"Domain widgets use genuine dashboard model: activities, tank inventory, operational alerts; no invented bank/debtor balances."},
+    {"id":"R06","file":"R06-widget-picker.png","crop":[0,0,1366,667],"viewport":[1366,667],"route":"/","capture":"widgets","scale":1,"annotations":[],"notes":"Modal options map to six real dashboard sections, persisted per user/browser. No cheques feature is invented."},
+    {"id":"R07","file":"R07-receipt.png","crop":[0,0,1358,768],"viewport":[1358,768],"route":"/Payments/Create?salesTransactionId=1","capture":"receipt","scale":1,"annotations":[],"notes":"Existing invoice-linked subflow only. Capturing requires an actual test sale; never a new duplicate route."}
+  ],
+  "mask_policy":"Mask only educational stroke pixels and the outside frame. No blanket content, spacing, controls or sidebar masks. Domain differences are documented; raw differences are retained without similarity claims.",
+  "font":"IRANSans already shipped by repository; identity of raster reference font is unproven. JPEG-derived geometry has compression/scaling uncertainty."
+}
