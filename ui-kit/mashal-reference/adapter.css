@@ -1,0 +1,19 @@
+/* OPTIONAL bridge for the existing Razor controls. Load after existing CSS.
+   Activate on one reviewed container only: data-mr-theme="light" data-mr-adapt.
+   Does not change names, values, display, order, visibility or disabled state. */
+[data-mr-theme][data-mr-adapt] :is(.ak-input,.form-control,.form-select,.ak-combobox-input) {
+  min-height: var(--mr-field-height); border: 1px solid var(--mr-input-line);
+  border-radius: var(--mr-field-radius); background-color: var(--mr-surface);
+  color: var(--mr-text); font: 12px/1.8 var(--mr-font); padding-block: 4px;
+  box-shadow: none;
+}
+[data-mr-theme][data-mr-adapt] :is(input.ak-input,input.form-control,select.form-select) { height: var(--mr-field-height); }
+[data-mr-theme][data-mr-adapt] :is(.ak-label,.form-label) { font-size: 12px; font-weight: 400; color: var(--mr-text); }
+[data-mr-theme][data-mr-adapt] :is(.ak-help,.form-text) { font-size: 11px; color: var(--mr-muted); }
+[data-mr-theme][data-mr-adapt] :is(.ak-input,.form-control,.form-select):disabled { background-color: #f2f3f5; color: #9299a2; }
+[data-mr-theme][data-mr-adapt] :is(.ak-input,.form-control)[readonly] { background-color: #f7f7f9; }
+[data-mr-theme][data-mr-adapt] :is(.input-validation-error,[aria-invalid="true"]) { border-color: #cf3446; }
+[data-mr-theme][data-mr-adapt] :is(.field-validation-error,.validation-summary-errors) { color: #cf3446; }
+[data-mr-theme][data-mr-adapt] .ak-table :is(th,td) { font-size: 12px; padding: 10px 12px; border-color: var(--mr-line); }
+[data-mr-theme][data-mr-adapt] .ak-table thead th { background: #f2f5fc; color: #6f7784; font-weight: 400; }
+[data-mr-theme][data-mr-adapt] :is(.ak-footer-actions,.ak-form-actions) { background: #fff; border: 0; box-shadow: 0 -2px 12px #1828460d; }

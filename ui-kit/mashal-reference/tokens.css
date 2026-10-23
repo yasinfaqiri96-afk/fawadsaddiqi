@@ -1,0 +1,24 @@
+/* Design tokens sampled/measured from R01–R07. Scope is opt-in. */
+@font-face { font-family: MashalKit; src: url('./assets/iransans-400.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: MashalKit; src: url('./assets/iransans-700.woff2') format('woff2'); font-weight: 700; font-display: swap; }
+[data-mr-theme] {
+  --mr-font: MashalKit, Tahoma, sans-serif;
+  --mr-text: #343434; --mr-muted: #91959b; --mr-bg: #f5f6fa; --mr-surface: #fff;
+  --mr-primary: #1664cb; --mr-primary-hover: #1255ae; --mr-blue: #007db2;
+  --mr-line: #e7e7e7; --mr-input-line: #d9dce1; --mr-float-line: #655675;
+  --mr-soft: #f7f7f7; --mr-success: #00bb20; --mr-danger: #ec0011; --mr-warning: #ff9800;
+  --mr-purple: #200e32; --mr-purple-light: #a52bff;
+  --mr-sidebar-bg: #fff; --mr-sidebar-ink: #8c9095; --mr-sidebar-active: #f1f5f8;
+  --mr-header-bg: #fff; --mr-header-ink: #7e9db8;
+  --mr-sidebar-width: 240px; --mr-header-height: 48px;
+  --mr-field-height: 32px; --mr-button-height: 32px; --mr-field-radius: 3px;
+  --mr-card-radius: 8px; --mr-shadow: 0 2px 16px #00000014;
+  --mr-space-1: 4px; --mr-space-2: 8px; --mr-space-3: 12px;
+  --mr-space-4: 16px; --mr-space-6: 24px; --mr-space-8: 32px;
+  direction: rtl; color: var(--mr-text); font: 12px/1.8 var(--mr-font);
+}
+[data-mr-theme="blue"] {
+  --mr-primary: #0080e2; --mr-primary-hover: #0076cd;
+  --mr-sidebar-bg: #007db2; --mr-sidebar-ink: #fff; --mr-sidebar-active: #006088;
+  --mr-header-bg: #007db2; --mr-header-ink: #fff;
+}

@@ -1,0 +1,258 @@
+{
+  "checks": {
+    "catalog38": true,
+    "search_filters": true,
+    "theme_switch": true,
+    "disabled_state": true,
+    "mobile_gallery_no_overflow": true,
+    "select_all_off": true,
+    "select_all_indeterminate": true,
+    "confirm_enables_on_change": true,
+    "select_all_on": true,
+    "confirm_unchanged_disabled": true,
+    "modal_opens": true,
+    "modal_escape": true,
+    "modal_focus_returns": true,
+    "step_up": true,
+    "step_lower_bound": true,
+    "add_card": true,
+    "remove_card": true,
+    "mobile_card_stacks": true,
+    "mobile_card_no_overflow": true,
+    "error_described": true,
+    "disclosure_opens": true,
+    "reduced_motion": true,
+    "no_browser_errors": true
+  },
+  "errors": [],
+  "geometry": {
+    "C01": {
+      "x": 0,
+      "y": 0,
+      "width": 240,
+      "height": 667
+    },
+    "C02": {
+      "x": 0,
+      "y": 0,
+      "width": 240,
+      "height": 753
+    },
+    "C03": {
+      "x": 0,
+      "y": 0,
+      "width": 1126,
+      "height": 48
+    },
+    "C04": {
+      "x": 0,
+      "y": 0,
+      "width": 1050,
+      "height": 48
+    },
+    "C05": {
+      "x": 0,
+      "y": 0,
+      "width": 1118,
+      "height": 56
+    },
+    "C06": {
+      "x": 0,
+      "y": 0,
+      "width": 276,
+      "height": 620
+    },
+    "C07": {
+      "x": 0,
+      "y": 0,
+      "width": 94,
+      "height": 32
+    },
+    "C08": {
+      "x": 0,
+      "y": 0,
+      "width": 82,
+      "height": 36
+    },
+    "C09": {
+      "x": 0,
+      "y": 0,
+      "width": 36,
+      "height": 36
+    },
+    "C10": {
+      "x": 0,
+      "y": 0,
+      "width": 347,
+      "height": 32
+    },
+    "C11": {
+      "x": 0,
+      "y": 0,
+      "width": 344,
+      "height": 32
+    },
+    "C12": {
+      "x": 0,
+      "y": 0,
+      "width": 373,
+      "height": 42
+    },
+    "C13": {
+      "x": 0,
+      "y": 0,
+      "width": 469,
+      "height": 42
+    },
+    "C14": {
+      "x": 0,
+      "y": 0,
+      "width": 173,
+      "height": 34
+    },
+    "C15": {
+      "x": -4,
+      "y": 0,
+      "width": 128,
+      "height": 132
+    },
+    "C16": {
+      "x": 33,
+      "y": 0,
+      "width": 117,
+      "height": 21.59375
+    },
+    "C17": {
+      "x": 0,
+      "y": 0,
+      "width": 119,
+      "height": 24
+    },
+    "C18": {
+      "x": 0,
+      "y": 0,
+      "width": 344,
+      "height": 32
+    },
+    "C19": {
+      "x": 0,
+      "y": 0,
+      "width": 108,
+      "height": 22
+    },
+    "C20": {
+      "x": 0,
+      "y": 0,
+      "width": 804,
+      "height": 25.796875
+    },
+    "C21": {
+      "x": 0,
+      "y": 0,
+      "width": 804,
+      "height": 33
+    },
+    "C22": {
+      "x": 0,
+      "y": 0,
+      "width": 804,
+      "height": 109.1875
+    },
+    "C23": {
+      "x": 0,
+      "y": 0,
+      "width": 942,
+      "height": 145
+    },
+    "C24": {
+      "x": 0,
+      "y": 0,
+      "width": 1008,
+      "height": 211
+    },
+    "C25": {
+      "x": 0,
+      "y": 0,
+      "width": 476,
+      "height": 40
+    },
+    "C26": {
+      "x": 0,
+      "y": 0,
+      "width": 472,
+      "height": 40
+    },
+    "C27": {
+      "x": 0,
+      "y": 0,
+      "width": 942,
+      "height": 220
+    },
+    "C28": {
+      "x": 0,
+      "y": 0,
+      "width": 457,
+      "height": 368
+    },
+    "C29": {
+      "x": 0,
+      "y": 0,
+      "width": 415,
+      "height": 80
+    },
+    "C30": {
+      "x": 0,
+      "y": 0,
+      "width": 64,
+      "height": 25
+    },
+    "C31": {
+      "x": 0,
+      "y": 0,
+      "width": 69,
+      "height": 41
+    },
+    "C32": {
+      "x": 0,
+      "y": 0,
+      "width": 652,
+      "height": 469
+    },
+    "C33": {
+      "x": 0,
+      "y": 0,
+      "width": 191,
+      "height": 72
+    },
+    "C34": {
+      "x": 0,
+      "y": 0,
+      "width": 1102,
+      "height": 56
+    },
+    "C35": {
+      "x": 0,
+      "y": 0,
+      "width": 696,
+      "height": 54
+    },
+    "C36": {
+      "x": 0,
+      "y": 0,
+      "width": 724,
+      "height": 484
+    },
+    "C37": {
+      "x": 0,
+      "y": 0,
+      "width": 217,
+      "height": 123.796875
+    },
+    "C38": {
+      "x": 0,
+      "y": 0,
+      "width": 359,
+      "height": 202
+    }
+  }
+}

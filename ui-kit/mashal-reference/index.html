@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>کتابخانهٔ کامپوننت‌های مرجع مشعل</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="gallery.css">
+  <script src="gallery.js" defer></script>
+</head>
+<body>
+  <header class="kit-header"><div><h1>کتابخانهٔ کامپوننت‌های مشعل</h1><p>۳۸ جزء مستقل، استخراج‌شده از هفت تصویر مرجع</p></div><a href="README.fa.md">راهنمای استفاده</a></header>
+  <div class="kit-layout">
+    <aside class="kit-nav"><label><span class="sr-only">جستجو در کامپوننت‌ها</span><input id="filter" class="kit-filter" type="search" placeholder="جستجوی کامپوننت…" aria-label="جستجو در کامپوننت‌ها"></label><nav id="catalog-nav" aria-label="کامپوننت‌ها"></nav></aside>
+    <main class="kit-main">
+      <section class="kit-intro"><h2 id="title">در حال بارگذاری…</h2><div class="kit-meta" id="meta"></div><p id="description"></p><div class="kit-notice">اندازه‌های مرجع ثبت شده‌اند. هویت دقیق فونت و آیکن‌ها تأیید نشده است؛ «تطابق ۱۰۰٪» ادعا نمی‌شود. لوگوی محصول در نمونه‌ها مشعل است.</div></section>
+      <section class="kit-board" aria-label="مقایسهٔ مرجع و کامپوننت">
+        <article class="kit-pane"><header><h3>برش واقعی از تصویر مرجع</h3><small id="ref-name"></small></header><div class="kit-canvas"><img id="reference" alt="برش تصویر مرجع کامپوننت انتخاب‌شده"></div></article>
+        <article class="kit-pane"><header><h3>کامپوننت زنده</h3><small>HTML · CSS · RTL</small></header><div class="kit-canvas" id="live-canvas"><div class="kit-stage" id="stage"><iframe id="live" title="نمونهٔ تعاملی کامپوننت"></iframe></div></div><footer class="kit-controls"><label>پوسته <select id="theme"><option value="light">سفید</option><option value="blue">آبی</option></select></label><label>حالت <select id="state"><option value="default">عادی</option><option value="disabled">غیرفعال</option><option value="error">خطای فیلد</option></select></label><a id="native" href="specimen.html" target="_blank" rel="noopener">اندازهٔ اصلی</a></footer></article>
+      </section>
+      <section class="kit-metrics"><table><caption>مشخصات استخراج‌شده</caption><tbody id="metrics"></tbody></table></section>
+      <details class="kit-code"><summary>کد قابل استفادهٔ مجدد</summary><button id="copy" type="button">کپی HTML</button><span id="copy-status" class="kit-status" role="status"></span><pre><code id="code"></code></pre></details>
+      <p>رفتارهای حالت خطا، فوکوس و موبایل تکمیل‌های کتابخانه‌اند؛ تصویر مرجع همهٔ این حالت‌ها را نشان نمی‌دهد.</p>
+    </main>
+  </div>
+</body>
+</html>

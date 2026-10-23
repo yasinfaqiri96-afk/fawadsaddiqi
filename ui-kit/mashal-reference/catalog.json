@@ -1,0 +1,1044 @@
+{
+  "name": "Mashal Reference Component Kit",
+  "version": "1.0.0",
+  "components": [
+    {
+      "id": "C01",
+      "title": "سایدبار آبی",
+      "category": "پوسته",
+      "reference": "R05-dashboard.png",
+      "crop": [
+        1126,
+        0,
+        1366,
+        667
+      ],
+      "scale": 1,
+      "size": [
+        240,
+        667
+      ],
+      "theme": "blue",
+      "template": "templates/C01.html",
+      "image": "reference-crops/C01.png",
+      "selector": "mr-sidebar",
+      "status": "measured",
+      "note": "هویت مرجع چرتکه است؛ لوگوی پیش‌فرض کتابخانه عمداً مشعل است. تعداد منو از میزبان می‌آید.",
+      "metrics": {
+        "width": 240,
+        "itemHeight": 47
+      }
+    },
+    {
+      "id": "C02",
+      "title": "سایدبار سفید",
+      "category": "پوسته",
+      "reference": "R02-business-settings.jpeg",
+      "crop": [
+        827,
+        114,
+        993,
+        635
+      ],
+      "scale": 1.4457831325301205,
+      "size": [
+        240,
+        753
+      ],
+      "theme": "light",
+      "template": "templates/C02.html",
+      "image": "reference-crops/C02.png",
+      "selector": "mr-sidebar",
+      "status": "measured",
+      "note": "JPEG مقیاس‌شده؛ ابعاد تقریبی بر مبنای عرض ۲۴۰ پیکسل. لوگوی مشعل حفظ شده است.",
+      "metrics": {}
+    },
+    {
+      "id": "C03",
+      "title": "نوار بالای آبی",
+      "category": "پوسته",
+      "reference": "R05-dashboard.png",
+      "crop": [
+        0,
+        0,
+        1126,
+        48
+      ],
+      "scale": 1,
+      "size": [
+        1126,
+        48
+      ],
+      "theme": "blue",
+      "template": "templates/C03.html",
+      "image": "reference-crops/C03.png",
+      "selector": "mr-topbar",
+      "status": "measured",
+      "note": "",
+      "metrics": {
+        "height": 48
+      }
+    },
+    {
+      "id": "C04",
+      "title": "نوار بالای سفید",
+      "category": "پوسته",
+      "reference": "R02-business-settings.jpeg",
+      "crop": [
+        18,
+        114,
+        827,
+        151
+      ],
+      "scale": 1.2972972972972974,
+      "size": [
+        1050,
+        48
+      ],
+      "theme": "light",
+      "template": "templates/C04.html",
+      "image": "reference-crops/C04.png",
+      "selector": "mr-topbar",
+      "status": "measured",
+      "note": "برش JPEG؛ ارتفاع با نوار ۴۸ پیکسلی کالیبره شده است.",
+      "metrics": {}
+    },
+    {
+      "id": "C05",
+      "title": "نوار عنوان و عملیات",
+      "category": "پوسته",
+      "reference": "R05-dashboard.png",
+      "crop": [
+        8,
+        48,
+        1126,
+        104
+      ],
+      "scale": 1,
+      "size": [
+        1118,
+        56
+      ],
+      "theme": "blue",
+      "template": "templates/C05.html",
+      "image": "reference-crops/C05.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "دکمهٔ افزودن در گالری مودال انتخاب ابزارک را باز می‌کند.",
+      "metrics": {
+        "height": 56
+      }
+    },
+    {
+      "id": "C06",
+      "title": "منوی داخلی تنظیمات",
+      "category": "پوسته",
+      "reference": "R02-business-settings.jpeg",
+      "crop": [
+        614,
+        175,
+        805,
+        604
+      ],
+      "scale": 1.4457831325,
+      "size": [
+        276,
+        620
+      ],
+      "theme": "light",
+      "template": "templates/C06.html",
+      "image": "reference-crops/C06.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "کادرهای فیروزه‌ای روی عکس، annotation آموزشی هستند و جزو طراحی نیستند.",
+      "metrics": {}
+    },
+    {
+      "id": "C07",
+      "title": "دکمهٔ اصلی",
+      "category": "دکمه",
+      "reference": "R02-business-settings.jpeg",
+      "crop": [
+        58,
+        613,
+        123,
+        634
+      ],
+      "scale": 1.4457831325,
+      "size": [
+        94,
+        30
+      ],
+      "theme": "light",
+      "template": "templates/C07.html",
+      "image": "reference-crops/C07.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "ارتفاع اندازه‌گیری‌شدهٔ JPEG حدود ۳۰ پیکسل؛ توکن عمومی دکمه ۳۲ پیکسل است.",
+      "metrics": {}
+    },
+    {
+      "id": "C08",
+      "title": "دکمهٔ ذخیرهٔ خطی",
+      "category": "دکمه",
+      "reference": "R05-dashboard.png",
+      "crop": [
+        40,
+        58,
+        122,
+        94
+      ],
+      "scale": 1,
+      "size": [
+        82,
+        36
+      ],
+      "theme": "blue",
+      "template": "templates/C08.html",
+      "image": "reference-crops/C08.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "",
+      "metrics": {
+        "height": 36,
+        "radius": 8
+      }
+    },
+    {
+      "id": "C09",
+      "title": "دکمهٔ آیکنی افزودن",
+      "category": "دکمه",
+      "reference": "R05-dashboard.png",
+      "crop": [
+        133,
+        58,
+        169,
+        94
+      ],
+      "scale": 1,
+      "size": [
+        36,
+        36
+      ],
+      "theme": "blue",
+      "template": "templates/C09.html",
+      "image": "reference-crops/C09.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "آیکن از Bootstrap Icons موجود در پروژه است؛ تطابق منبع آیکن مرجع اثبات نشده است.",
+      "metrics": {}
+    },
+    {
+      "id": "C10",
+      "title": "فیلد متن ساده",
+      "category": "فرم",
+      "reference": "R02-business-settings.jpeg",
+      "crop": [
+        77,
+        281,
+        317,
+        303
+      ],
+      "scale": 1.4457831325,
+      "size": [
+        347,
+        32
+      ],
+      "theme": "light",
+      "template": "templates/C10.html",
+      "image": "reference-crops/C10.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "",
+      "metrics": {
+        "height": 32
+      }
+    },
+    {
+      "id": "C11",
+      "title": "فهرست انتخاب ساده",
+      "category": "فرم",
+      "reference": "R03-accounting-settings.jpeg",
+      "crop": [
+        368,
+        267,
+        630,
+        291
+      ],
+      "scale": 1.3114754098,
+      "size": [
+        344,
+        31
+      ],
+      "theme": "light",
+      "template": "templates/C11.html",
+      "image": "reference-crops/C11.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "",
+      "metrics": {}
+    },
+    {
+      "id": "C12",
+      "title": "فیلد با عنوان روی کادر",
+      "category": "فرم",
+      "reference": "R07-receipt.png",
+      "crop": [
+        430,
+        249,
+        803,
+        291
+      ],
+      "scale": 1,
+      "size": [
+        373,
+        42
+      ],
+      "theme": "blue",
+      "template": "templates/C12.html",
+      "image": "reference-crops/C12.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "",
+      "metrics": {
+        "inputHeight": 36,
+        "radius": 8
+      }
+    },
+    {
+      "id": "C13",
+      "title": "فیلد تاریخ",
+      "category": "فرم",
+      "reference": "R07-receipt.png",
+      "crop": [
+        357,
+        116,
+        826,
+        158
+      ],
+      "scale": 1,
+      "size": [
+        469,
+        42
+      ],
+      "theme": "blue",
+      "template": "templates/C13.html",
+      "image": "reference-crops/C13.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "قالب ظاهری تاریخ است؛ تقویم و تبدیل تاریخ باید از کامپوننت فعلی سیستم بیایند.",
+      "metrics": {}
+    },
+    {
+      "id": "C14",
+      "title": "جستجوی منوی آبی",
+      "category": "فرم",
+      "reference": "R05-dashboard.png",
+      "crop": [
+        1181,
+        56,
+        1354,
+        90
+      ],
+      "scale": 1,
+      "size": [
+        173,
+        34
+      ],
+      "theme": "blue",
+      "template": "templates/C14.html",
+      "image": "reference-crops/C14.png",
+      "selector": "mr-sidebar",
+      "status": "measured",
+      "note": "",
+      "metrics": {
+        "height": 34,
+        "width": 173
+      }
+    },
+    {
+      "id": "C15",
+      "title": "آواتار و افزودن تصویر",
+      "category": "هویت",
+      "reference": "R01-profile.jpeg",
+      "crop": [
+        510,
+        94,
+        596,
+        182
+      ],
+      "scale": 1.4371257485,
+      "size": [
+        124,
+        126
+      ],
+      "theme": "light",
+      "template": "templates/C15.html",
+      "image": "reference-crops/C15.png",
+      "selector": "mr-component",
+      "status": "raster-limited",
+      "note": "خود تصویر از screenshot بریده شده؛ فایل اصلی و وضوح بالاتر موجود نیست.",
+      "metrics": {}
+    },
+    {
+      "id": "C16",
+      "title": "کلید روشن و خاموش",
+      "category": "فرم",
+      "reference": "R03-accounting-settings.jpeg",
+      "crop": [
+        75,
+        327,
+        189,
+        349
+      ],
+      "scale": 1.3114754098,
+      "size": [
+        150,
+        29
+      ],
+      "theme": "light",
+      "template": "templates/C16.html",
+      "image": "reference-crops/C16.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "حالت روشن از مرجع؛ حالت focus و disabled تکمیل دسترس‌پذیری است.",
+      "metrics": {
+        "trackWidth": 36,
+        "trackHeight": 18
+      }
+    },
+    {
+      "id": "C17",
+      "title": "کلید حالت امنیتی",
+      "category": "فرم",
+      "reference": "R05-dashboard.png",
+      "crop": [
+        169,
+        12,
+        288,
+        36
+      ],
+      "scale": 1,
+      "size": [
+        119,
+        24
+      ],
+      "theme": "blue",
+      "template": "templates/C17.html",
+      "image": "reference-crops/C17.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "",
+      "metrics": {
+        "trackWidth": 42,
+        "trackHeight": 20
+      }
+    },
+    {
+      "id": "C18",
+      "title": "کنترل افزایش و کاهش",
+      "category": "فرم",
+      "reference": "R03-accounting-settings.jpeg",
+      "crop": [
+        368,
+        384,
+        630,
+        408
+      ],
+      "scale": 1.3114754098,
+      "size": [
+        344,
+        31
+      ],
+      "theme": "light",
+      "template": "templates/C18.html",
+      "image": "reference-crops/C18.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "فقط تعداد را با stepUp/stepDown تغییر می‌دهد؛ به نرخ مالیات یا محاسبهٔ واقعی متصل نیست.",
+      "metrics": {}
+    },
+    {
+      "id": "C19",
+      "title": "چک‌باکس و تعداد روش",
+      "category": "فرم",
+      "reference": "R04-transaction.jpeg",
+      "crop": [
+        682,
+        213,
+        764,
+        236
+      ],
+      "scale": 1.3186813187,
+      "size": [
+        108,
+        30
+      ],
+      "theme": "light",
+      "template": "templates/C19.html",
+      "image": "reference-crops/C19.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "",
+      "metrics": {}
+    },
+    {
+      "id": "C20",
+      "title": "سرستون جدول متراکم",
+      "category": "جدول",
+      "reference": "R04-transaction.jpeg",
+      "crop": [
+        167,
+        95,
+        777,
+        117
+      ],
+      "scale": 1.3186813187,
+      "size": [
+        804,
+        29
+      ],
+      "theme": "light",
+      "template": "templates/C20.html",
+      "image": "reference-crops/C20.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "در مرجع فقط سرستون دیده می‌شود؛ بدنهٔ جدول از این تصویر قابل استخراج نیست.",
+      "metrics": {}
+    },
+    {
+      "id": "C21",
+      "title": "افزودن ردیف خط‌چین",
+      "category": "دکمه",
+      "reference": "R04-transaction.jpeg",
+      "crop": [
+        167,
+        133,
+        777,
+        158
+      ],
+      "scale": 1.3186813187,
+      "size": [
+        804,
+        33
+      ],
+      "theme": "light",
+      "template": "templates/C21.html",
+      "image": "reference-crops/C21.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "",
+      "metrics": {}
+    },
+    {
+      "id": "C22",
+      "title": "گروه انتخاب روش",
+      "category": "گروه",
+      "reference": "R04-transaction.jpeg",
+      "crop": [
+        167,
+        168,
+        777,
+        240
+      ],
+      "scale": 1.3186813187,
+      "size": [
+        804,
+        95
+      ],
+      "theme": "light",
+      "template": "templates/C22.html",
+      "image": "reference-crops/C22.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "نمایش همهٔ روش‌ها صرفاً استخراج رابط است؛ تنها روش‌های موجود در سیستم میزبان باید متصل شوند.",
+      "metrics": {}
+    },
+    {
+      "id": "C23",
+      "title": "کارت شخص و مبلغ",
+      "category": "کارت",
+      "reference": "R07-receipt.png",
+      "crop": [
+        92,
+        239,
+        1034,
+        384
+      ],
+      "scale": 1,
+      "size": [
+        942,
+        145
+      ],
+      "theme": "blue",
+      "template": "templates/C23.html",
+      "image": "reference-crops/C23.png",
+      "selector": "mr-party-card",
+      "status": "measured",
+      "note": "مبلغ متن نمونه است؛ کتابخانه هیچ جمع یا ثبت مالی انجام نمی‌دهد.",
+      "metrics": {
+        "width": 942,
+        "height": 145,
+        "radius": 10,
+        "avatarColumn": 128,
+        "columnGap": 79
+      }
+    },
+    {
+      "id": "C24",
+      "title": "گروه کارت‌های تکرارشونده",
+      "category": "گروه",
+      "reference": "R07-receipt.png",
+      "crop": [
+        59,
+        206,
+        1067,
+        417
+      ],
+      "scale": 1,
+      "size": [
+        1008,
+        211
+      ],
+      "theme": "blue",
+      "template": "templates/C24.html",
+      "image": "reference-crops/C24.png",
+      "selector": "mr-party-card",
+      "status": "measured",
+      "note": "",
+      "metrics": {
+        "width": 1008,
+        "height": 211,
+        "padding": 32,
+        "radius": 8
+      }
+    },
+    {
+      "id": "C25",
+      "title": "نوار مجموع و باقی‌مانده",
+      "category": "خلاصه",
+      "reference": "R07-receipt.png",
+      "crop": [
+        64,
+        491,
+        540,
+        531
+      ],
+      "scale": 1,
+      "size": [
+        476,
+        40
+      ],
+      "theme": "blue",
+      "template": "templates/C25.html",
+      "image": "reference-crops/C25.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "ارقام از مدل میزبان می‌آیند؛ جمع یا تبدیل پول در این کامپوننت وجود ندارد.",
+      "metrics": {
+        "width": 476,
+        "height": 40
+      }
+    },
+    {
+      "id": "C26",
+      "title": "پنل باز و بسته‌شونده",
+      "category": "گروه",
+      "reference": "R07-receipt.png",
+      "crop": [
+        590,
+        491,
+        1062,
+        532
+      ],
+      "scale": 1,
+      "size": [
+        472,
+        41
+      ],
+      "theme": "blue",
+      "template": "templates/C26.html",
+      "image": "reference-crops/C26.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "",
+      "metrics": {
+        "height": 40
+      }
+    },
+    {
+      "id": "C27",
+      "title": "کارت اطلاعات بانک",
+      "category": "کارت",
+      "reference": "R07-receipt.png",
+      "crop": [
+        92,
+        628,
+        1034,
+        768
+      ],
+      "scale": 1,
+      "size": [
+        942,
+        140
+      ],
+      "theme": "blue",
+      "template": "templates/C27.html",
+      "image": "reference-crops/C27.png",
+      "selector": "mr-component",
+      "status": "partially-visible",
+      "note": "پایین کارت در تصویر بریده است؛ ارتفاع کامل و ردیف‌های پایین از عکس قابل تأیید نیستند.",
+      "metrics": {}
+    },
+    {
+      "id": "C28",
+      "title": "کارت ابزارک داشبورد",
+      "category": "کارت",
+      "reference": "R05-dashboard.png",
+      "crop": [
+        619,
+        143,
+        1076,
+        511
+      ],
+      "scale": 1,
+      "size": [
+        457,
+        368
+      ],
+      "theme": "blue",
+      "template": "templates/C28.html",
+      "image": "reference-crops/C28.png",
+      "selector": "mr-widget",
+      "status": "measured",
+      "note": "",
+      "metrics": {
+        "width": 457,
+        "height": 368,
+        "padding": 20,
+        "radius": 8
+      }
+    },
+    {
+      "id": "C29",
+      "title": "ردیف سند در ابزارک",
+      "category": "فهرست",
+      "reference": "R05-dashboard.png",
+      "crop": [
+        640,
+        220,
+        1055,
+        300
+      ],
+      "scale": 1,
+      "size": [
+        415,
+        80
+      ],
+      "theme": "blue",
+      "template": "templates/C29.html",
+      "image": "reference-crops/C29.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "",
+      "metrics": {
+        "height": 80,
+        "radius": 8
+      }
+    },
+    {
+      "id": "C30",
+      "title": "برچسب شماره و وضعیت",
+      "category": "برچسب",
+      "reference": "R05-dashboard.png",
+      "crop": [
+        978,
+        232,
+        1042,
+        257
+      ],
+      "scale": 1,
+      "size": [
+        64,
+        25
+      ],
+      "theme": "blue",
+      "template": "templates/C30.html",
+      "image": "reference-crops/C30.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "",
+      "metrics": {
+        "width": 64,
+        "height": 25
+      }
+    },
+    {
+      "id": "C31",
+      "title": "نشان تعداد",
+      "category": "برچسب",
+      "reference": "R05-dashboard.png",
+      "crop": [
+        311,
+        158,
+        380,
+        199
+      ],
+      "scale": 1,
+      "size": [
+        69,
+        41
+      ],
+      "theme": "blue",
+      "template": "templates/C31.html",
+      "image": "reference-crops/C31.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "",
+      "metrics": {
+        "width": 69,
+        "height": 41
+      }
+    },
+    {
+      "id": "C32",
+      "title": "پنجرهٔ انتخاب ابزارک",
+      "category": "مودال",
+      "reference": "R06-widget-picker.png",
+      "crop": [
+        357,
+        94,
+        1009,
+        563
+      ],
+      "scale": 1,
+      "size": [
+        652,
+        469
+      ],
+      "theme": "blue",
+      "template": "templates/C32.html",
+      "image": "reference-crops/C32.png",
+      "selector": "mr-modal-panel",
+      "status": "measured",
+      "note": "آیکن‌های ابزارک از خود screenshot استخراج شده‌اند؛ نسخهٔ اصلی با وضوح بالاتر موجود نیست.",
+      "metrics": {
+        "width": 652,
+        "height": 469,
+        "topBorder": 6,
+        "padding": 24
+      }
+    },
+    {
+      "id": "C33",
+      "title": "گزینهٔ انتخاب ابزارک",
+      "category": "مودال",
+      "reference": "R06-widget-picker.png",
+      "crop": [
+        794,
+        182,
+        985,
+        254
+      ],
+      "scale": 1,
+      "size": [
+        191,
+        72
+      ],
+      "theme": "blue",
+      "template": "templates/C33.html",
+      "image": "reference-crops/C33.png",
+      "selector": "mr-widget",
+      "status": "measured",
+      "note": "",
+      "metrics": {
+        "width": 191,
+        "height": 72,
+        "radius": 9
+      }
+    },
+    {
+      "id": "C34",
+      "title": "نوار عملیات پایین فرم",
+      "category": "پوسته",
+      "reference": "R02-business-settings.jpeg",
+      "crop": [
+        44,
+        604,
+        806,
+        640
+      ],
+      "scale": 1.4457831325,
+      "size": [
+        1102,
+        52
+      ],
+      "theme": "light",
+      "template": "templates/C34.html",
+      "image": "reference-crops/C34.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "",
+      "metrics": {
+        "height": 52
+      }
+    },
+    {
+      "id": "C35",
+      "title": "ردیف امنیت و تغییر رمز",
+      "category": "هویت",
+      "reference": "R01-profile.jpeg",
+      "crop": [
+        103,
+        257,
+        587,
+        294
+      ],
+      "scale": 1.4371257485,
+      "size": [
+        696,
+        53
+      ],
+      "theme": "light",
+      "template": "templates/C35.html",
+      "image": "reference-crops/C35.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "",
+      "metrics": {}
+    },
+    {
+      "id": "C36",
+      "title": "شبکهٔ فرم کسب و کار",
+      "category": "چیدمان",
+      "reference": "R02-business-settings.jpeg",
+      "crop": [
+        77,
+        265,
+        578,
+        601
+      ],
+      "scale": 1.4457831325,
+      "size": [
+        724,
+        486
+      ],
+      "theme": "light",
+      "template": "templates/C36.html",
+      "image": "reference-crops/C36.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "چیدمان فرم یک الگوست؛ نام فیلدها و binding از سیستم میزبان حفظ می‌شوند.",
+      "metrics": {}
+    },
+    {
+      "id": "C37",
+      "title": "انتخاب شرکت و سال مالی",
+      "category": "پوسته",
+      "reference": "R02-business-settings.jpeg",
+      "crop": [
+        835,
+        162,
+        985,
+        241
+      ],
+      "scale": 1.4457831325,
+      "size": [
+        217,
+        114
+      ],
+      "theme": "light",
+      "template": "templates/C37.html",
+      "image": "reference-crops/C37.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "",
+      "metrics": {}
+    },
+    {
+      "id": "C38",
+      "title": "کارت مقصد دریافت متراکم",
+      "category": "کارت",
+      "reference": "R04-transaction.jpeg",
+      "crop": [
+        485,
+        297,
+        757,
+        463
+      ],
+      "scale": 1.3186813187,
+      "size": [
+        359,
+        219
+      ],
+      "theme": "light",
+      "template": "templates/C38.html",
+      "image": "reference-crops/C38.png",
+      "selector": "mr-component",
+      "status": "measured",
+      "note": "نام بانک/شعبه/حساب نمونهٔ مرجع است؛ حذف یا افزودن هیچ فیلد backend مجاز نیست.",
+      "metrics": {}
+    }
+  ],
+  "referenceFiles": [
+    {
+      "file": "R01-profile.jpeg",
+      "size": [
+        1031,
+        702
+      ],
+      "sha256": "c8d658da8866fdde5349ea759899995590b077deaa6d1399e7373ca40ea58eec"
+    },
+    {
+      "file": "R02-business-settings.jpeg",
+      "size": [
+        1028,
+        679
+      ],
+      "sha256": "f27e156b2cb86cdc15dec2fb573cb29401571aa7a88a99f8ac3cf6d4033637e1"
+    },
+    {
+      "file": "R03-accounting-settings.jpeg",
+      "size": [
+        1125,
+        630
+      ],
+      "sha256": "c057d690a7f572a1fd4ffd549ce50a0cb1e9d4b3d25f6ca7a4cf2846bb633102"
+    },
+    {
+      "file": "R04-transaction.jpeg",
+      "size": [
+        1125,
+        685
+      ],
+      "sha256": "afefb52ac1791fe3d07a701adbf5a228d80eed07740c703be10153c347d01876"
+    },
+    {
+      "file": "R05-dashboard.png",
+      "size": [
+        1366,
+        667
+      ],
+      "sha256": "3b65361aad4bc12b99aa0ea91708893e1f7fc50475dc474be6461151552baa62"
+    },
+    {
+      "file": "R06-widget-picker.png",
+      "size": [
+        1366,
+        667
+      ],
+      "sha256": "9154fda7683ff2f4f61764854207c0b0e71026d1bed280a6bb098a6b35f8739b"
+    },
+    {
+      "file": "R07-receipt.png",
+      "size": [
+        1366,
+        768
+      ],
+      "sha256": "e4f7aed7b06489b98c43db8c11837aa77abe681d84346dba170776d84250944a"
+    }
+  ],
+  "calibration": "R01–R04 are JPEGs with inferred CSS scale; R05–R07 are direct pixel crops. Annotation strokes are evidence only, never component chrome.",
+  "fidelity": "Measured extraction; no claim of 100% pixel identity. Font identity, icon provenance, original avatar assets and unseen states remain unverified.",
+  "financialScope": "No backend, no monetary arithmetic, no migrations, no network requests from behaviors.js."
+}
